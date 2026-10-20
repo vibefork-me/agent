@@ -13,7 +13,9 @@ pub mod release;
 pub mod signing;
 
 pub use bundle::UiBundle;
-pub use signing::{Manifest, SignatureError, verify_manifest};
+pub use signing::{
+    Manifest, SignatureError, SubkeyCert, check_fresh, verify_manifest, verify_subkey_cert,
+};
 
 /// Public key of the UI bundle signer (base64, 32 bytes). The private key is kept offline.
 pub const UI_BUNDLE_PUBLIC_KEY: &str = include_str!("../../../keys/ui-bundle.pub");

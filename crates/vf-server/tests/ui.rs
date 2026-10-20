@@ -49,6 +49,7 @@ async fn bundle_server(
             .iter()
             .map(|(p, c)| ((*p).to_owned(), sha256_hex(c.as_bytes())))
             .collect::<BTreeMap<_, _>>(),
+        expires_at: None,
     };
     let manifest_bytes = serde_json::to_vec(&manifest).unwrap();
     let sig = sign(&manifest_bytes, key);

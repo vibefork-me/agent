@@ -10,13 +10,14 @@ use ed25519_dalek::SigningKey;
 use rand::rngs::OsRng;
 use vf_updater::Manifest;
 use vf_updater::release::{Release, asset_name, install, previous, rollback};
-use vf_updater::signing::{sha256_hex, sign};
+use vf_updater::signing::{SubkeyCert, sha256_hex, sign, sign_subkey_cert};
 
 async fn channel(key: &SigningKey, version: &str, binary: Vec<u8>, served: Vec<u8>) -> String {
     let asset = asset_name("vibefork");
     let manifest = Manifest {
         version: version.into(),
         files: BTreeMap::from([(asset.clone(), sha256_hex(&binary))]),
+        expires_at: None,
     };
     let m = serde_json::to_vec(&manifest).unwrap();
     let sig = sign(&m, key);
@@ -26,6 +27,53 @@ async fn channel(key: &SigningKey, version: &str, binary: Vec<u8>, served: Vec<u
         .route(
             &format!("/stable/{asset}"),
             get(move || async move { served }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move { axum::serve(listener, app).await });
+    format!("http://127.0.0.1:{port}/stable")
+}
+
+async fn subkey_channel(root: &SigningKey, subkey: &SigningKey, purpose: &str) -> String {
+    let asset = asset_name("vibefork");
+    let binary = b"signed release";
+    let manifest = Manifest {
+        version: "10.0.0".into(),
+        files: BTreeMap::from([(asset.clone(), sha256_hex(binary))]),
+        expires_at: None,
+    };
+    let manifest_json = serde_json::to_vec(&manifest).unwrap();
+    let manifest_sig = sign(&manifest_json, subkey);
+    let cert = SubkeyCert {
+        public_key: base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            subkey.verifying_key().to_bytes(),
+        ),
+        expires_at: i64::MAX,
+        purpose: purpose.into(),
+    };
+    let cert_json = serde_json::to_vec(&cert).unwrap();
+    let cert_sig = sign_subkey_cert(&cert_json, root);
+    let app = Router::new()
+        .route(
+            "/stable/manifest.json",
+            get(move || async move { manifest_json }),
+        )
+        .route(
+            "/stable/manifest.sig",
+            get(move || async move { manifest_sig }),
+        )
+        .route(
+            "/stable/subkey.cert.json",
+            get(move || async move { cert_json }),
+        )
+        .route(
+            "/stable/subkey.cert.sig",
+            get(move || async move { cert_sig }),
+        )
+        .route(
+            &format!("/stable/{asset}"),
+            get(move || async move { binary.to_vec() }),
         );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -59,6 +107,27 @@ async fn verified_binary_only() {
         Release::fetch(&url, &other.verifying_key()).await.is_err(),
         "another key"
     );
+}
+
+#[tokio::test]
+async fn release_fetch_uses_certified_release_subkey_and_checks_purpose() {
+    let root = SigningKey::generate(&mut OsRng);
+    let subkey = SigningKey::generate(&mut OsRng);
+    let url = subkey_channel(&root, &subkey, "release").await;
+    let release = Release::fetch(&url, &root.verifying_key()).await.unwrap();
+    assert_eq!(release.version(), "10.0.0");
+    assert_eq!(
+        release.download(&asset_name("vibefork")).await.unwrap(),
+        b"signed release"
+    );
+
+    let wrong_purpose = subkey_channel(&root, &subkey, "bundle").await;
+    assert!(matches!(
+        Release::fetch(&wrong_purpose, &root.verifying_key()).await,
+        Err(vf_updater::release::UpdateError::Signature(
+            vf_updater::SignatureError::SubkeyCertMismatch
+        ))
+    ));
 }
 
 #[test]

@@ -8,7 +8,10 @@ use std::time::Duration;
 
 use ed25519_dalek::VerifyingKey;
 
-use crate::signing::{Manifest, SignatureError, verify_file, verify_manifest};
+use crate::signing::{
+    Manifest, SignatureError, SubkeyCert, check_fresh, verify_file, verify_manifest,
+    verify_subkey_cert,
+};
 
 /// Errors of an update.
 #[derive(Debug, thiserror::Error)]
@@ -110,7 +113,30 @@ impl Release {
             .map_err(|e| UpdateError::Download(e.to_string()))?;
         let manifest_bytes = get(&strict, &format!("{base}/manifest.json")).await?;
         let sig = get(&strict, &format!("{base}/manifest.sig")).await?;
-        let manifest = verify_manifest(&manifest_bytes, &String::from_utf8_lossy(&sig), key)?;
+        let cert_json = get_optional(&strict, &format!("{base}/subkey.cert.json")).await?;
+        let cert_sig = get_optional(&strict, &format!("{base}/subkey.cert.sig")).await?;
+        let subkey = match (cert_json, cert_sig) {
+            (None, None) => None,
+            (Some(cert_json), Some(cert_sig)) => {
+                let cert_sig =
+                    String::from_utf8(cert_sig).map_err(|_| SignatureError::BadSignature)?;
+                let subkey = verify_subkey_cert(&cert_json, &cert_sig, key)?;
+                let cert: SubkeyCert =
+                    serde_json::from_slice(&cert_json).map_err(|_| SignatureError::BadManifest)?;
+                if cert.purpose != "release" {
+                    return Err(SignatureError::SubkeyCertMismatch.into());
+                }
+                Some(subkey)
+            }
+            _ => return Err(SignatureError::SubkeyCertMismatch.into()),
+        };
+        let manifest_key = subkey.as_ref().unwrap_or(key);
+        let manifest = verify_manifest(
+            &manifest_bytes,
+            &String::from_utf8_lossy(&sig),
+            manifest_key,
+        )?;
+        check_fresh(&manifest)?;
         Ok(Self {
             base_url: base,
             manifest,
@@ -131,6 +157,29 @@ impl Release {
         verify_file(&self.manifest, asset, &bytes)?;
         Ok(bytes)
     }
+}
+
+async fn get_optional(client: &reqwest::Client, url: &str) -> Result<Option<Vec<u8>>, UpdateError> {
+    let res = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| UpdateError::Download(e.to_string()))?;
+    if res.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(None);
+    }
+    if !res.status().is_success() {
+        return Err(UpdateError::Download(format!(
+            "{url}: HTTP {}",
+            res.status()
+        )));
+    }
+    Ok(Some(
+        res.bytes()
+            .await
+            .map_err(|e| UpdateError::Download(e.to_string()))?
+            .to_vec(),
+    ))
 }
 
 /// The copy of the previous version kept next to a binary.
