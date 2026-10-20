@@ -18,6 +18,10 @@ vf-providers.workspace = true
 vf-toolchains.workspace = true
 vf-builds.workspace = true
 vf-sandbox.workspace = true
+vf-github.workspace = true
+vf-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 tracing.workspace = true
 
 [lints]

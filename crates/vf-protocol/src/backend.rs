@@ -4,7 +4,10 @@
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
-use crate::http::{JournalResponse, ModelsResponse, ProjectsResponse, RollbackResponse};
+use crate::http::{
+    GithubConnectResponse, GithubStatusResponse, ImportRequest, ImportResponse, JournalResponse,
+    ModelsResponse, ProjectsResponse, RollbackResponse, SaveResponse,
+};
 use crate::ws::ServerMessage;
 
 /// Why a call failed; maps to an HTTP status.
@@ -84,6 +87,16 @@ pub trait Backend: Send + Sync {
     fn build(&self, project: &str, out: &mut dyn FnMut(ServerMessage), cancel: &Cancel);
     /// Resets a project to a commit of its journal. The caller has confirmed it with the user.
     fn rollback(&self, project: &str, commit: &str) -> Result<RollbackResponse, BackendError>;
+    /// Starts the agent's own GitHub sign-in (device flow); the token comes to the agent directly.
+    fn github_connect(&self) -> Result<GithubConnectResponse, BackendError>;
+    /// The GitHub sign-in.
+    fn github_status(&self) -> Result<GithubStatusResponse, BackendError>;
+    /// Takes a project from GitHub (an archive of one commit; no git on the machine).
+    fn import(&self, req: &ImportRequest) -> Result<ImportResponse, BackendError>;
+    /// Whether saving this project must be confirmed by the user first (first save).
+    fn save_needs_confirm(&self, project: &str) -> bool;
+    /// Saves the project's work into the user's copy on GitHub, or tells the next step.
+    fn save(&self, project: &str) -> Result<SaveResponse, BackendError>;
 }
 
 #[cfg(test)]

@@ -147,6 +147,65 @@ impl Repo {
     }
 }
 
+/// One file changed between two commits.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileChange {
+    /// Path, `/`-separated.
+    pub path: String,
+    /// Git mode (`100644`, `100755`, `120000`); empty for a deletion.
+    pub mode: String,
+    /// New content; `None` for a deletion.
+    pub content: Option<Vec<u8>>,
+}
+
+impl Repo {
+    /// Files added, changed or deleted from `base` to `head`, with their new content.
+    pub fn changes(&self, base: &str, head: &str) -> Result<Vec<FileChange>, JournalError> {
+        let repo = self.repo()?;
+        let (a, b) = (tree_of(&repo, base)?, tree_of(&repo, head)?);
+        let diff = repo
+            .diff_tree_to_tree(Some(&a), Some(&b), None)
+            .map_err(err)?;
+        let mut out = Vec::new();
+        for d in diff.deltas() {
+            let new = d.new_file();
+            let path = new
+                .path()
+                .or_else(|| d.old_file().path())
+                .map(|p| p.to_string_lossy().replace('\\', "/"))
+                .unwrap_or_default();
+            if d.status() == git2::Delta::Deleted {
+                out.push(FileChange {
+                    path,
+                    mode: String::new(),
+                    content: None,
+                });
+            } else {
+                let blob = repo.find_blob(new.id()).map_err(err)?;
+                out.push(FileChange {
+                    path,
+                    mode: format!("{:o}", u32::from(new.mode())),
+                    content: Some(blob.content().to_vec()),
+                });
+            }
+        }
+        Ok(out)
+    }
+
+    /// Makes `dir` (an unpacked download) a repository whose first commit holds its files.
+    pub fn init_with(dir: impl Into<PathBuf>, message: &str) -> Result<Self, JournalError> {
+        let me = Self { dir: dir.into() };
+        Repository::init_opts(&me.dir, RepositoryInitOptions::new().initial_head("main"))
+            .map_err(err)?;
+        let repo = me.repo()?;
+        let tree = repo.find_tree(stage_all(&repo)?).map_err(err)?;
+        let sig = signature()?;
+        repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &[])
+            .map_err(err)?;
+        Ok(me)
+    }
+}
+
 fn signature() -> Result<Signature<'static>, JournalError> {
     Signature::now(AGENT_NAME, AGENT_EMAIL).map_err(err)
 }

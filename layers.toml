@@ -10,6 +10,7 @@ vf-toolchains = 2
 vf-builds = 2
 vf-git = 2
 vf-sandbox = 2
+vf-github = 2
 vf-auth = 2
 vf-updater = 2
 vf-platform = 2

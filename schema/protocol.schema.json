@@ -433,6 +433,63 @@
         }
       ]
     },
+    "GithubConnectResponse": {
+      "description": "Response of `POST /v1/github/connect`: the code the user enters on GitHub.",
+      "properties": {
+        "expiresIn": {
+          "description": "Seconds the code is valid.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "userCode": {
+          "description": "Code to enter.",
+          "type": "string"
+        },
+        "verificationUri": {
+          "description": "Where to enter it (`https://github.com/login/device`).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "expiresIn",
+        "userCode",
+        "verificationUri"
+      ],
+      "type": "object"
+    },
+    "GithubStatusResponse": {
+      "description": "Response of `GET /v1/github/status`.",
+      "properties": {
+        "connected": {
+          "description": "The agent has a GitHub sign-in.",
+          "type": "boolean"
+        },
+        "error": {
+          "description": "Why the last sign-in failed.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "login": {
+          "description": "GitHub login.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pending": {
+          "description": "A sign-in code is waiting for the user.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "connected",
+        "pending"
+      ],
+      "type": "object"
+    },
     "Hello": {
       "description": "`GET /v1/hello` — the only call that needs neither a session nor an allowed origin.",
       "properties": {
@@ -453,6 +510,42 @@
         "agent",
         "platform",
         "version"
+      ],
+      "type": "object"
+    },
+    "ImportRequest": {
+      "description": "Request of `POST /v1/projects/import`: a project from GitHub, without git on the machine.",
+      "properties": {
+        "repo": {
+          "description": "`owner/name` or `https://github.com/owner/name`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repo"
+      ],
+      "type": "object"
+    },
+    "ImportResponse": {
+      "description": "Response of `POST /v1/projects/import`.",
+      "properties": {
+        "commit": {
+          "description": "Commit of the original the project was taken from.",
+          "type": "string"
+        },
+        "project": {
+          "description": "Project name (folder).",
+          "type": "string"
+        },
+        "upstream": {
+          "description": "The original: `owner/name`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "commit",
+        "project",
+        "upstream"
       ],
       "type": "object"
     },
@@ -930,6 +1023,93 @@
         "project"
       ],
       "type": "object"
+    },
+    "SaveRequest": {
+      "description": "Request of `POST /v1/save`.",
+      "properties": {
+        "project": {
+          "description": "Project.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "project"
+      ],
+      "type": "object"
+    },
+    "SaveResponse": {
+      "description": "Response of `POST /v1/save`.",
+      "properties": {
+        "commit": {
+          "description": "Saved commit.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "copy": {
+          "description": "The user's copy: `owner/name`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "step": {
+          "$ref": "#/components/schemas/SaveStep",
+          "description": "Result or next step."
+        },
+        "url": {
+          "description": "Page to open (next step) or the saved work on GitHub.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "step"
+      ],
+      "type": "object"
+    },
+    "SaveStep": {
+      "description": "What \"Save\" did or what the user does next.",
+      "oneOf": [
+        {
+          "description": "Saved to the user's copy.",
+          "enum": [
+            "saved"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Nothing new since the last save.",
+          "enum": [
+            "unchanged"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Connect GitHub first (`POST /v1/github/connect`).",
+          "enum": [
+            "connect_github"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Create the copy on github.com (`url`).",
+          "enum": [
+            "create_copy"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Allow the app on the copy (`url`).",
+          "enum": [
+            "allow_app"
+          ],
+          "type": "string"
+        }
+      ]
     },
     "ServerMessage": {
       "description": "Messages from the agent.",

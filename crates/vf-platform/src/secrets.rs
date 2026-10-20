@@ -6,7 +6,7 @@ use vf_core::Secret;
 const SERVICE: &str = "vibefork";
 
 /// Names of the secrets the agent keeps.
-pub const NAMES: &[&str] = &["openrouter"];
+pub const NAMES: &[&str] = &["openrouter", "github"];
 
 /// Errors of the secret store.
 #[derive(Debug, thiserror::Error)]

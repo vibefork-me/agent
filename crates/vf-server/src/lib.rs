@@ -102,6 +102,10 @@ pub fn router(config: Config, auth: Auth, ui: UiSlot, backend: Arc<dyn Backend>)
         .route("/v1/journal", get(routes::journal))
         .route("/v1/models", get(routes::models))
         .route("/v1/rollback", post(routes::rollback))
+        .route("/v1/github/connect", post(routes::github_connect))
+        .route("/v1/github/status", get(routes::github_status))
+        .route("/v1/projects/import", post(routes::import))
+        .route("/v1/save", post(routes::save))
         .route("/v1/ws", get(ws::upgrade))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),

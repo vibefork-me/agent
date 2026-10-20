@@ -4,7 +4,10 @@
 
 use std::sync::Arc;
 
-use vf_protocol::http::{JournalResponse, ModelsResponse, ProjectsResponse, RollbackResponse};
+use vf_protocol::http::{
+    GithubConnectResponse, GithubStatusResponse, ImportRequest, ImportResponse, JournalResponse,
+    ModelsResponse, ProjectsResponse, RollbackResponse, SaveResponse, SaveStep,
+};
 use vf_protocol::ws::ServerMessage;
 use vf_protocol::{Backend, BackendError, Cancel, TaskRequest};
 
@@ -40,6 +43,31 @@ impl Backend for FakeBackend {
         Ok(RollbackResponse {
             project: project.into(),
             commit: commit.into(),
+        })
+    }
+    fn github_connect(&self) -> Result<GithubConnectResponse, BackendError> {
+        Err(BackendError::Internal("offline".into()))
+    }
+    fn github_status(&self) -> Result<GithubStatusResponse, BackendError> {
+        Ok(GithubStatusResponse {
+            connected: false,
+            pending: false,
+            login: None,
+            error: None,
+        })
+    }
+    fn import(&self, req: &ImportRequest) -> Result<ImportResponse, BackendError> {
+        Err(BackendError::BadRequest(req.repo.clone()))
+    }
+    fn save_needs_confirm(&self, _: &str) -> bool {
+        true
+    }
+    fn save(&self, _: &str) -> Result<SaveResponse, BackendError> {
+        Ok(SaveResponse {
+            step: SaveStep::Saved,
+            url: None,
+            copy: None,
+            commit: None,
         })
     }
     fn run_task(&self, _: TaskRequest, out: &mut dyn FnMut(ServerMessage), _: &Cancel) {

@@ -191,6 +191,85 @@ pub struct EchoResponse {
     pub echo: String,
 }
 
+/// Response of `POST /v1/github/connect`: the code the user enters on GitHub.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct GithubConnectResponse {
+    /// Code to enter.
+    pub user_code: String,
+    /// Where to enter it (`https://github.com/login/device`).
+    pub verification_uri: String,
+    /// Seconds the code is valid.
+    pub expires_in: u64,
+}
+
+/// Response of `GET /v1/github/status`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct GithubStatusResponse {
+    /// The agent has a GitHub sign-in.
+    pub connected: bool,
+    /// A sign-in code is waiting for the user.
+    pub pending: bool,
+    /// GitHub login.
+    pub login: Option<String>,
+    /// Why the last sign-in failed.
+    pub error: Option<String>,
+}
+
+/// Request of `POST /v1/projects/import`: a project from GitHub, without git on the machine.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ImportRequest {
+    /// `owner/name` or `https://github.com/owner/name`.
+    pub repo: String,
+}
+
+/// Response of `POST /v1/projects/import`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ImportResponse {
+    /// Project name (folder).
+    pub project: String,
+    /// The original: `owner/name`.
+    pub upstream: String,
+    /// Commit of the original the project was taken from.
+    pub commit: String,
+}
+
+/// Request of `POST /v1/save`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SaveRequest {
+    /// Project.
+    pub project: String,
+}
+
+/// What "Save" did or what the user does next.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SaveStep {
+    /// Saved to the user's copy.
+    Saved,
+    /// Nothing new since the last save.
+    Unchanged,
+    /// Connect GitHub first (`POST /v1/github/connect`).
+    ConnectGithub,
+    /// Create the copy on github.com (`url`).
+    CreateCopy,
+    /// Allow the app on the copy (`url`).
+    AllowApp,
+}
+
+/// Response of `POST /v1/save`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SaveResponse {
+    /// Result or next step.
+    pub step: SaveStep,
+    /// Page to open (next step) or the saved work on GitHub.
+    pub url: Option<String>,
+    /// The user's copy: `owner/name`.
+    pub copy: Option<String>,
+    /// Saved commit.
+    pub commit: Option<String>,
+}
+
 /// Response of `GET /v1/projects`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct ProjectsResponse {

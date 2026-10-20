@@ -43,6 +43,12 @@ fn definitions() -> Map<String, Value> {
         JournalResponse,
         RollbackRequest,
         RollbackResponse,
+        GithubConnectResponse,
+        GithubStatusResponse,
+        ImportRequest,
+        ImportResponse,
+        SaveRequest,
+        SaveResponse,
         ClientMessage,
         ServerMessage,
     );

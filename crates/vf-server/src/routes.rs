@@ -10,8 +10,8 @@ use axum::response::{IntoResponse, Response};
 use vf_auth::{AuthError, SessionInfo};
 use vf_protocol::http::{
     ActionRequest, ActionResponse, ChallengeRequest, ChallengeResponse, EchoResponse, ErrorBody,
-    Hello, Me, PairStartRequest, PairStartResponse, PairStatusResponse, RevokeRequest,
-    RevokeResponse, RollbackRequest, SessionRequest, SessionResponse,
+    Hello, ImportRequest, Me, PairStartRequest, PairStartResponse, PairStatusResponse,
+    RevokeRequest, RevokeResponse, RollbackRequest, SaveRequest, SessionRequest, SessionResponse,
 };
 use vf_protocol::{Backend, BackendError};
 
@@ -315,4 +315,65 @@ pub(crate) async fn rollback(
         b.rollback(&req.project, &req.commit)
     })
     .await
+}
+
+pub(crate) async fn github_connect(
+    State(state): State<AppState>,
+    Extension(origin): Extension<EffectiveOrigin>,
+    headers: HeaderMap,
+) -> Response {
+    with_backend(state, &headers, &origin.0, |b| b.github_connect()).await
+}
+
+pub(crate) async fn github_status(
+    State(state): State<AppState>,
+    Extension(origin): Extension<EffectiveOrigin>,
+    headers: HeaderMap,
+) -> Response {
+    with_backend(state, &headers, &origin.0, |b| b.github_status()).await
+}
+
+pub(crate) async fn import(
+    State(state): State<AppState>,
+    Extension(origin): Extension<EffectiveOrigin>,
+    headers: HeaderMap,
+    Json(req): Json<ImportRequest>,
+) -> Response {
+    with_backend(state, &headers, &origin.0, move |b| b.import(&req)).await
+}
+
+/// Saves to the user's copy on GitHub. The first save of a project is confirmed in the native
+/// dialog: it publishes the work (invariant 3).
+pub(crate) async fn save(
+    State(state): State<AppState>,
+    Extension(origin): Extension<EffectiveOrigin>,
+    headers: HeaderMap,
+    Json(req): Json<SaveRequest>,
+) -> Response {
+    if session_from(&state, &headers, &origin.0).is_none() {
+        return no_session();
+    }
+    if !project_allowed(&state, &headers, &origin.0, &req.project).await {
+        return error(StatusCode::FORBIDDEN, "no access to this project");
+    }
+    let (auth, backend, o, p) = (
+        state.auth.clone(),
+        state.backend.clone(),
+        origin.0.clone(),
+        req.project.clone(),
+    );
+    let approved = tokio::task::spawn_blocking(move || {
+        !backend.save_needs_confirm(&p)
+            || auth.confirm_action(
+                &o,
+                "save the project's changes to your copy on GitHub (it may be public)",
+                Some(&p),
+            )
+    })
+    .await
+    .unwrap_or(false);
+    if !approved {
+        return error(StatusCode::FORBIDDEN, "save not confirmed");
+    }
+    with_backend(state, &headers, &origin.0, move |b| b.save(&req.project)).await
 }

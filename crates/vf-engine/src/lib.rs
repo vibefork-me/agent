@@ -6,6 +6,7 @@
 //! environment, then a checkpoint and a journal entry (`vf-journal`).
 
 mod build;
+mod github;
 mod orchestrate;
 mod step;
 
@@ -16,7 +17,10 @@ use std::sync::{Arc, Mutex};
 use vf_git::Repo;
 use vf_journal::JournalStore as _;
 use vf_platform::{JournalFiles, ProjectError, Projects, Settings};
-use vf_protocol::http::{JournalResponse, ModelsResponse, ProjectsResponse, RollbackResponse};
+use vf_protocol::http::{
+    GithubConnectResponse, GithubStatusResponse, ImportRequest, ImportResponse, JournalResponse,
+    ModelsResponse, ProjectsResponse, RollbackResponse, SaveResponse,
+};
 use vf_protocol::ws::ServerMessage;
 use vf_protocol::{Backend, BackendError, Cancel, ModelInfo, TaskRequest};
 use vf_providers::Provider;
@@ -40,6 +44,8 @@ pub struct Engine {
     caches: PathBuf,
     artifacts: PathBuf,
     sandbox_helper: Option<PathBuf>,
+    state_dir: PathBuf,
+    sign_in: github::SignInState,
 }
 
 impl Engine {
@@ -55,6 +61,8 @@ impl Engine {
             caches: settings.storage.caches.clone(),
             artifacts: settings.storage.artifacts.clone(),
             sandbox_helper: None,
+            state_dir: settings.state_dir.clone(),
+            sign_in: Default::default(),
         }
     }
 
@@ -232,6 +240,31 @@ impl Backend for Engine {
 
     fn build(&self, project: &str, out: &mut dyn FnMut(ServerMessage), cancel: &Cancel) {
         self.exclusive(project, out, |out| self.run_build(project, out, cancel));
+    }
+
+    fn github_connect(&self) -> Result<GithubConnectResponse, BackendError> {
+        self.connect()
+    }
+
+    fn github_status(&self) -> Result<GithubStatusResponse, BackendError> {
+        Ok(self.status())
+    }
+
+    fn import(&self, req: &ImportRequest) -> Result<ImportResponse, BackendError> {
+        self.import_project(req)
+    }
+
+    fn save_needs_confirm(&self, project: &str) -> bool {
+        self.needs_confirm(project)
+    }
+
+    fn save(&self, project: &str) -> Result<SaveResponse, BackendError> {
+        let mut out = |_| {};
+        let mut result = Err(BackendError::BadRequest(
+            "a task is running in this project".into(),
+        ));
+        self.exclusive(project, &mut out, |_| result = self.save_project(project));
+        result
     }
 
     fn rollback(&self, project: &str, commit: &str) -> Result<RollbackResponse, BackendError> {
