@@ -1,0 +1,21 @@
+# Layer of every crate. A crate may depend only on crates of a LOWER layer.
+# Checked by scripts/check_layers.py in CI. See ARCHITECTURE.md.
+[layers]
+vf-core = 0
+vf-protocol = 0
+vf-journal = 1
+vf-orchestrator = 1
+vf-providers = 2
+vf-toolchains = 2
+vf-builds = 2
+vf-git = 2
+vf-sandbox = 2
+vf-auth = 2
+vf-updater = 2
+vf-platform = 2
+vf-server = 3
+vf-cli = 3
+vf-engine = 3
+vf-agent = 4
+vf-tray = 4
+vf-sign = 4

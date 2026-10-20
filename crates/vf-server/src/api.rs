@@ -1,0 +1,134 @@
+//! The list of HTTP methods of `/v1` — the source of the OpenAPI document (`schema/openapi.json`).
+
+/// One HTTP method of the API.
+#[derive(Debug, Clone, Copy)]
+pub struct Route {
+    /// `GET` or `POST`.
+    pub method: &'static str,
+    /// Path.
+    pub path: &'static str,
+    /// One line.
+    pub summary: &'static str,
+    /// Request body type (`vf_protocol::http`), if any.
+    pub request: Option<&'static str>,
+    /// Response body type, if JSON.
+    pub response: Option<&'static str>,
+    /// Requires `Authorization: Bearer <session token>`.
+    pub session: bool,
+}
+
+/// All routes of `/v1` (WebSocket `/v1/ws` is described by the `ClientMessage` / `ServerMessage` schemas).
+pub const ROUTES: &[Route] = &[
+    Route {
+        method: "GET",
+        path: "/v1/hello",
+        summary: "Liveness and version; no origin or session needed",
+        request: None,
+        response: Some("Hello"),
+        session: false,
+    },
+    Route {
+        method: "POST",
+        path: "/v1/echo",
+        summary: "Connectivity check",
+        request: None,
+        response: Some("EchoResponse"),
+        session: false,
+    },
+    Route {
+        method: "POST",
+        path: "/v1/pair/start",
+        summary: "Start pairing; the agent shows a native dialog with the code",
+        request: Some("PairStartRequest"),
+        response: Some("PairStartResponse"),
+        session: false,
+    },
+    Route {
+        method: "GET",
+        path: "/v1/pair/status",
+        summary: "Pairing status (query: id)",
+        request: None,
+        response: Some("PairStatusResponse"),
+        session: false,
+    },
+    Route {
+        method: "POST",
+        path: "/v1/auth/challenge",
+        summary: "One-time challenge for a paired key",
+        request: Some("ChallengeRequest"),
+        response: Some("ChallengeResponse"),
+        session: false,
+    },
+    Route {
+        method: "POST",
+        path: "/v1/auth/session",
+        summary: "Open a session with the signed challenge",
+        request: Some("SessionRequest"),
+        response: Some("SessionResponse"),
+        session: false,
+    },
+    Route {
+        method: "GET",
+        path: "/v1/me",
+        summary: "The current session",
+        request: None,
+        response: Some("Me"),
+        session: true,
+    },
+    Route {
+        method: "POST",
+        path: "/v1/action",
+        summary: "An action confirmed in the native dialog",
+        request: Some("ActionRequest"),
+        response: Some("ActionResponse"),
+        session: true,
+    },
+    Route {
+        method: "GET",
+        path: "/v1/pairs",
+        summary: "Paired browsers",
+        request: None,
+        response: Some("PairInfo"),
+        session: true,
+    },
+    Route {
+        method: "POST",
+        path: "/v1/pairs/revoke",
+        summary: "Revoke a paired browser and its sessions",
+        request: Some("RevokeRequest"),
+        response: Some("RevokeResponse"),
+        session: true,
+    },
+    Route {
+        method: "GET",
+        path: "/v1/projects",
+        summary: "Projects in the projects folder",
+        request: None,
+        response: Some("ProjectsResponse"),
+        session: true,
+    },
+    Route {
+        method: "GET",
+        path: "/v1/journal",
+        summary: "Journal of a project (query: project)",
+        request: None,
+        response: Some("JournalResponse"),
+        session: true,
+    },
+    Route {
+        method: "GET",
+        path: "/v1/models",
+        summary: "Models available now: logged-in CLIs and configured API keys",
+        request: None,
+        response: Some("ModelsResponse"),
+        session: true,
+    },
+    Route {
+        method: "POST",
+        path: "/v1/rollback",
+        summary: "Reset a project to a journal checkpoint; confirmed in the native dialog",
+        request: Some("RollbackRequest"),
+        response: Some("RollbackResponse"),
+        session: true,
+    },
+];

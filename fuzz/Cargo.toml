@@ -1,0 +1,51 @@
+[package]
+name = "vf-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "FSL-1.1-MIT"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Not part of the main workspace: needs nightly and libFuzzer (`cargo +nightly fuzz run <target>`).
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+serde_json = "1"
+vf-core = { path = "../crates/vf-core" }
+vf-protocol = { path = "../crates/vf-protocol" }
+vf-updater = { path = "../crates/vf-updater" }
+vf-providers = { path = "../crates/vf-providers" }
+vf-orchestrator = { path = "../crates/vf-orchestrator" }
+
+[[bin]]
+name = "project_path"
+path = "fuzz_targets/project_path.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "client_message"
+path = "fuzz_targets/client_message.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "manifest"
+path = "fuzz_targets/manifest.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "provider_stream"
+path = "fuzz_targets/provider_stream.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "plan"
+path = "fuzz_targets/plan.rs"
+test = false
+doc = false

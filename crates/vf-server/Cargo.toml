@@ -1,0 +1,35 @@
+[package]
+name = "vf-server"
+description = "HTTP + WebSocket API on loopback only; Host / Origin checks; fallback UI from a signed bundle."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+vf-core.workspace = true
+vf-protocol.workspace = true
+vf-auth.workspace = true
+vf-updater.workspace = true
+axum.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tracing-subscriber.workspace = true
+tracing.workspace = true
+schemars.workspace = true
+ed25519-dalek.workspace = true
+tower.workspace = true
+http-body-util.workspace = true
+p256.workspace = true
+base64.workspace = true
+rand.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

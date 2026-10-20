@@ -1,0 +1,21 @@
+[package]
+name = "vf-tray"
+description = "The tray binary: open the interface, start / stop the agent; talks to the core through the local API."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "vibefork-tray"
+path = "src/main.rs"
+
+[dependencies]
+tray-icon = "0.26"
+tao = "0.37"
+serde_json.workspace = true
+
+[lints]
+workspace = true

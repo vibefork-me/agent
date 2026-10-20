@@ -1,0 +1,28 @@
+[package]
+name = "vf-engine"
+description = "Runs the work behind the API: projects, journal, models, tasks."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+vf-protocol.workspace = true
+vf-journal.workspace = true
+vf-orchestrator.workspace = true
+vf-git.workspace = true
+vf-platform.workspace = true
+vf-providers.workspace = true
+vf-toolchains.workspace = true
+vf-builds.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+vf-core.workspace = true
+vf-updater.workspace = true

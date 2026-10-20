@@ -1,0 +1,16 @@
+[package]
+name = "vf-builds"
+description = "Build recipes, resource estimation, artifacts with the previous builds kept."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde_json.workspace = true
+sysinfo = { version = "0.32", default-features = false, features = ["disk", "system"] }
+
+[lints]
+workspace = true

@@ -1,0 +1,68 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.98"
+license = "FSL-1.1-MIT"
+repository = "https://github.com/vibefork-me/agent"
+publish = false
+
+# Shared dependency versions. Rules for new dependencies: AGENTS.md, "Dependencies".
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync"] }
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "query", "tokio", "ws"] }
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+p256 = { version = "0.13", features = ["ecdsa"] }
+sha2 = "0.10"
+base64 = "0.22"
+rand = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+schemars = "0.8"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+hex = "0.4"
+
+# Internal crates (paths only — direction is enforced by scripts/check_layers.py).
+vf-protocol = { path = "crates/vf-protocol" }
+vf-core = { path = "crates/vf-core" }
+vf-journal = { path = "crates/vf-journal" }
+vf-orchestrator = { path = "crates/vf-orchestrator" }
+vf-providers = { path = "crates/vf-providers" }
+vf-toolchains = { path = "crates/vf-toolchains" }
+vf-builds = { path = "crates/vf-builds" }
+vf-git = { path = "crates/vf-git" }
+vf-sandbox = { path = "crates/vf-sandbox" }
+vf-auth = { path = "crates/vf-auth" }
+vf-server = { path = "crates/vf-server" }
+vf-platform = { path = "crates/vf-platform" }
+vf-updater = { path = "crates/vf-updater" }
+vf-cli = { path = "crates/vf-cli" }
+vf-engine = { path = "crates/vf-engine" }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"          # vf-platform and vf-sandbox opt out with "deny" + per-site justification
+missing_docs = "warn"
+unreachable_pub = "warn"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"            # errors are typed; no panics on bad input
+expect_used = "deny"
+panic = "deny"
+dbg_macro = "deny"
+todo = "warn"
+print_stdout = "warn"           # logging goes through `tracing`; only vf-cli prints
+print_stderr = "warn"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+panic = "abort"

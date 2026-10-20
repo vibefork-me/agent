@@ -1,0 +1,18 @@
+[package]
+name = "vf-git"
+description = "Every git operation in one place: clone, checkpoints, `Vibefork-Customization` trailers, step diffs, rollback."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+vf-journal.workspace = true
+
+[dev-dependencies]
+vf-protocol.workspace = true
+
+[lints]
+workspace = true

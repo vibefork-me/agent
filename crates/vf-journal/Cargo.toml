@@ -1,0 +1,18 @@
+[package]
+name = "vf-journal"
+description = "Per-project journal, checkpoints and customizations — the provider-independent history."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+vf-core.workspace = true
+vf-protocol.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

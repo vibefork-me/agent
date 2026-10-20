@@ -1,0 +1,260 @@
+//! Agent settings: environment variables override `config.json` in the state folder, which overrides
+//! defaults.
+//!
+//! | Variable | `config.json` | Default | Meaning |
+//! |---|---|---|---|
+//! | `VF_STATE_DIR` | — | Windows `%LOCALAPPDATA%\vibefork`, otherwise `~/.vibefork` | Light data: config, pairings, journals, UI cache, logs |
+//! | `VF_PORT` | `port` | last used port, else `47801` | Preferred port (the next 4 are tried if busy) |
+//! | `VF_EXTRA_ORIGINS` | `extraOrigins` | — | Extra web origins allowed to call the agent (comma-separated) |
+//! | `VF_UI_BUNDLE_URL` | `uiBundleUrl` | `https://code.vibefork.me/bundle` | Where the signed UI bundle is downloaded from |
+//! | `VF_PROJECTS_DIR` | `storage.projects` | `~/vibefork-projects` | Projects (git repositories) |
+//! | `VF_TOOLS_DIR` | `storage.tools` | `<state>/tools` | Toolchains, `mise` |
+//! | `VF_CACHES_DIR` | `storage.caches` | `<state>/caches` | Package caches (Gradle, npm, …) |
+//! | `VF_ARTIFACTS_DIR` | `storage.artifacts` | `<state>/artifacts` | Build artifacts |
+//! | `VF_UPDATE_URL` | `updateUrl` | `https://code.vibefork.me/releases/stable` | Signed release channel |
+//! | `VF_AUTO_UPDATE` | `autoUpdate` | on (off for development builds `0.0.0`) | `0`: no background update check |
+//! | `VF_SIMULATE_CLEAN_MACHINE` | — | off | `1`: child processes do not see Java / Gradle / Maven of the system (tests) |
+
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
+
+/// Web origin of the hosted UI.
+pub const HOSTED_UI_ORIGIN: &str = "https://code.vibefork.me";
+/// Default port.
+pub const DEFAULT_PORT: u16 = 47801;
+/// Default release channel.
+pub const DEFAULT_UPDATE_URL: &str = "https://code.vibefork.me/releases/stable";
+/// Default location of the signed UI bundle.
+pub const DEFAULT_UI_BUNDLE_URL: &str = "https://code.vibefork.me/bundle";
+
+/// "Heavy" folders; each one can live on any disk.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Storage {
+    /// Projects (git repositories).
+    pub projects: PathBuf,
+    /// Toolchains and `mise`.
+    pub tools: PathBuf,
+    /// Package caches.
+    pub caches: PathBuf,
+    /// Build artifacts.
+    pub artifacts: PathBuf,
+}
+
+/// The part of the settings stored in `config.json`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigFile {
+    /// Last used / preferred port.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
+    /// Extra allowed origins.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extra_origins: Vec<String>,
+    /// UI bundle URL.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ui_bundle_url: Option<String>,
+    /// Release channel URL.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub update_url: Option<String>,
+    /// Background update check.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_update: Option<bool>,
+    /// Storage paths; missing ones use defaults.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage: Option<StorageConfig>,
+}
+
+/// Storage paths in `config.json`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StorageConfig {
+    /// Projects folder.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub projects: Option<PathBuf>,
+    /// Tools folder.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tools: Option<PathBuf>,
+    /// Caches folder.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caches: Option<PathBuf>,
+    /// Artifacts folder.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifacts: Option<PathBuf>,
+}
+
+/// Settings of one agent process.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Settings {
+    /// Folder for light data.
+    pub state_dir: PathBuf,
+    /// Preferred port.
+    pub port: u16,
+    /// Web origins allowed besides the hosted UI and the agent's own loopback origin.
+    pub extra_origins: Vec<String>,
+    /// Signed UI bundle location.
+    pub ui_bundle_url: String,
+    /// Heavy folders.
+    pub storage: Storage,
+    /// Signed release channel.
+    pub update_url: String,
+    /// Check for updates in the background.
+    pub auto_update: bool,
+    /// Hide the system's Java / Gradle / Maven from child processes (tests of a clean machine).
+    pub simulate_clean_machine: bool,
+}
+
+impl Settings {
+    /// Reads settings: environment, then `config.json`, then defaults.
+    pub fn from_env() -> Self {
+        let state_dir = env_path("VF_STATE_DIR").unwrap_or_else(default_state_dir);
+        let file = read_config(&state_dir);
+        let stored = file.storage.clone().unwrap_or_default();
+        let storage = Storage {
+            projects: env_path("VF_PROJECTS_DIR")
+                .or(stored.projects)
+                .unwrap_or_else(|| home().join("vibefork-projects")),
+            tools: env_path("VF_TOOLS_DIR")
+                .or(stored.tools)
+                .unwrap_or_else(|| state_dir.join("tools")),
+            caches: env_path("VF_CACHES_DIR")
+                .or(stored.caches)
+                .unwrap_or_else(|| state_dir.join("caches")),
+            artifacts: env_path("VF_ARTIFACTS_DIR")
+                .or(stored.artifacts)
+                .unwrap_or_else(|| state_dir.join("artifacts")),
+        };
+        Self {
+            port: std::env::var("VF_PORT")
+                .ok()
+                .and_then(|p| p.parse().ok())
+                .or(file.port)
+                .unwrap_or(DEFAULT_PORT),
+            extra_origins: std::env::var("VF_EXTRA_ORIGINS")
+                .map(|v| {
+                    v.split(',')
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_owned)
+                        .collect()
+                })
+                .unwrap_or(file.extra_origins),
+            ui_bundle_url: std::env::var("VF_UI_BUNDLE_URL")
+                .ok()
+                .or(file.ui_bundle_url)
+                .unwrap_or_else(|| DEFAULT_UI_BUNDLE_URL.to_owned()),
+            storage,
+            update_url: std::env::var("VF_UPDATE_URL")
+                .ok()
+                .or(file.update_url.clone())
+                .unwrap_or_else(|| DEFAULT_UPDATE_URL.to_owned()),
+            auto_update: match std::env::var("VF_AUTO_UPDATE").ok().as_deref() {
+                Some("0") => false,
+                Some(_) => true,
+                None => file
+                    .auto_update
+                    .unwrap_or(env!("CARGO_PKG_VERSION") != "0.0.0"),
+            },
+            state_dir,
+            simulate_clean_machine: std::env::var("VF_SIMULATE_CLEAN_MACHINE")
+                .is_ok_and(|v| v == "1"),
+        }
+    }
+
+    /// Folder of the cached UI bundle.
+    pub fn ui_cache_dir(&self) -> PathBuf {
+        self.state_dir.join("cache").join("ui")
+    }
+
+    /// Folder of the project journals.
+    pub fn journal_dir(&self) -> PathBuf {
+        self.state_dir.join("journal")
+    }
+
+    /// Creates the state folder readable by its owner only (Unix `0700`; on Windows the per-user
+    /// `%LOCALAPPDATA%` already is).
+    pub fn secure_state_dir(&self) -> std::io::Result<()> {
+        std::fs::create_dir_all(&self.state_dir)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(&self.state_dir, std::fs::Permissions::from_mode(0o700))?;
+        }
+        Ok(())
+    }
+
+    /// Remembers the port the agent bound to, so the browser origin stays the same next time.
+    pub fn save_port(&self, port: u16) -> std::io::Result<()> {
+        let mut file = read_config(&self.state_dir);
+        file.port = Some(port);
+        write_config(&self.state_dir, &file)
+    }
+
+    /// Stores a storage path in `config.json` (used after moving a folder).
+    pub fn save_storage(&self, storage: &Storage) -> std::io::Result<()> {
+        let mut file = read_config(&self.state_dir);
+        file.storage = Some(StorageConfig {
+            projects: Some(storage.projects.clone()),
+            tools: Some(storage.tools.clone()),
+            caches: Some(storage.caches.clone()),
+            artifacts: Some(storage.artifacts.clone()),
+        });
+        write_config(&self.state_dir, &file)
+    }
+}
+
+/// Reads `config.json`; a missing or broken file counts as empty.
+pub fn read_config(state_dir: &Path) -> ConfigFile {
+    std::fs::read(state_dir.join("config.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
+}
+
+fn write_config(state_dir: &Path, file: &ConfigFile) -> std::io::Result<()> {
+    std::fs::create_dir_all(state_dir)?;
+    let bytes = serde_json::to_vec_pretty(file).map_err(std::io::Error::other)?;
+    std::fs::write(state_dir.join("config.json"), bytes)
+}
+
+fn env_path(name: &str) -> Option<PathBuf> {
+    std::env::var_os(name)
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+}
+
+fn home() -> PathBuf {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+        .unwrap_or_default()
+}
+
+fn default_state_dir() -> PathBuf {
+    if cfg!(windows)
+        && let Some(local) = std::env::var_os("LOCALAPPDATA")
+    {
+        return PathBuf::from(local).join("vibefork");
+    }
+    home().join(".vibefork")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn config_file_round_trip_and_bad_file_is_empty() {
+        let dir = std::env::temp_dir().join(format!("vf-settings-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(read_config(&dir), ConfigFile::default(), "missing file");
+        let file = ConfigFile {
+            port: Some(47803),
+            ..ConfigFile::default()
+        };
+        assert!(write_config(&dir, &file).is_ok());
+        assert_eq!(read_config(&dir).port, Some(47803));
+        assert!(std::fs::write(dir.join("config.json"), b"{broken").is_ok());
+        assert_eq!(read_config(&dir), ConfigFile::default(), "broken file");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

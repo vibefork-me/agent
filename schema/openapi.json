@@ -1,0 +1,2059 @@
+{
+  "components": {
+    "schemas": {
+      "ActionRequest": {
+        "description": "`POST /v1/action` — an action that needs the native confirm dialog.",
+        "properties": {
+          "action": {
+            "description": "What to do (shown in the dialog).",
+            "type": "string"
+          },
+          "target": {
+            "default": null,
+            "description": "What it applies to (shown in the dialog).",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "type": "object"
+      },
+      "ActionResponse": {
+        "description": "Response of `POST /v1/action`.",
+        "properties": {
+          "action": {
+            "description": "The action.",
+            "type": "string"
+          },
+          "approved": {
+            "description": "Whether the user allowed it.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "action",
+          "approved"
+        ],
+        "type": "object"
+      },
+      "ChallengeRequest": {
+        "description": "`POST /v1/auth/challenge`.",
+        "properties": {
+          "keyId": {
+            "description": "Paired key.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "keyId"
+        ],
+        "type": "object"
+      },
+      "ChallengeResponse": {
+        "description": "Response of `POST /v1/auth/challenge`: a one-time nonce, valid for 60 s.",
+        "properties": {
+          "nonce": {
+            "description": "The nonce to sign (its UTF-8 bytes).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "nonce"
+        ],
+        "type": "object"
+      },
+      "ClientMessage": {
+        "description": "Messages from the browser.",
+        "oneOf": [
+          {
+            "description": "Authenticate the connection with a session token.",
+            "properties": {
+              "token": {
+                "description": "Bearer token from `POST /v1/auth/session`.",
+                "type": "string"
+              },
+              "type": {
+                "enum": [
+                  "auth"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "token",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Run a task in a project.",
+            "properties": {
+              "continue": {
+                "default": false,
+                "description": "Continue with the history of the project.",
+                "type": "boolean"
+              },
+              "model": {
+                "default": null,
+                "description": "Model of the provider; empty = its default.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "project": {
+                "description": "Project name.",
+                "type": "string"
+              },
+              "prompt": {
+                "description": "What to do.",
+                "type": "string"
+              },
+              "provider": {
+                "default": null,
+                "description": "`auto`, `plan`, or a provider: `claude`, `codex`, `openrouter`.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "type": {
+                "enum": [
+                  "task"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "project",
+              "prompt",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Build the project (confirmed in the native dialog).",
+            "properties": {
+              "project": {
+                "description": "Project name.",
+                "type": "string"
+              },
+              "type": {
+                "enum": [
+                  "build"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "project",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Cancel the running task or build.",
+            "properties": {
+              "type": {
+                "enum": [
+                  "cancel"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "CostClass": {
+        "description": "Cost class of a model.",
+        "oneOf": [
+          {
+            "description": "Included in a subscription the user already pays for.",
+            "enum": [
+              "subscription"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "Free tier.",
+            "enum": [
+              "free"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "Paid per token.",
+            "enum": [
+              "paid"
+            ],
+            "type": "string"
+          }
+        ]
+      },
+      "EchoResponse": {
+        "description": "Response of `POST /v1/echo` (connectivity check).",
+        "properties": {
+          "echo": {
+            "description": "The request body as received.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "echo"
+        ],
+        "type": "object"
+      },
+      "ErrorBody": {
+        "description": "An error body: `{ \"error\": \"…\" }`.",
+        "properties": {
+          "error": {
+            "description": "Human-readable reason.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "type": "object"
+      },
+      "Event": {
+        "description": "A normalized event, tagged by `kind`.",
+        "oneOf": [
+          {
+            "description": "Session started.",
+            "properties": {
+              "cli": {
+                "description": "Which CLI / loop runs it.",
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "init"
+                ],
+                "type": "string"
+              },
+              "mcp": {
+                "description": "MCP servers loaded by the CLI (Claude Code only).",
+                "format": "uint32",
+                "minimum": 0.0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "model": {
+                "description": "Model actually used.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "session": {
+                "description": "Provider's own session id (for native resume), if any.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "skills": {
+                "description": "Skills loaded by the CLI (Claude Code only).",
+                "format": "uint32",
+                "minimum": 0.0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "cli",
+              "kind"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Text from the model.",
+            "properties": {
+              "kind": {
+                "enum": [
+                  "text"
+                ],
+                "type": "string"
+              },
+              "text": {
+                "description": "The text.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "text"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "The model calls a tool (shell, edit, read…).",
+            "properties": {
+              "detail": {
+                "description": "Short human-readable detail (command, file path).",
+                "type": "string"
+              },
+              "kind": {
+                "enum": [
+                  "tool"
+                ],
+                "type": "string"
+              },
+              "tool": {
+                "description": "Tool name.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "detail",
+              "kind",
+              "tool"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Result of a tool call.",
+            "properties": {
+              "error": {
+                "description": "Whether the tool failed.",
+                "type": "boolean"
+              },
+              "kind": {
+                "enum": [
+                  "tool_result"
+                ],
+                "type": "string"
+              },
+              "text": {
+                "description": "Output, truncated.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "error",
+              "kind",
+              "text"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "The model finished.",
+            "properties": {
+              "costUsd": {
+                "description": "Cost reported by the provider (API prices), USD.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "kind": {
+                "enum": [
+                  "result"
+                ],
+                "type": "string"
+              },
+              "ms": {
+                "description": "Duration, milliseconds.",
+                "format": "uint64",
+                "minimum": 0.0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "ok": {
+                "description": "Success flag.",
+                "type": "boolean"
+              },
+              "text": {
+                "description": "Final message.",
+                "type": "string"
+              },
+              "turns": {
+                "description": "Model turns.",
+                "format": "uint32",
+                "minimum": 0.0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "usage": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/Usage"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Token usage."
+              }
+            },
+            "required": [
+              "kind",
+              "ok",
+              "text"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "An error.",
+            "properties": {
+              "kind": {
+                "enum": [
+                  "error"
+                ],
+                "type": "string"
+              },
+              "text": {
+                "description": "Message.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "text"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "Hello": {
+        "description": "`GET /v1/hello` — the only call that needs neither a session nor an allowed origin.",
+        "properties": {
+          "agent": {
+            "description": "Always `vibefork`.",
+            "type": "string"
+          },
+          "platform": {
+            "description": "`windows`, `macos`, `linux`.",
+            "type": "string"
+          },
+          "version": {
+            "description": "Agent version.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent",
+          "platform",
+          "version"
+        ],
+        "type": "object"
+      },
+      "JournalEntry": {
+        "description": "One journal entry: a task or a plan step.",
+        "properties": {
+          "at": {
+            "description": "RFC 3339 time.",
+            "type": "string"
+          },
+          "commit": {
+            "description": "Newest commit of the step.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "commits": {
+            "default": [],
+            "description": "All commits of the step (the model may commit by itself).",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "costUsd": {
+            "description": "Cost reported by the provider, USD.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "files": {
+            "default": "",
+            "description": "Changed files, e.g. `3 files`.",
+            "type": "string"
+          },
+          "handoff": {
+            "default": false,
+            "description": "Context came from the journal (another model before).",
+            "type": "boolean"
+          },
+          "model": {
+            "description": "Model.",
+            "type": "string"
+          },
+          "ms": {
+            "description": "Duration, milliseconds.",
+            "format": "uint64",
+            "minimum": 0.0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "prompt": {
+            "description": "The task or `[step n/m] title`.",
+            "type": "string"
+          },
+          "provider": {
+            "description": "Provider (`planner` for plan records).",
+            "type": "string"
+          },
+          "session": {
+            "description": "Provider session id.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "summary": {
+            "default": "",
+            "description": "Final message of the model.",
+            "type": "string"
+          },
+          "usage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Usage"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Token usage."
+          }
+        },
+        "required": [
+          "at",
+          "model",
+          "prompt",
+          "provider"
+        ],
+        "type": "object"
+      },
+      "JournalResponse": {
+        "description": "Response of `GET /v1/journal?project=…`.",
+        "properties": {
+          "entries": {
+            "description": "Entries, oldest first.",
+            "items": {
+              "$ref": "#/components/schemas/JournalEntry"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "entries"
+        ],
+        "type": "object"
+      },
+      "Me": {
+        "description": "Response of `GET /v1/me`.",
+        "properties": {
+          "keyId": {
+            "description": "Paired key.",
+            "type": "string"
+          },
+          "name": {
+            "description": "Browser name.",
+            "type": "string"
+          },
+          "origin": {
+            "description": "Origin of the session.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "keyId",
+          "name",
+          "origin"
+        ],
+        "type": "object"
+      },
+      "ModelInfo": {
+        "description": "A model available on this machine.",
+        "properties": {
+          "cost": {
+            "$ref": "#/components/schemas/CostClass",
+            "description": "Cost class."
+          },
+          "label": {
+            "description": "Label for the UI.",
+            "type": "string"
+          },
+          "model": {
+            "description": "Model id; empty = provider default.",
+            "type": "string"
+          },
+          "provider": {
+            "description": "Provider: `claude`, `codex`, `openrouter`.",
+            "type": "string"
+          },
+          "tier": {
+            "description": "1 light … 3 strong.",
+            "format": "uint8",
+            "minimum": 0.0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cost",
+          "label",
+          "model",
+          "provider",
+          "tier"
+        ],
+        "type": "object"
+      },
+      "ModelsResponse": {
+        "description": "Response of `GET /v1/models`.",
+        "properties": {
+          "models": {
+            "description": "Models available on this machine.",
+            "items": {
+              "$ref": "#/components/schemas/ModelInfo"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "models"
+        ],
+        "type": "object"
+      },
+      "PairInfo": {
+        "description": "One paired browser in `GET /v1/pairs`.",
+        "properties": {
+          "created": {
+            "description": "Pairing time, Unix seconds.",
+            "format": "uint64",
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "keyId": {
+            "description": "Key id.",
+            "type": "string"
+          },
+          "name": {
+            "description": "Browser name.",
+            "type": "string"
+          },
+          "origin": {
+            "description": "Origin the key is bound to.",
+            "type": "string"
+          },
+          "projects": {
+            "default": [],
+            "description": "Projects this browser was given access to.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "created",
+          "keyId",
+          "name",
+          "origin"
+        ],
+        "type": "object"
+      },
+      "PairStartRequest": {
+        "description": "`POST /v1/pair/start`.",
+        "properties": {
+          "name": {
+            "default": null,
+            "description": "Browser name shown in the agent's dialog.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "publicKeyJwk": {
+            "$ref": "#/components/schemas/PublicJwk",
+            "description": "The browser's public key."
+          }
+        },
+        "required": [
+          "publicKeyJwk"
+        ],
+        "type": "object"
+      },
+      "PairStartResponse": {
+        "description": "Response of `POST /v1/pair/start`.",
+        "properties": {
+          "code": {
+            "description": "Code shown both on the page and in the agent's dialog (`123-456`).",
+            "type": "string"
+          },
+          "pairId": {
+            "description": "Id to poll `GET /v1/pair/status?id=…`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "pairId"
+        ],
+        "type": "object"
+      },
+      "PairState": {
+        "description": "State of a pairing request.",
+        "oneOf": [
+          {
+            "description": "The dialog is open.",
+            "enum": [
+              "pending"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "The user allowed it.",
+            "enum": [
+              "approved"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "The user blocked it or the dialog timed out.",
+            "enum": [
+              "denied"
+            ],
+            "type": "string"
+          }
+        ]
+      },
+      "PairStatusResponse": {
+        "description": "Response of `GET /v1/pair/status`.",
+        "properties": {
+          "keyId": {
+            "description": "Key id once approved.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/PairState",
+            "description": "State."
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "PlanStepInfo": {
+        "description": "A plan step as shown to the user.",
+        "properties": {
+          "complexity": {
+            "description": "`simple`, `medium`, `hard`.",
+            "type": "string"
+          },
+          "label": {
+            "description": "Model label chosen for the step.",
+            "type": "string"
+          },
+          "title": {
+            "description": "Step title.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "complexity",
+          "label",
+          "title"
+        ],
+        "type": "object"
+      },
+      "ProjectsResponse": {
+        "description": "Response of `GET /v1/projects`.",
+        "properties": {
+          "projects": {
+            "description": "Project names (folder names).",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "root": {
+            "description": "Folder with the projects.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "projects",
+          "root"
+        ],
+        "type": "object"
+      },
+      "PublicJwk": {
+        "description": "A browser's public key (JWK, EC P-256). A private part (`d`) is rejected.",
+        "properties": {
+          "crv": {
+            "description": "Must be `P-256`.",
+            "type": "string"
+          },
+          "d": {
+            "description": "Private key — must be absent.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kty": {
+            "description": "Must be `EC`.",
+            "type": "string"
+          },
+          "x": {
+            "description": "X coordinate, base64url.",
+            "type": "string"
+          },
+          "y": {
+            "description": "Y coordinate, base64url.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "crv",
+          "kty",
+          "x",
+          "y"
+        ],
+        "type": "object"
+      },
+      "Rating": {
+        "description": "Rating of a task by the Auto mode.",
+        "properties": {
+          "classifier": {
+            "description": "Model that rated the task, or `heuristic`.",
+            "type": "string"
+          },
+          "complexity": {
+            "description": "`simple`, `medium`, `hard`.",
+            "type": "string"
+          },
+          "decompose": {
+            "description": "The task can be split into steps.",
+            "type": "boolean"
+          },
+          "reason": {
+            "description": "One short sentence.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "classifier",
+          "complexity",
+          "decompose",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "RevokeRequest": {
+        "description": "`POST /v1/pairs/revoke`.",
+        "properties": {
+          "keyId": {
+            "description": "Key to revoke.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "keyId"
+        ],
+        "type": "object"
+      },
+      "RevokeResponse": {
+        "description": "Response of `POST /v1/pairs/revoke`.",
+        "properties": {
+          "revoked": {
+            "description": "Revoked key id.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "revoked"
+        ],
+        "type": "object"
+      },
+      "RollbackRequest": {
+        "description": "Request of `POST /v1/rollback`: reset the project to a checkpoint of its journal.",
+        "properties": {
+          "commit": {
+            "description": "A commit listed in the project's journal.",
+            "type": "string"
+          },
+          "project": {
+            "description": "Project.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "commit",
+          "project"
+        ],
+        "type": "object"
+      },
+      "RollbackResponse": {
+        "description": "Response of `POST /v1/rollback`.",
+        "properties": {
+          "commit": {
+            "description": "`HEAD` after the rollback.",
+            "type": "string"
+          },
+          "project": {
+            "description": "Project.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "commit",
+          "project"
+        ],
+        "type": "object"
+      },
+      "ServerMessage": {
+        "description": "Messages from the agent.",
+        "oneOf": [
+          {
+            "description": "The connection is authenticated.",
+            "properties": {
+              "keyId": {
+                "description": "Paired key.",
+                "type": "string"
+              },
+              "type": {
+                "enum": [
+                  "authed"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "keyId",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Echo of a text message (connectivity check).",
+            "properties": {
+              "data": {
+                "description": "The message.",
+                "type": "string"
+              },
+              "type": {
+                "enum": [
+                  "echo"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "data",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Auto mode rated the task and chose a model.",
+            "properties": {
+              "choice": {
+                "$ref": "#/components/schemas/ModelInfo",
+                "description": "Chosen model."
+              },
+              "rating": {
+                "$ref": "#/components/schemas/Rating",
+                "description": "Rating."
+              },
+              "type": {
+                "enum": [
+                  "routing"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "choice",
+              "rating",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "A plan is being made.",
+            "properties": {
+              "rating": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/Rating"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Rating, when planning was chosen by Auto mode."
+              },
+              "type": {
+                "enum": [
+                  "planning"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "The plan.",
+            "properties": {
+              "costUsd": {
+                "description": "Cost of planning, USD (API prices).",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "planner": {
+                "description": "Model that planned.",
+                "type": "string"
+              },
+              "steps": {
+                "description": "Steps.",
+                "items": {
+                  "$ref": "#/components/schemas/PlanStepInfo"
+                },
+                "type": "array"
+              },
+              "type": {
+                "enum": [
+                  "plan"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "planner",
+              "steps",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Toolchain preparation.",
+            "properties": {
+              "error": {
+                "description": "Error, when failed.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "path": {
+                "description": "Install path when ready.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "seconds": {
+                "description": "Seconds spent, when ready.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "$ref": "#/components/schemas/ToolchainStatus",
+                "description": "Status."
+              },
+              "tool": {
+                "description": "Tool, e.g. `java@temurin-21`.",
+                "type": "string"
+              },
+              "type": {
+                "enum": [
+                  "toolchain"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "tool",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "A step (or a single task) started.",
+            "properties": {
+              "handoff": {
+                "description": "Context handed over from the journal.",
+                "type": "boolean"
+              },
+              "model": {
+                "description": "Model.",
+                "type": "string"
+              },
+              "project": {
+                "description": "Project.",
+                "type": "string"
+              },
+              "provider": {
+                "description": "Provider.",
+                "type": "string"
+              },
+              "resume": {
+                "description": "Native resume of the provider's session.",
+                "type": "boolean"
+              },
+              "step": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/StepInfo"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Plan position, for plan steps."
+              },
+              "toolchain": {
+                "description": "Toolchain folders put on PATH.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "type": {
+                "enum": [
+                  "started"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "handoff",
+              "model",
+              "project",
+              "provider",
+              "resume",
+              "toolchain",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "A normalized provider event.",
+            "properties": {
+              "ev": {
+                "$ref": "#/components/schemas/Event",
+                "description": "The event."
+              },
+              "provider": {
+                "description": "Provider.",
+                "type": "string"
+              },
+              "type": {
+                "enum": [
+                  "evt"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "ev",
+              "provider",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Raw stderr of a provider CLI.",
+            "properties": {
+              "text": {
+                "description": "Text.",
+                "type": "string"
+              },
+              "type": {
+                "enum": [
+                  "stderr"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "text",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "A plan step finished.",
+            "properties": {
+              "commit": {
+                "description": "Newest commit of the step.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "n": {
+                "description": "Step number.",
+                "format": "uint32",
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              "of": {
+                "description": "Number of steps.",
+                "format": "uint32",
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              "ok": {
+                "description": "Success.",
+                "type": "boolean"
+              },
+              "type": {
+                "enum": [
+                  "step-done"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "n",
+              "of",
+              "ok",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "The task was cancelled.",
+            "properties": {
+              "type": {
+                "enum": [
+                  "cancelled"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "The task finished.",
+            "properties": {
+              "code": {
+                "description": "Exit code (0 = success).",
+                "format": "int32",
+                "type": "integer"
+              },
+              "commit": {
+                "description": "Newest commit.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "diff": {
+                "description": "Diff of the whole task.",
+                "type": "string"
+              },
+              "model": {
+                "description": "Model of the last step.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "plan": {
+                "default": false,
+                "description": "The task ran as a plan.",
+                "type": "boolean"
+              },
+              "provider": {
+                "description": "Provider of the last step.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "sessionId": {
+                "description": "Provider session id.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "description": "Changed files summary.",
+                "type": "string"
+              },
+              "type": {
+                "enum": [
+                  "done"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "diff",
+              "status",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Whether the machine will manage the build.",
+            "properties": {
+              "text": {
+                "description": "Explanation.",
+                "type": "string"
+              },
+              "type": {
+                "enum": [
+                  "estimate"
+                ],
+                "type": "string"
+              },
+              "verdict": {
+                "description": "`ok`, `tight`, `not_enough`.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "text",
+              "type",
+              "verdict"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "A line of build output.",
+            "properties": {
+              "text": {
+                "description": "Text.",
+                "type": "string"
+              },
+              "type": {
+                "enum": [
+                  "build_log"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "text",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "The build finished.",
+            "properties": {
+              "artifacts": {
+                "description": "Folder with the kept outputs.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "code": {
+                "description": "Exit code (0 = success).",
+                "format": "int32",
+                "type": "integer"
+              },
+              "files": {
+                "description": "Output files, relative to `artifacts`.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "seconds": {
+                "description": "Seconds spent.",
+                "format": "double",
+                "type": "number"
+              },
+              "type": {
+                "enum": [
+                  "build_done"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "files",
+              "seconds",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "An error; for auth errors the connection is closed after it.",
+            "properties": {
+              "error": {
+                "description": "Reason.",
+                "type": "string"
+              },
+              "type": {
+                "enum": [
+                  "error"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "error",
+              "type"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "SessionRequest": {
+        "description": "`POST /v1/auth/session`.",
+        "properties": {
+          "keyId": {
+            "description": "Paired key.",
+            "type": "string"
+          },
+          "nonce": {
+            "description": "Nonce from the challenge.",
+            "type": "string"
+          },
+          "signature": {
+            "description": "ECDSA P-256 / SHA-256 signature of the nonce, IEEE P1363 (r‖s), base64url.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "keyId",
+          "nonce",
+          "signature"
+        ],
+        "type": "object"
+      },
+      "SessionResponse": {
+        "description": "Response of `POST /v1/auth/session`.",
+        "properties": {
+          "expiresIn": {
+            "description": "Lifetime in seconds.",
+            "format": "uint64",
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "token": {
+            "description": "Bearer token; kept in memory only.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expiresIn",
+          "token"
+        ],
+        "type": "object"
+      },
+      "StepInfo": {
+        "description": "Position of a step in a plan.",
+        "properties": {
+          "n": {
+            "description": "1-based number.",
+            "format": "uint32",
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "of": {
+            "description": "Number of steps.",
+            "format": "uint32",
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "title": {
+            "description": "Title.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "n",
+          "of",
+          "title"
+        ],
+        "type": "object"
+      },
+      "ToolchainStatus": {
+        "description": "Toolchain preparation progress.",
+        "oneOf": [
+          {
+            "description": "Installing.",
+            "enum": [
+              "installing"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "Ready.",
+            "enum": [
+              "ready"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "Failed.",
+            "enum": [
+              "failed"
+            ],
+            "type": "string"
+          }
+        ]
+      },
+      "Usage": {
+        "description": "Token usage reported by a provider.",
+        "properties": {
+          "input_tokens": {
+            "description": "Input tokens (including cached).",
+            "format": "uint64",
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "output_tokens": {
+            "description": "Output tokens.",
+            "format": "uint64",
+            "minimum": 0.0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "input_tokens",
+          "output_tokens"
+        ],
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "session": {
+        "description": "Token from POST /v1/auth/session",
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "Local API on 127.0.0.1. Every POST needs `x-vibefork: 1` and JSON. WebSocket /v1/ws: see ClientMessage / ServerMessage.",
+    "title": "vibefork agent",
+    "version": "v1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/v1/action": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "An action confirmed in the native dialog"
+      }
+    },
+    "/v1/auth/challenge": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChallengeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChallengeResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "One-time challenge for a paired key"
+      }
+    },
+    "/v1/auth/session": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Open a session with the signed challenge"
+      }
+    },
+    "/v1/echo": {
+      "post": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EchoResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Connectivity check"
+      }
+    },
+    "/v1/hello": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Hello"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Liveness and version; no origin or session needed"
+      }
+    },
+    "/v1/journal": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JournalResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Journal of a project (query: project)"
+      }
+    },
+    "/v1/me": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "The current session"
+      }
+    },
+    "/v1/models": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelsResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Models available now: logged-in CLIs and configured API keys"
+      }
+    },
+    "/v1/pair/start": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PairStartRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PairStartResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Start pairing; the agent shows a native dialog with the code"
+      }
+    },
+    "/v1/pair/status": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PairStatusResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Pairing status (query: id)"
+      }
+    },
+    "/v1/pairs": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PairInfo"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Paired browsers"
+      }
+    },
+    "/v1/pairs/revoke": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevokeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevokeResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Revoke a paired browser and its sessions"
+      }
+    },
+    "/v1/projects": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectsResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Projects in the projects folder"
+      }
+    },
+    "/v1/rollback": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RollbackRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RollbackResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Reset a project to a journal checkpoint; confirmed in the native dialog"
+      }
+    }
+  }
+}

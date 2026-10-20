@@ -1,0 +1,28 @@
+[package]
+name = "vf-updater"
+description = "Signed downloads: the UI bundle and self-updates, verified with built-in Ed25519 keys."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+vf-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+ed25519-dalek.workspace = true
+sha2.workspace = true
+hex.workspace = true
+base64.workspace = true
+reqwest.workspace = true
+
+[dev-dependencies]
+rand.workspace = true
+tokio.workspace = true
+axum.workspace = true
+
+[lints]
+workspace = true

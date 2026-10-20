@@ -1,0 +1,33 @@
+[package]
+name = "vf-agent"
+description = "The `vibefork` binary: wiring only."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "vibefork"
+path = "src/main.rs"
+
+[features]
+# Test builds only: with VF_AUTO_APPROVE=1 every confirm dialog is approved without being shown.
+insecure-auto-approve = ["vf-platform/insecure-auto-approve"]
+
+[dependencies]
+vf-cli.workspace = true
+vf-server.workspace = true
+vf-engine.workspace = true
+vf-providers.workspace = true
+vf-auth.workspace = true
+vf-platform.workspace = true
+vf-core.workspace = true
+vf-updater.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,16 @@
+[package]
+name = "vf-orchestrator"
+description = "Auto (rate the task → pick a model), Plan (a strong model splits the task, each step goes to the cheapest suitable model), Continue (native resume or handoff from the journal)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde_json.workspace = true
+vf-protocol.workspace = true
+
+[lints]
+workspace = true
