@@ -8,7 +8,7 @@
 //! |---|---|---|
 //! | Linux | Landlock (no root): the agent re-runs itself as `vibefork sandbox-exec`, which restricts itself and executes the program | [`IsolationLevel::Os`] when the kernel has Landlock |
 //! | Windows | AppContainer (no administrator rights): `vibefork sandbox-exec` grants the policy's folders to the container and starts the program in it. **Off by default** ([`IsolationLevel::None`]); on with `VF_SANDBOX_WINDOWS=appcontainer` | see below |
-//! | macOS | not yet | [`IsolationLevel::None`] |
+//! | macOS | Seatbelt (no administrator rights): `vibefork sandbox-exec` executes the program through the system `sandbox-exec` with a profile of the policy | [`IsolationLevel::Os`] when Seatbelt works (not inside another sandbox) |
 //!
 //! **Known limits of the AppContainer on Windows** (why it is off): Git Bash (MSYS) and PowerShell 7
 //! do not start in it, Codex CLI does not start; Node.js fails on projects outside the system drive
@@ -19,6 +19,8 @@
 
 #[cfg(target_os = "linux")]
 mod linux;
+#[cfg(target_os = "macos")]
+mod macos;
 mod policy;
 #[cfg(windows)]
 mod windows;
@@ -41,11 +43,13 @@ pub const EXEC_COMMAND: &str = "sandbox-exec";
 pub fn available() -> IsolationLevel {
     #[cfg(target_os = "linux")]
     let ok = linux::available();
+    #[cfg(target_os = "macos")]
+    let ok = macos::available();
     // Off by default: see the module documentation.
     #[cfg(windows)]
     let ok =
         std::env::var(WINDOWS_OPT_IN).is_ok_and(|v| v == "appcontainer") && windows::available();
-    #[cfg(not(any(target_os = "linux", windows)))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     let ok = false;
     if ok {
         IsolationLevel::Os
@@ -116,13 +120,15 @@ pub fn exec_from_env(args: &[OsString]) -> ExitCode {
     };
     #[cfg(target_os = "linux")]
     return fail(&linux::exec(&policy, program, rest));
+    #[cfg(target_os = "macos")]
+    return fail(&macos::exec(&policy, program, rest));
     // Windows: the program's command line is taken as is from this process's own.
     #[cfg(windows)]
     {
         let _ = (program, rest);
         fail(&windows::exec(&policy))
     }
-    #[cfg(not(any(target_os = "linux", windows)))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     {
         let _ = (policy, program, rest);
         fail("no sandbox on this OS")

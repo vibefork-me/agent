@@ -28,6 +28,7 @@ const SYSTEM_READ: &[&str] = &[
     "/Applications",
     "/private/etc",
     "/private/var/db",
+    "/private/var/select",
 ];
 /// System folders a process needs to write.
 #[cfg(unix)]

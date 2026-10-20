@@ -1,6 +1,6 @@
 [package]
 name = "vf-sandbox"
-description = "Isolation of untrusted execution: policy, launcher, Landlock on Linux, AppContainer on Windows."
+description = "Isolation of untrusted execution: policy, launcher, Landlock on Linux, Seatbelt on macOS, AppContainer on Windows."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
