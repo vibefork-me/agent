@@ -90,11 +90,16 @@ impl Provider for Scripted {
 }
 
 fn setup() -> (PathBuf, Engine, Arc<Scripted>) {
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let counter = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let base = std::env::temp_dir().join(format!("vf-engine-{}-{nanos}", std::process::id()));
+    let base = std::env::temp_dir().join(format!(
+        "vf-engine-{}-{nanos}-{counter}",
+        std::process::id()
+    ));
     std::fs::create_dir_all(base.join("projects/demo")).unwrap();
     std::fs::write(base.join("projects/demo/README.md"), "user file").unwrap();
     let settings = Settings {

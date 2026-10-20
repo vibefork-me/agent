@@ -34,11 +34,13 @@ fn run(policy: &SandboxPolicy, script: &str) -> (Option<i32>, String) {
 
 #[test]
 fn canary_outside_the_policy_is_closed() {
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let counter = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let base = std::env::temp_dir().join(format!("vf-sb-{}-{nanos}", std::process::id()));
+    let base = std::env::temp_dir().join(format!("vf-sb-{}-{nanos}-{counter}", std::process::id()));
     let (project, secret) = (base.join("project"), base.join("home-secret"));
     std::fs::create_dir_all(&project).unwrap();
     std::fs::create_dir_all(&secret).unwrap();

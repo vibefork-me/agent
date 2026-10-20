@@ -63,11 +63,16 @@ async fn verified_binary_only() {
 
 #[test]
 fn install_checks_the_new_binary_and_keeps_the_old_one() {
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let counter = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let dir = std::env::temp_dir().join(format!("vf-install-{}-{nanos}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!(
+        "vf-install-{}-{nanos}-{counter}",
+        std::process::id()
+    ));
     std::fs::create_dir_all(&dir).unwrap();
     let bin = dir.join(if cfg!(windows) {
         "vibefork.exe"

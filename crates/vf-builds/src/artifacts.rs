@@ -80,12 +80,16 @@ mod tests {
 
     #[test]
     fn collects_and_keeps_the_last_builds() {
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let counter = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or_default();
-        let base =
-            std::env::temp_dir().join(format!("vf-artifacts-{}-{nanos}", std::process::id()));
+        let base = std::env::temp_dir().join(format!(
+            "vf-artifacts-{}-{nanos}-{counter}",
+            std::process::id()
+        ));
         let project = base.join("p");
         assert!(std::fs::create_dir_all(project.join("build/libs")).is_ok());
         assert!(std::fs::write(project.join("build/libs/app.jar"), "jar").is_ok());

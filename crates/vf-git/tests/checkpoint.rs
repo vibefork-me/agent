@@ -23,11 +23,16 @@ impl JournalStore for Memory {
 }
 
 fn temp_dir(tag: &str) -> PathBuf {
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let counter = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    std::env::temp_dir().join(format!("vf-git-{tag}-{}-{nanos}", std::process::id()))
+    std::env::temp_dir().join(format!(
+        "vf-git-{tag}-{}-{nanos}-{counter}",
+        std::process::id()
+    ))
 }
 
 fn report(label: &str) -> StepReport {

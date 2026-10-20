@@ -470,11 +470,16 @@ mod tests {
 
     #[test]
     fn copy_and_remove_binaries_in_a_temp_folder() {
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let counter = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or_default();
-        let base = std::env::temp_dir().join(format!("vf-install-{}-{nanos}", std::process::id()));
+        let base = std::env::temp_dir().join(format!(
+            "vf-install-{}-{nanos}-{counter}",
+            std::process::id()
+        ));
         let (src, dst) = (base.join("src"), base.join("dst"));
         assert!(std::fs::create_dir_all(&src).is_ok());
         assert!(copy_binaries(&src, &dst).is_err(), "nothing to install");
