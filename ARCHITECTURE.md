@@ -45,7 +45,7 @@ layer 0  domain        vf-core  vf-protocol           (no IO: no network, no dis
 | `vf-builds` | Build recipes, resource estimation, artifacts with the last builds kept | |
 | `vf-git` | Every git operation in one place, built in (libgit2): no `git` on the machine, no hooks, no external programs | |
 | `vf-github` | The agent's own GitHub sign-in (device flow of the Vibefork.me app: contents and metadata only, on the copies the user allows), Save through the REST API, projects from GitHub archives | 🔒 |
-| `vf-sandbox` | Isolation of the model's processes and builds: task policy, launcher (`vibefork sandbox-exec`); Linux — Landlock; Windows — AppContainer, off by default; macOS — not yet | 🔒 |
+| `vf-sandbox` | Isolation of the model's processes and builds: task policy, launcher (`vibefork sandbox-exec`); Linux — Landlock; macOS — Seatbelt; Windows — AppContainer, off by default | 🔒 |
 | `vf-auth` | Pairing, browser keys, challenge → session, revocation, confirm prompts | 🔒 |
 | `vf-server` | HTTP + WebSocket on loopback only; Host / Origin checks; fallback UI at `/ui/` from the signed bundle; canonical `127.0.0.1` | 🔒 |
 | `vf-platform` | Everything OS-specific: settings, projects folder, journal files, storage moves, dialogs, secret store, per-user install (`vibefork://`, autostart, `PATH`), the background agent process | |
