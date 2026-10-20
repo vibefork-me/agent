@@ -21,6 +21,10 @@ struct Agent {
 }
 
 impl vf_cli::App for Agent {
+    fn backend(&self) -> Box<dyn vf_protocol::Backend> {
+        Box::new(engine(&self.settings))
+    }
+
     fn serve(&self) -> ExitCode {
         let s = &self.settings;
         if let Err(e) = s.secure_state_dir() {

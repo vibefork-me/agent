@@ -10,6 +10,7 @@ publish.workspace = true
 
 [dependencies]
 vf-core.workspace = true
+vf-protocol.workspace = true
 vf-platform.workspace = true
 vf-auth.workspace = true
 vf-updater.workspace = true

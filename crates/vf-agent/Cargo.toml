@@ -24,6 +24,7 @@ vf-providers.workspace = true
 vf-auth.workspace = true
 vf-platform.workspace = true
 vf-core.workspace = true
+vf-protocol.workspace = true
 vf-updater.workspace = true
 tokio.workspace = true
 tracing.workspace = true

@@ -4,6 +4,9 @@
 //! vibefork serve                      run the agent in this terminal
 //! vibefork start | stop | status      the background agent (status: --json)
 //! vibefork open [--local]             open the interface (hosted, or the agent's own page)
+//! vibefork import <owner/name | url>   take a project from GitHub (no git needed)
+//! vibefork save <project>             save to your copy on GitHub (walks through the steps)
+//! vibefork github [connect | status | disconnect]   the agent's GitHub sign-in
 //! vibefork pairs [revoke <key id>]    paired browsers
 //! vibefork keys [set|remove <name>]   API keys in the OS secret store
 //! vibefork storage [move <kind> <dir>]  heavy folders
@@ -19,6 +22,7 @@
 
 mod agent;
 mod doctor;
+mod github;
 mod keys;
 mod menu;
 mod setup;
@@ -32,9 +36,11 @@ use std::process::ExitCode;
 pub trait App {
     /// Runs the agent until it is stopped.
     fn serve(&self) -> ExitCode;
+    /// The engine, for commands that do the work themselves (import, save).
+    fn backend(&self) -> Box<dyn vf_protocol::Backend>;
 }
 
-const USAGE: &str = "usage: vibefork <serve | start | stop | status | open | pairs | keys | storage | doctor | update | install | uninstall | logs | version>";
+const USAGE: &str = "usage: vibefork <serve | start | stop | status | open | import | save | github | pairs | keys | storage | doctor | update | install | uninstall | logs | version>";
 
 /// Entry point used by the `vibefork` binary.
 pub fn run(args: &[String], app: &dyn App) -> ExitCode {
@@ -58,6 +64,9 @@ pub fn run(args: &[String], app: &dyn App) -> ExitCode {
         },
         Some("logs") => agent::logs(rest.first().and_then(|n| n.parse().ok()).unwrap_or(50)),
         Some("pairs") => setup::pairs(rest),
+        Some("import") => github::import(app.backend().as_ref(), rest),
+        Some("save") => github::save(app.backend().as_ref(), rest),
+        Some("github") => github::github(app.backend().as_ref(), rest),
         Some("keys") => keys::run(rest),
         Some("storage") => storage::run(rest),
         Some("doctor") => doctor::run(json),

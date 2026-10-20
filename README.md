@@ -12,6 +12,8 @@ project with the AI you already have — on your machine.
 vibefork install          # per-user, no administrator rights: binaries, vibefork:// handler, start at login, PATH
 vibefork start            # the agent in the background (vibefork serve — in this terminal)
 vibefork open             # the interface; pair the browser in the dialog that appears
+vibefork import owner/name   # take a project from GitHub (no git needed)
+vibefork save <project>   # save your changes to your copy on GitHub (walks you through the first time)
 vibefork doctor           # what works on this machine
 vibefork keys set openrouter   # optional: free OpenRouter models without any CLI installed
 vibefork update           # signed self-update; vibefork update --rollback
