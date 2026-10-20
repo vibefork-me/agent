@@ -104,7 +104,8 @@ fn setup() -> (PathBuf, Engine, Arc<Scripted>) {
         ui_bundle_url: String::new(),
         storage: Storage {
             projects: base.join("projects"),
-            tools: base.join("tools"),
+            // Shared by runs: the toolchains are downloaded once.
+            tools: PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("vf-engine-tools"),
             caches: base.join("caches"),
             artifacts: base.join("artifacts"),
         },
