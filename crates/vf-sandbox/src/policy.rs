@@ -57,6 +57,7 @@ const HOME_WRITE: &[&str] = &[
 /// Inside the home: tool settings and installs (read only).
 const HOME_READ: &[&str] = &[
     ".gitconfig",
+    ".npm-global",
     ".config/git",
     ".nvm",
     ".cargo",

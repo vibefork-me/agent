@@ -22,9 +22,12 @@ pub struct ChildEnv {
 }
 
 impl ChildEnv {
-    /// The agent's environment, cleaned.
+    /// The agent's environment, cleaned; `PATH` ends with the per-user program folders it lacks
+    /// ([`crate::process::user_bin_dirs`]).
     pub fn from_current() -> Self {
-        Self::from_vars(std::env::vars_os())
+        let mut env = Self::from_vars(std::env::vars_os());
+        env.append_path_missing(&crate::process::user_bin_dirs());
+        env
     }
 
     /// Cleans a given set of variables.
@@ -83,6 +86,29 @@ impl ChildEnv {
         }
     }
 
+    /// Puts folders at the end of `PATH`, those not on it yet.
+    pub fn append_path_missing(&mut self, dirs: &[PathBuf]) {
+        let key = self
+            .vars
+            .keys()
+            .find(|k| k.to_string_lossy().eq_ignore_ascii_case("PATH"))
+            .cloned()
+            .unwrap_or_else(|| "PATH".into());
+        let old = self.vars.get(&key).cloned().unwrap_or_default();
+        let current: Vec<PathBuf> = std::env::split_paths(&old).collect();
+        let missing: Vec<PathBuf> = dirs
+            .iter()
+            .filter(|d| !current.contains(d))
+            .cloned()
+            .collect();
+        if missing.is_empty() {
+            return;
+        }
+        if let Ok(path) = std::env::join_paths(current.into_iter().chain(missing)) {
+            self.vars.insert(key, path);
+        }
+    }
+
     /// Removes `PATH` entries matching `hide` (case-insensitive) — the "clean machine" simulation.
     pub fn hide_path_entries(&mut self, hide: &[&str]) {
         let Some((key, old)) = self
@@ -133,6 +159,16 @@ impl ChildEnv {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missing_folders_go_to_the_end_of_path() {
+        let (a, b) = (PathBuf::from("/a"), PathBuf::from("/b"));
+        let mut env = ChildEnv::from_vars([(OsString::from("PATH"), OsString::from("/a"))]);
+        env.append_path_missing(&[a.clone(), b.clone()]);
+        let path: Vec<PathBuf> =
+            std::env::split_paths(env.get("PATH").unwrap_or_default()).collect();
+        assert_eq!(path, [a, b]);
+    }
 
     #[test]
     fn parent_session_and_agent_secrets_are_dropped() {

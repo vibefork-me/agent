@@ -31,7 +31,9 @@ pub struct Exit {
 
 /// Finds a program on `PATH` (with `PATHEXT` on Windows).
 pub fn find_program(name: &str) -> Option<PathBuf> {
-    let path = std::env::var_os("PATH")?;
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let path =
+        std::env::join_paths(std::env::split_paths(&path).chain(user_bin_dirs())).unwrap_or(path);
     let exts: Vec<String> = if cfg!(windows) {
         std::env::var("PATHEXT")
             .unwrap_or_else(|_| ".EXE;.CMD;.BAT".into())
@@ -47,6 +49,37 @@ pub fn find_program(name: &str) -> Option<PathBuf> {
             .map(|ext| dir.join(format!("{name}{ext}")))
             .find(|p| p.is_file())
     })
+}
+
+/// Folders where per-user installs put programs (macOS, Linux), the ones that exist. An agent
+/// started from the desktop or a `vibefork://` link gets only the system `PATH` and finds the
+/// user's coding CLIs (and they their tools) here.
+pub fn user_bin_dirs() -> Vec<PathBuf> {
+    if cfg!(windows) {
+        return Vec::new();
+    }
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let mut dirs: Vec<PathBuf> = [
+        ".local/bin",
+        ".claude/local",
+        ".npm-global/bin",
+        ".bun/bin",
+        ".volta/bin",
+        ".cargo/bin",
+    ]
+    .iter()
+    .filter_map(|d| home.as_ref().map(|h| h.join(d)))
+    .collect();
+    dirs.extend(
+        [
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "/home/linuxbrew/.linuxbrew/bin",
+        ]
+        .map(PathBuf::from),
+    );
+    dirs.retain(|d| d.is_dir());
+    dirs
 }
 
 /// Prepares a command: no console window on Windows, its own process group on Unix (so the tree can
