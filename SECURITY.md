@@ -30,6 +30,9 @@ Report vulnerabilities privately through GitHub: **Security → Report a vulnera
   agent's own model loop and builds see only the project, the agent's tools and caches, system
   folders and the CLIs' own data; the rest of your home is closed. Network is open. On macOS and
   Windows these processes still have your user's rights. The level is reported with every task.
+- On Windows an AppContainer sandbox exists but is off by default (`VF_SANDBOX_WINDOWS=appcontainer`
+  turns it on): Git Bash, PowerShell 7 and Codex CLI do not start in it, and Node.js fails on
+  projects outside the system drive.
 - Inside the sandbox the coding CLI's own sign-in data is readable by the commands it runs.
 - Windows Authenticode and Apple notarization signatures are not set up yet; releases are verified
   by the agent's own signature.

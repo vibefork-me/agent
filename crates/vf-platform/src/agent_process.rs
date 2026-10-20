@@ -66,62 +66,88 @@ pub fn stop(state_dir: &Path) -> bool {
     killed
 }
 
-/// Starts `<exe> serve` in the background, output to [`log_file`].
+/// Starts `<exe> serve --log-file <log>` in the background; the agent writes its own log to
+/// [`log_file`].
 pub fn start_detached(exe: &Path, state_dir: &Path) -> std::io::Result<u32> {
     let log = log_file(state_dir);
     if let Some(dir) = log.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    let out = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&log)?;
-    let err = out.try_clone()?;
-    let mut cmd = Command::new(exe);
-    cmd.arg("serve")
-        .stdin(Stdio::null())
-        .stdout(out)
-        .stderr(err);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt as _;
-        // Otherwise the agent inherits this process's stdout / stderr, and a caller that reads them
-        // (a script, a test runner) waits until the agent exits.
-        stop_inheriting_std_handles();
-        const DETACHED_PROCESS: u32 = 0x0000_0008;
-        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt as _;
-        cmd.process_group(0);
-    }
-    Ok(cmd.spawn()?.id())
+    spawn_detached(
+        exe,
+        &["serve".as_ref(), "--log-file".as_ref(), log.as_os_str()],
+    )
 }
 
-/// Marks this process's standard handles as not inheritable.
+/// Windows: `CreateProcessW` without handle inheritance. With inheritance (what `Command` does) the
+/// agent would keep pipes of the caller open — a script reading the output of `vibefork start`
+/// would wait until the agent exits.
 #[cfg(windows)]
 #[allow(unsafe_code)]
-fn stop_inheriting_std_handles() {
-    use windows_sys::Win32::Foundation::{
-        HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE, SetHandleInformation,
+fn spawn_detached(exe: &Path, args: &[&std::ffi::OsStr]) -> std::io::Result<u32> {
+    use std::os::windows::ffi::OsStrExt as _;
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{
+        CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW, CreateProcessW, DETACHED_PROCESS,
+        PROCESS_INFORMATION, STARTUPINFOW,
     };
-    use windows_sys::Win32::System::Console::{
-        GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
-    };
-    for id in [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
-        // SAFETY: `GetStdHandle` has no preconditions. `SetHandleInformation` only changes the
-        // inherit flag of a handle this process owns; null and invalid handles are skipped, and a
-        // failure leaves the handle as it was.
-        unsafe {
-            let h = GetStdHandle(id);
-            if !h.is_null() && h != INVALID_HANDLE_VALUE {
-                SetHandleInformation(h, HANDLE_FLAG_INHERIT, 0);
-            }
+    // Every part quoted: paths may have spaces (none of them has quotes).
+    let mut line: Vec<u16> = Vec::new();
+    for (i, part) in std::iter::once(exe.as_os_str())
+        .chain(args.iter().copied())
+        .enumerate()
+    {
+        if i > 0 {
+            line.push(u16::from(b' '));
         }
+        line.push(u16::from(b'"'));
+        line.extend(part.encode_wide());
+        line.push(u16::from(b'"'));
     }
+    line.push(0);
+    // SAFETY: both are plain C structs for which all-zero is a valid value; `cb` is set as required.
+    let mut si: STARTUPINFOW = unsafe { std::mem::zeroed() };
+    si.cb = u32::try_from(std::mem::size_of::<STARTUPINFOW>()).unwrap_or(u32::MAX);
+    // SAFETY: as above.
+    let mut pi: PROCESS_INFORMATION = unsafe { std::mem::zeroed() };
+    // SAFETY: `line` is a writable, NUL-terminated UTF-16 buffer that outlives the call; the other
+    // pointers are null (defaults) or point to the initialized structs above. Handle inheritance is
+    // off (`0`).
+    let ok = unsafe {
+        CreateProcessW(
+            std::ptr::null(),
+            line.as_mut_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            0,
+            DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW,
+            std::ptr::null(),
+            std::ptr::null(),
+            &si,
+            &mut pi,
+        )
+    };
+    if ok == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: the handles were returned by a successful `CreateProcessW` and are closed once.
+    unsafe {
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+    }
+    Ok(pi.dwProcessId)
+}
+
+#[cfg(unix)]
+fn spawn_detached(exe: &Path, args: &[&std::ffi::OsStr]) -> std::io::Result<u32> {
+    use std::os::unix::process::CommandExt as _;
+    let mut cmd = Command::new(exe);
+    cmd.args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .process_group(0);
+    Ok(cmd.spawn()?.id())
 }
 
 /// Opens a URL in the default browser.

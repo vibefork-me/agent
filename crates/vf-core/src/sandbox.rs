@@ -13,6 +13,9 @@ pub struct SandboxPolicy {
     pub read: Vec<PathBuf>,
     /// Readable and writable folders and files.
     pub write: Vec<PathBuf>,
+    /// Temporary folder inside the policy (Windows: the user's temp folder is outside it).
+    #[serde(default)]
+    pub temp: Option<PathBuf>,
 }
 
 /// How strong the isolation is — shown to the user as it is.

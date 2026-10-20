@@ -7,13 +7,21 @@
 //! | OS | Implementation | Level |
 //! |---|---|---|
 //! | Linux | Landlock (no root): the agent re-runs itself as `vibefork sandbox-exec`, which restricts itself and executes the program | [`IsolationLevel::Os`] when the kernel has Landlock |
-//! | macOS, Windows | not yet | [`IsolationLevel::None`] |
+//! | Windows | AppContainer (no administrator rights): `vibefork sandbox-exec` grants the policy's folders to the container and starts the program in it. **Off by default** ([`IsolationLevel::None`]); on with `VF_SANDBOX_WINDOWS=appcontainer` | see below |
+//! | macOS | not yet | [`IsolationLevel::None`] |
+//!
+//! **Known limits of the AppContainer on Windows** (why it is off): Git Bash (MSYS) and PowerShell 7
+//! do not start in it, Codex CLI does not start; Node.js fails on projects outside the system drive
+//! (an app container cannot read the root of another drive, and granting that needs an
+//! administrator). Claude Code itself works.
 //!
 //! `unsafe` is allowed in this crate only with a `// SAFETY:` justification at each site.
 
 #[cfg(target_os = "linux")]
 mod linux;
 mod policy;
+#[cfg(windows)]
+mod windows;
 
 use std::ffi::OsString;
 use std::path::Path;
@@ -22,6 +30,8 @@ use std::process::ExitCode;
 pub use policy::task_policy;
 pub use vf_core::sandbox::{IsolationLevel, SandboxPolicy, Wrapper};
 
+/// `VF_SANDBOX_WINDOWS=appcontainer` turns the Windows AppContainer on (experimental).
+pub const WINDOWS_OPT_IN: &str = "VF_SANDBOX_WINDOWS";
 /// Variable carrying the policy to `sandbox-exec`.
 pub const POLICY_VAR: &str = "VF_SANDBOX_POLICY";
 /// Command of the agent binary that runs a program inside the sandbox.
@@ -30,13 +40,31 @@ pub const EXEC_COMMAND: &str = "sandbox-exec";
 /// The isolation this machine provides.
 pub fn available() -> IsolationLevel {
     #[cfg(target_os = "linux")]
-    return if linux::available() {
+    let ok = linux::available();
+    // Off by default: see the module documentation.
+    #[cfg(windows)]
+    let ok =
+        std::env::var(WINDOWS_OPT_IN).is_ok_and(|v| v == "appcontainer") && windows::available();
+    #[cfg(not(any(target_os = "linux", windows)))]
+    let ok = false;
+    if ok {
         IsolationLevel::Os
     } else {
         IsolationLevel::None
-    };
-    #[cfg(not(target_os = "linux"))]
-    IsolationLevel::None
+    }
+}
+
+/// Whether the user's coding CLIs (Claude Code, Codex) work inside the sandbox. Windows: no —
+/// Git Bash (MSYS) and PowerShell 7, the shells they run commands in, do not start in an
+/// AppContainer; there they run without isolation, the agent's own loop and builds are isolated.
+pub fn supports_coding_clis() -> bool {
+    !cfg!(windows)
+}
+
+/// Removes what the sandbox created on this machine (the Windows AppContainer profile).
+pub fn remove() {
+    #[cfg(windows)]
+    windows::remove();
 }
 
 /// How to start sandboxed commands with `policy`: a wrapper around them (none when the machine has
@@ -46,15 +74,27 @@ pub fn prepare(policy: &SandboxPolicy, helper: &Path) -> (Option<Wrapper>, Isola
     if level == IsolationLevel::None {
         return (None, level);
     }
-    let Ok(json) = serde_json::to_string(policy) else {
-        return (None, IsolationLevel::None);
-    };
-    let wrapper = Wrapper {
+    match wrapper(policy, helper) {
+        Some(w) => (Some(w), level),
+        None => (None, IsolationLevel::None),
+    }
+}
+
+/// The wrapper for `policy`, whether or not the machine provides isolation (tests).
+pub fn wrapper(policy: &SandboxPolicy, helper: &Path) -> Option<Wrapper> {
+    let json = serde_json::to_string(policy).ok()?;
+    let mut env: Vec<(OsString, OsString)> = vec![(POLICY_VAR.into(), json.into())];
+    if let Some(tmp) = &policy.temp {
+        let _ = std::fs::create_dir_all(tmp);
+        for k in ["TEMP", "TMP"] {
+            env.push((k.into(), tmp.clone().into_os_string()));
+        }
+    }
+    Some(Wrapper {
         program: helper.to_path_buf(),
         prefix: vec![EXEC_COMMAND.into(), "--".into()],
-        env: vec![(POLICY_VAR.into(), json.into())],
-    };
-    (Some(wrapper), level)
+        env,
+    })
 }
 
 /// `sandbox-exec -- <program> <args…>`: restricts this process with the policy from
@@ -76,7 +116,13 @@ pub fn exec_from_env(args: &[OsString]) -> ExitCode {
     };
     #[cfg(target_os = "linux")]
     return fail(&linux::exec(&policy, program, rest));
-    #[cfg(not(target_os = "linux"))]
+    // Windows: the program's command line is taken as is from this process's own.
+    #[cfg(windows)]
+    {
+        let _ = (program, rest);
+        fail(&windows::exec(&policy))
+    }
+    #[cfg(not(any(target_os = "linux", windows)))]
     {
         let _ = (policy, program, rest);
         fail("no sandbox on this OS")

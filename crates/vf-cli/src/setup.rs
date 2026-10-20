@@ -27,17 +27,24 @@ pub(crate) fn install(args: &[String]) -> ExitCode {
         return ExitCode::FAILURE;
     };
     let autostart = !args.iter().any(|a| a == "--no-autostart");
-    let code = print(&install::install(&exe, autostart));
+    let report = install::install(&exe, autostart);
+    print(&report);
+    // Only the binaries are required; the link handler, autostart and PATH are conveniences.
+    if report.failed.iter().any(|f| f.starts_with("binaries")) {
+        eprintln!("vibefork: installation failed");
+        return ExitCode::FAILURE;
+    }
     println!(
         "installed to {} — open a new terminal for `vibefork` on PATH",
         install::install_dir().display()
     );
-    code
+    ExitCode::SUCCESS
 }
 
 pub(crate) fn uninstall() -> ExitCode {
     let s = Settings::from_env();
     vf_platform::agent_process::stop(&s.state_dir);
+    vf_sandbox::remove();
     let code = print(&install::uninstall());
     println!(
         "your projects and data stay in {} and {}",

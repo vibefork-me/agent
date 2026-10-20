@@ -66,7 +66,7 @@ impl Engine {
             return error(out, format!("not enough resources: {text}"));
         }
 
-        let (env, _, _) = self.child_env(&dir, out, cancel);
+        let (env, _, _) = self.child_env(&dir, true, out, cancel);
         let started = Instant::now();
         let mut cmd = shell(&dir, &recipe.program, &recipe.args, &env);
         cmd.current_dir(&dir);

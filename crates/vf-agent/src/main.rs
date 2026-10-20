@@ -152,13 +152,32 @@ fn dialog() -> Arc<dyn ConfirmDialog> {
 }
 
 fn main() -> ExitCode {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_env("VF_LOG").unwrap_or_else(|_| "info".into()),
-        )
-        .with_writer(std::io::stderr)
-        .init();
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    let filter =
+        || tracing_subscriber::EnvFilter::try_from_env("VF_LOG").unwrap_or_else(|_| "info".into());
+    // `serve --log-file <path>`: the background agent writes its own log (it has no stderr).
+    let log_file = args.iter().position(|a| a == "--log-file").and_then(|i| {
+        let path = args.get(i + 1).cloned();
+        args.drain(i..(i + 2).min(args.len()));
+        path
+    });
+    match log_file.and_then(|p| {
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(p)
+            .ok()
+    }) {
+        Some(file) => tracing_subscriber::fmt()
+            .with_env_filter(filter())
+            .with_ansi(false)
+            .with_writer(std::sync::Mutex::new(file))
+            .init(),
+        None => tracing_subscriber::fmt()
+            .with_env_filter(filter())
+            .with_writer(std::io::stderr)
+            .init(),
+    }
     vf_cli::run(
         &args,
         &Agent {

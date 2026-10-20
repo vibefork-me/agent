@@ -60,6 +60,7 @@ impl Engine {
     pub(crate) fn child_env(
         &self,
         dir: &Path,
+        sandboxed: bool,
         out: &mut dyn FnMut(ServerMessage),
         cancel: &Cancel,
     ) -> (ChildEnv, Vec<String>, IsolationLevel) {
@@ -113,7 +114,7 @@ impl Engine {
             env.set(k, v);
         }
         // Everything the model and the build start runs in the sandbox (when there is one).
-        let level = match &self.sandbox_helper {
+        let level = match self.sandbox_helper.as_ref().filter(|_| sandboxed) {
             Some(helper) => {
                 let policy = vf_sandbox::task_policy(dir, &self.tools, &self.caches);
                 let (wrapper, level) = vf_sandbox::prepare(&policy, helper);
@@ -161,7 +162,9 @@ impl Engine {
             }
         }
 
-        let (env, toolchain, isolation) = self.child_env(req.dir, out, cancel);
+        let cli = matches!(id, "claude" | "codex");
+        let sandboxed = !cli || vf_sandbox::supports_coding_clis();
+        let (env, toolchain, isolation) = self.child_env(req.dir, sandboxed, out, cancel);
         out(ServerMessage::Started {
             project: req.project.to_owned(),
             provider: id.to_owned(),

@@ -378,12 +378,16 @@ mod linux {
             exe.display()
         );
         std::fs::write(&f, body).map_err(|e| e.to_string())?;
-        run(Command::new("xdg-mime").args([
-            "default",
-            "vibefork.desktop",
-            "x-scheme-handler/vibefork",
-        ]))
-        .map(|_| ())
+        // Without `xdg-mime` (no desktop, e.g. a server) the `.desktop` file is all there is.
+        match Command::new("xdg-mime")
+            .args(["default", "vibefork.desktop", "x-scheme-handler/vibefork"])
+            .output()
+        {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e.to_string()),
+            Ok(o) if o.status.success() => Ok(()),
+            Ok(o) => Err(String::from_utf8_lossy(&o.stderr).trim().to_owned()),
+        }
     }
 
     pub(super) fn autostart(program: &Path, args: &[&str]) -> Result<(), String> {

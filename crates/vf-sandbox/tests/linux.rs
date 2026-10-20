@@ -54,6 +54,7 @@ fn canary_outside_the_policy_is_closed() {
     let policy = SandboxPolicy {
         read: system,
         write: vec![project.clone(), "/dev".into()],
+        temp: None,
     };
 
     let (ok, out) = run(

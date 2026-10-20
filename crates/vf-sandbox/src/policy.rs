@@ -67,7 +67,9 @@ const HOME_READ: &[&str] = &[
 
 /// The policy for work in `project`: it and the agent's `tools` / `caches` are writable.
 pub fn task_policy(project: &Path, tools: &Path, caches: &Path) -> SandboxPolicy {
-    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from);
     let mut read: Vec<PathBuf> = Vec::new();
     let mut write: Vec<PathBuf> = vec![
         project.to_path_buf(),
@@ -82,14 +84,42 @@ pub fn task_policy(project: &Path, tools: &Path, caches: &Path) -> SandboxPolicy
     if let Some(home) = &home {
         write.extend(HOME_WRITE.iter().map(|p| home.join(p)));
         read.extend(HOME_READ.iter().map(|p| home.join(p)));
+        // `~/.gitconfig` may include other `~/.gitconfig-*` files.
+        if let Ok(entries) = std::fs::read_dir(home) {
+            read.extend(
+                entries
+                    .filter_map(Result::ok)
+                    .filter(|e| e.file_name().to_string_lossy().starts_with(".gitconfig"))
+                    .map(|e| e.path()),
+            );
+        }
     }
+    #[cfg(unix)]
     if let Some(tmp) = std::env::var_os("TMPDIR").map(PathBuf::from) {
         write.push(tmp);
     }
+    // Windows: CLIs installed per user, npm cache; a temp folder inside the agent's caches.
+    #[cfg(windows)]
+    let temp = {
+        let local = std::env::var_os("LOCALAPPDATA").map(PathBuf::from);
+        let roaming = std::env::var_os("APPDATA").map(PathBuf::from);
+        if let Some(l) = &local {
+            read.push(l.join("OpenAI").join("Codex"));
+            write.push(l.join("npm-cache"));
+        }
+        if let Some(r) = &roaming {
+            read.push(r.join("npm"));
+        }
+        let t = caches.join("tmp");
+        let _ = std::fs::create_dir_all(&t);
+        Some(t)
+    };
+    #[cfg(not(windows))]
+    let temp = None;
     // Only paths that exist (a rule for a missing path cannot be created).
     read.retain(|p| p.exists());
     write.retain(|p| p.exists());
-    SandboxPolicy { read, write }
+    SandboxPolicy { read, write, temp }
 }
 
 #[cfg(test)]

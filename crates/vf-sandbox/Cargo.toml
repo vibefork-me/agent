@@ -1,6 +1,6 @@
 [package]
 name = "vf-sandbox"
-description = "Isolation of untrusted execution: policy, launcher, Landlock on Linux."
+description = "Isolation of untrusted execution: policy, launcher, Landlock on Linux, AppContainer on Windows."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -14,6 +14,12 @@ serde_json.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 landlock = "0.4"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Security_Isolation",
+    "Win32_System_Console", "Win32_System_Environment", "Win32_System_JobObjects", "Win32_System_Threading",
+] }
 
 # Test helper with `sandbox-exec` (the agent binary has the same command).
 [[bin]]

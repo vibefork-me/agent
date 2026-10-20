@@ -3820,6 +3820,7 @@ dependencies = [
  "landlock",
  "serde_json",
  "vf-core",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
