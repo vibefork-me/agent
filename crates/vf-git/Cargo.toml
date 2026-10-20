@@ -1,6 +1,6 @@
 [package]
 name = "vf-git"
-description = "Every git operation in one place: clone, checkpoints, `Vibefork-Customization` trailers, step diffs, rollback."
+description = "Every git operation in one place, built in (libgit2): checkpoints, `Vibefork-Customization` trailers, step diffs, rollback."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,6 +10,8 @@ publish.workspace = true
 
 [dependencies]
 vf-journal.workspace = true
+# libgit2 built into the binary; no network transports (no OpenSSL, no SSH).
+git2 = { version = "0.21", default-features = false, features = ["vendored-libgit2"] }
 
 [dev-dependencies]
 vf-protocol.workspace = true

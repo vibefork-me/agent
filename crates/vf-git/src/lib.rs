@@ -1,25 +1,29 @@
-//! Every git operation in one place, through the `git` command line.
+//! Every git operation in one place, built into the agent (libgit2): nothing needs to be
+//! installed on the machine.
 //!
 //! Project folders hold content written by models and taken from forks, so it is data (invariant 9):
-//! every call disables hooks, `core.fsmonitor`, commit signing and prompts; diffs skip external
-//! drivers and text conversion; `GIT_*` variables of the agent's own environment are dropped. Commits are made as the agent
-//! ([`AGENT_NAME`] / [`AGENT_EMAIL`]) without touching the user's git config.
+//! the library runs no hooks, no `fsmonitor`, no external diff or filter programs, and has no
+//! network access here. Commits are made as the agent ([`AGENT_NAME`] / [`AGENT_EMAIL`]) without
+//! touching the user's git config.
 
-use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
 
+use git2::{
+    DiffFormat, DiffOptions, DiffStatsFormat, IndexAddOption, Oid, Repository,
+    RepositoryInitOptions, ResetType, Signature, Sort, Status, StatusOptions, Tree,
+};
 use vf_journal::{JournalError, Vcs};
 
 /// Author and committer name of checkpoints.
 pub const AGENT_NAME: &str = "vibefork-agent";
 /// Author and committer e-mail of checkpoints.
 pub const AGENT_EMAIL: &str = "agent@vibefork.local";
+/// Length of short commit ids.
+const SHORT: usize = 7;
 
-#[cfg(windows)]
-const NO_HOOKS: &str = "NUL";
-#[cfg(not(windows))]
-const NO_HOOKS: &str = "/dev/null";
+fn err(e: git2::Error) -> JournalError {
+    JournalError(format!("git: {}", e.message()))
+}
 
 /// A git repository (a project folder).
 #[derive(Debug, Clone)]
@@ -28,7 +32,7 @@ pub struct Repo {
 }
 
 impl Repo {
-    /// Opens an existing repository.
+    /// A repository in `dir` (opened on each call).
     pub fn open(dir: impl Into<PathBuf>) -> Self {
         Self { dir: dir.into() }
     }
@@ -38,129 +42,163 @@ impl Repo {
         &self.dir
     }
 
+    fn repo(&self) -> Result<Repository, JournalError> {
+        Repository::open(&self.dir).map_err(err)
+    }
+
     /// Whether the folder is a repository with at least one commit.
     pub fn is_ready(&self) -> bool {
-        self.git(["rev-parse", "--verify", "-q", "HEAD"]).is_ok()
+        self.repo()
+            .is_ok_and(|r| r.head().and_then(|h| h.peel_to_commit()).is_ok())
     }
 
     /// Makes a folder a repository whose first commit holds the files already there (so every step
     /// has a base and the user's own files are never counted as a model's changes).
     pub fn init(dir: impl Into<PathBuf>) -> Result<Self, JournalError> {
-        let repo = Self { dir: dir.into() };
-        std::fs::create_dir_all(&repo.dir).map_err(io)?;
-        if !repo.dir.join(".git").exists() {
-            repo.git(["init", "-q", "-b", "main"])?;
+        let me = Self { dir: dir.into() };
+        std::fs::create_dir_all(&me.dir).map_err(|e| JournalError(e.to_string()))?;
+        if Repository::open(&me.dir).is_err() {
+            Repository::init_opts(&me.dir, RepositoryInitOptions::new().initial_head("main"))
+                .map_err(err)?;
         }
-        repo.git(["add", "-A", "."])?;
-        repo.git([
-            "commit",
-            "-q",
-            "--allow-empty",
-            "--no-verify",
-            "-m",
-            "vibefork: start",
-        ])?;
-        Ok(repo)
-    }
-
-    /// `git diff --stat` between two commits.
-    pub fn diff_stat(&self, base: &str, head: &str) -> Result<String, JournalError> {
-        self.git(["diff", "--no-ext-diff", "--stat", base, head])
-    }
-
-    /// Clones `url` into `dir`, the source remote is named `upstream`.
-    pub fn clone_from(url: &str, dir: impl Into<PathBuf>) -> Result<Self, JournalError> {
-        let dir = dir.into();
-        let parent = dir.parent().map(Path::to_path_buf).unwrap_or_default();
-        std::fs::create_dir_all(&parent).map_err(io)?;
-        let tmp = Self { dir: parent };
-        tmp.git([
-            OsStr::new("clone"),
-            OsStr::new("-q"),
-            OsStr::new("--origin"),
-            OsStr::new("upstream"),
-            OsStr::new("--"),
-            OsStr::new(url),
-            dir.as_os_str(),
-        ])?;
-        Ok(Self { dir })
+        let repo = me.repo()?;
+        let tree = stage_all(&repo)?;
+        let parent = repo.head().and_then(|h| h.peel_to_commit()).ok();
+        let sig = signature()?;
+        let tree = repo.find_tree(tree).map_err(err)?;
+        let parents: Vec<&git2::Commit<'_>> = parent.iter().collect();
+        repo.commit(Some("HEAD"), &sig, &sig, "vibefork: start", &tree, &parents)
+            .map_err(err)?;
+        Ok(me)
     }
 
     /// Resets the working tree and index to `commit`, removing untracked files (rollback of steps).
     pub fn reset_hard(&self, commit: &str) -> Result<(), JournalError> {
-        self.git(["reset", "-q", "--hard", commit])?;
-        self.git(["clean", "-q", "-fd"])?;
+        let repo = self.repo()?;
+        let obj = repo.revparse_single(commit).map_err(err)?;
+        repo.reset(&obj, ResetType::Hard, None).map_err(err)?;
+        let mut opts = StatusOptions::new();
+        opts.include_untracked(true)
+            .recurse_untracked_dirs(true)
+            .include_ignored(false);
+        let statuses = repo.statuses(Some(&mut opts)).map_err(err)?;
+        for entry in statuses
+            .iter()
+            .filter(|e| e.status().contains(Status::WT_NEW))
+        {
+            let Ok(rel) = entry.path() else { continue };
+            let path = self.dir.join(rel);
+            let _ = std::fs::remove_file(&path);
+            // Remove folders that became empty, up to the project root.
+            let mut parent = path.parent();
+            while let Some(p) = parent.filter(|p| *p != self.dir) {
+                if std::fs::remove_dir(p).is_err() {
+                    break;
+                }
+                parent = p.parent();
+            }
+        }
         Ok(())
     }
 
-    /// Short summary of changed files of the working tree (`git status --short`).
+    /// Short summary of changed files of the working tree (`git status --short` style).
     pub fn status_short(&self) -> Result<String, JournalError> {
-        self.git(["status", "--short"])
+        let repo = self.repo()?;
+        let mut opts = StatusOptions::new();
+        opts.include_untracked(true).recurse_untracked_dirs(true);
+        let statuses = repo.statuses(Some(&mut opts)).map_err(err)?;
+        let mut out = String::new();
+        for e in statuses.iter() {
+            let s = e.status();
+            let code = if s.contains(Status::WT_NEW) {
+                "??"
+            } else if s.intersects(Status::WT_DELETED | Status::INDEX_DELETED) {
+                " D"
+            } else {
+                " M"
+            };
+            out.push_str(&format!("{code} {}\n", e.path().unwrap_or_default()));
+        }
+        Ok(out)
     }
 
     /// Full message of a commit.
     pub fn message(&self, commit: &str) -> Result<String, JournalError> {
-        self.git(["log", "-1", "--format=%B", commit])
+        let repo = self.repo()?;
+        let c = repo
+            .revparse_single(commit)
+            .and_then(|o| o.peel_to_commit())
+            .map_err(err)?;
+        Ok(c.message().unwrap_or_default().to_owned())
     }
 
-    /// Runs git with the safety options; returns stdout.
-    fn git<I, S>(&self, args: I) -> Result<String, JournalError>
-    where
-        I: IntoIterator<Item = S>,
-        S: AsRef<OsStr>,
-    {
-        let out = self.run(args)?;
-        if out.status.success() {
-            Ok(String::from_utf8_lossy(&out.stdout).into_owned())
-        } else {
-            Err(JournalError(format!(
-                "git: {}",
-                String::from_utf8_lossy(&out.stderr).trim()
-            )))
-        }
+    /// `git diff --stat` between two commits.
+    pub fn diff_stat(&self, base: &str, head: &str) -> Result<String, JournalError> {
+        let repo = self.repo()?;
+        let (a, b) = (tree_of(&repo, base)?, tree_of(&repo, head)?);
+        let diff = repo
+            .diff_tree_to_tree(Some(&a), Some(&b), None)
+            .map_err(err)?;
+        let buf = diff
+            .stats()
+            .and_then(|s| s.to_buf(DiffStatsFormat::FULL, 80))
+            .map_err(err)?;
+        Ok(buf.as_str().unwrap_or_default().to_owned())
     }
+}
 
-    fn run<I, S>(&self, args: I) -> Result<Output, JournalError>
-    where
-        I: IntoIterator<Item = S>,
-        S: AsRef<OsStr>,
-    {
-        let mut cmd = Command::new("git");
-        cmd.current_dir(&self.dir)
-            .args(["-c", &format!("core.hooksPath={NO_HOOKS}")])
-            .args(["-c", "core.fsmonitor=false", "-c", "commit.gpgsign=false"])
-            .args([
-                "-c",
-                &format!("user.name={AGENT_NAME}"),
-                "-c",
-                &format!("user.email={AGENT_EMAIL}"),
-            ])
-            .args(args)
-            .stdin(Stdio::null())
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .env("GIT_CONFIG_NOSYSTEM", "1");
-        for (key, _) in std::env::vars_os() {
-            if key.to_string_lossy().starts_with("GIT_")
-                && key != "GIT_TERMINAL_PROMPT"
-                && key != "GIT_CONFIG_NOSYSTEM"
-            {
-                cmd.env_remove(key);
-            }
-        }
-        no_window(&mut cmd);
-        cmd.output()
-            .map_err(|e| JournalError(format!("git is not available: {e}")))
-    }
+fn signature() -> Result<Signature<'static>, JournalError> {
+    Signature::now(AGENT_NAME, AGENT_EMAIL).map_err(err)
+}
+
+fn tree_of<'r>(repo: &'r Repository, rev: &str) -> Result<Tree<'r>, JournalError> {
+    repo.revparse_single(rev)
+        .and_then(|o| o.peel_to_tree())
+        .map_err(err)
+}
+
+/// Stages everything (new, changed, deleted; `.gitignore` respected) and writes the tree.
+fn stage_all(repo: &Repository) -> Result<Oid, JournalError> {
+    let mut index = repo.index().map_err(err)?;
+    index
+        .add_all(["*"], IndexAddOption::DEFAULT, None)
+        .map_err(err)?;
+    index.update_all(["*"], None).map_err(err)?;
+    index.write().map_err(err)?;
+    index.write_tree().map_err(err)
+}
+
+fn short(oid: Oid) -> String {
+    oid.to_string()[..SHORT].to_owned()
 }
 
 impl Vcs for Repo {
     fn head(&self) -> Result<String, JournalError> {
-        Ok(self.git(["rev-parse", "HEAD"])?.trim().to_owned())
+        let repo = self.repo()?;
+        let head = repo.head().and_then(|h| h.peel_to_commit()).map_err(err)?;
+        Ok(head.id().to_string())
     }
 
     fn diff_from(&self, base: &str) -> Result<String, JournalError> {
-        self.git(["add", "-A", "-N", "."])?;
-        self.git(["diff", "--no-ext-diff", "--no-textconv", "--no-color", base])
+        let repo = self.repo()?;
+        let tree = tree_of(&repo, base)?;
+        let mut opts = DiffOptions::new();
+        opts.include_untracked(true)
+            .recurse_untracked_dirs(true)
+            .show_untracked_content(true);
+        let diff = repo
+            .diff_tree_to_workdir_with_index(Some(&tree), Some(&mut opts))
+            .map_err(err)?;
+        let mut out = String::new();
+        diff.print(DiffFormat::Patch, |_, _, line| {
+            if matches!(line.origin(), '+' | '-' | ' ') {
+                out.push(line.origin());
+            }
+            out.push_str(&String::from_utf8_lossy(line.content()));
+            true
+        })
+        .map_err(err)?;
+        Ok(out)
     }
 
     fn commit_all(
@@ -168,9 +206,10 @@ impl Vcs for Repo {
         message: &str,
         trailers: &[(&str, &str)],
     ) -> Result<Option<String>, JournalError> {
-        self.git(["add", "-A", "."])?;
-        let staged = self.run(["diff", "--cached", "--quiet"])?;
-        if staged.status.success() {
+        let repo = self.repo()?;
+        let tree_id = stage_all(&repo)?;
+        let parent = repo.head().and_then(|h| h.peel_to_commit()).ok();
+        if parent.as_ref().is_some_and(|p| p.tree_id() == tree_id) {
             return Ok(None);
         }
         let mut full = message.to_owned();
@@ -180,37 +219,35 @@ impl Vcs for Repo {
                 full.push_str(&format!("{k}: {v}\n"));
             }
         }
-        self.git(["commit", "-q", "--no-verify", "-m", &full])?;
-        Ok(Some(
-            self.git(["rev-parse", "--short", "HEAD"])?
-                .trim()
-                .to_owned(),
-        ))
+        let sig = signature()?;
+        let tree = repo.find_tree(tree_id).map_err(err)?;
+        let parents: Vec<&git2::Commit<'_>> = parent.iter().collect();
+        let id = repo
+            .commit(Some("HEAD"), &sig, &sig, &full, &tree, &parents)
+            .map_err(err)?;
+        Ok(Some(short(id)))
     }
 
     fn commits_between(&self, base: &str, head: &str) -> Result<Vec<String>, JournalError> {
-        let out = self.git(["log", "--format=%h", &format!("{base}..{head}")])?;
-        Ok(out.lines().map(str::to_owned).collect())
+        let repo = self.repo()?;
+        let (base, head) = (
+            repo.revparse_single(base).map_err(err)?.id(),
+            repo.revparse_single(head).map_err(err)?.id(),
+        );
+        let mut walk = repo.revwalk().map_err(err)?;
+        walk.set_sorting(Sort::TOPOLOGICAL | Sort::TIME)
+            .map_err(err)?;
+        walk.push(head).map_err(err)?;
+        walk.hide(base).map_err(err)?;
+        walk.map(|oid| oid.map(short).map_err(err)).collect()
     }
 
     fn files_changed(&self, base: &str, head: &str) -> Result<usize, JournalError> {
-        Ok(self
-            .git(["diff", "--no-ext-diff", "--name-only", base, head])?
-            .lines()
-            .count())
+        let repo = self.repo()?;
+        let (a, b) = (tree_of(&repo, base)?, tree_of(&repo, head)?);
+        let diff = repo
+            .diff_tree_to_tree(Some(&a), Some(&b), None)
+            .map_err(err)?;
+        Ok(diff.stats().map_err(err)?.files_changed())
     }
 }
-
-fn io(e: std::io::Error) -> JournalError {
-    JournalError(e.to_string())
-}
-
-#[cfg(windows)]
-fn no_window(cmd: &mut Command) {
-    use std::os::windows::process::CommandExt as _;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    cmd.creation_flags(CREATE_NO_WINDOW);
-}
-
-#[cfg(not(windows))]
-fn no_window(_: &mut Command) {}

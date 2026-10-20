@@ -1,6 +1,7 @@
 //! Detection by layers, from exact to rough: hints in `AGENTS.md` → version files
 //! (`.java-version`, `.tool-versions`, `.nvmrc`, `.node-version`, `.python-version`) → heuristics by
-//! build files. A later layer only fills in tools an earlier one did not name. Asking a model is
+//! build files (`package.json` → Node LTS, Python and Go projects, JVM builds). A later layer only
+//! fills in tools an earlier one did not name. Nothing on the machine is assumed. Asking a model is
 //! the next layer (not yet).
 
 use std::path::Path;
@@ -16,6 +17,8 @@ pub struct Need {
 
 /// Default Java when a JVM project does not say.
 pub const DEFAULT_JAVA: &str = "21";
+/// Default Python when a project does not say.
+pub const DEFAULT_PYTHON: &str = "3.12";
 
 fn need(name: &str, version: &str) -> Need {
     let spec = match name {
@@ -75,6 +78,8 @@ pub fn detect(dir: &Path) -> Vec<Need> {
                 .is_some_and(|c| c.is_ascii_digit() || c == 'v')
         {
             add(need("node", &v), &mut out);
+        } else if v.starts_with("lts") {
+            add(need("node", "lts"), &mut out);
         }
     }
     if !read(".python-version").is_empty() {
@@ -94,6 +99,21 @@ pub fn detect(dir: &Path) -> Vec<Need> {
         if has("pom.xml") && !has("mvnw") {
             add(need("maven", "3"), &mut out);
         }
+    }
+    // The machine may have nothing: every ecosystem a project uses gets the agent's own tool.
+    if has("package.json") {
+        add(need("node", "lts"), &mut out);
+    }
+    if has("pyproject.toml") || has("requirements.txt") || has("setup.py") || has("Pipfile") {
+        add(need("python", DEFAULT_PYTHON), &mut out);
+    }
+    if has("go.mod") {
+        let version = read("go.mod")
+            .lines()
+            .find_map(|l| l.strip_prefix("go ").map(|v| v.trim().to_owned()))
+            .filter(|v| v.chars().all(|c| c.is_ascii_digit() || c == '.'))
+            .unwrap_or_else(|| "latest".into());
+        add(need("go", &version), &mut out);
     }
     out
 }
@@ -152,6 +172,13 @@ mod tests {
     fn layers() {
         assert!(specs(&[("index.js", "")]).is_empty());
         assert_eq!(
+            specs(&[("package.json", "{}")]),
+            ["node@lts"],
+            "no version file: LTS"
+        );
+        assert_eq!(specs(&[("requirements.txt", "")]), ["python@3.12"]);
+        assert_eq!(specs(&[("go.mod", "module x\n\ngo 1.23\n")]), ["go@1.23"]);
+        assert_eq!(
             specs(&[("gradlew", ""), ("build.gradle", "")]),
             ["java@temurin-21"]
         );
@@ -179,8 +206,8 @@ mod tests {
         );
         assert_eq!(
             specs(&[("package.json", "{}"), (".nvmrc", "lts/*")]),
-            Vec::<String>::new(),
-            "aliases are not versions"
+            ["node@lts"],
+            "an LTS alias is LTS"
         );
         assert_eq!(
             specs(&[("AGENTS.md", "Use java 17"), (".java-version", "21")]),
