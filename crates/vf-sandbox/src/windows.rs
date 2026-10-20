@@ -78,7 +78,7 @@ impl Drop for ContainerSid {
 #[allow(unsafe_code)]
 fn container_sid() -> Result<ContainerSid, String> {
     let name = wide(OsStr::new(PROFILE));
-    let display = wide(OsStr::new("vibefork sandbox"));
+    let display = wide(OsStr::new("Vibefork sandbox"));
     let mut sid: PSID = std::ptr::null_mut();
     // SAFETY: the strings are NUL-terminated and outlive the call; no capabilities are passed; `sid`
     // receives an allocated SID on success.

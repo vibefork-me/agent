@@ -248,7 +248,7 @@ impl Provider for OpenAiCompatible {
             Event::Init {
                 session: None,
                 model: Some(req.model.to_owned()),
-                cli: format!("vibefork loop → {}", self.id),
+                cli: format!("Vibefork loop → {}", self.id),
                 mcp: None,
                 skills: None,
             },

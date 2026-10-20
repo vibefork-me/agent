@@ -1,5 +1,5 @@
 #!/bin/sh
-# Installs the vibefork agent for the current user (no administrator rights): downloads the binaries of
+# Installs the Vibefork agent for the current user (no administrator rights): downloads the binaries of
 # the release channel, checks their SHA-256 against the channel's manifest, runs `vibefork install`,
 # starts the agent and opens the interface.
 #
@@ -47,8 +47,8 @@ fetch() {
 fetch vibefork
 fetch vibefork-tray optional
 "$tmp/vibefork" install
-if [ "$os" = macos ]; then dir="${VF_INSTALL_DIR:-$HOME/Applications/vibefork.app/Contents/MacOS}"
+if [ "$os" = macos ]; then dir="${VF_INSTALL_DIR:-$HOME/Applications/Vibefork.app/Contents/MacOS}"
 else dir="${VF_INSTALL_DIR:-$HOME/.local/bin}"; fi
 "$dir/vibefork" start
 [ -n "${VF_NO_OPEN:-}" ] || "$dir/vibefork" open || true
-echo "vibefork is installed: $dir/vibefork (try \`vibefork doctor\`)"
+echo "Vibefork is installed: $dir/vibefork (try \`vibefork doctor\`)"

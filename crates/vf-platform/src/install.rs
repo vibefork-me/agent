@@ -3,7 +3,7 @@
 //!
 //! | | Windows | macOS | Linux |
 //! |---|---|---|---|
-//! | Binaries | `%LOCALAPPDATA%\Programs\vibefork` | `~/Applications/vibefork.app/Contents/MacOS` | `~/.local/bin` |
+//! | Binaries | `%LOCALAPPDATA%\Programs\vibefork` | `~/Applications/Vibefork.app/Contents/MacOS` | `~/.local/bin` |
 //! | `vibefork://` | `HKCU\Software\Classes\vibefork` | `CFBundleURLTypes` in `Info.plist` | `~/.local/share/applications/vibefork.desktop` + `xdg-mime` |
 //! | Autostart | `HKCU\…\Run` value `vibefork` | `~/Library/LaunchAgents/me.vibefork.agent.plist` | `~/.config/autostart/vibefork.desktop` |
 //! | `PATH` | user `Path` variable | — (`~/Applications/…` link not needed for the app) | `~/.local/bin` is on `PATH` by default |
@@ -28,7 +28,7 @@ pub fn install_dir() -> PathBuf {
             .join("vibefork")
     } else if cfg!(target_os = "macos") {
         home.join("Applications")
-            .join("vibefork.app")
+            .join("Vibefork.app")
             .join("Contents")
             .join("MacOS")
     } else {
@@ -302,7 +302,7 @@ mod windows {
 
     pub(super) fn register_protocol(exe: &Path) -> Result<(), String> {
         let command = format!("\"{}\" handle \"%1\"", exe.display());
-        reg(&["add", PROTOCOL_KEY, "/ve", "/d", "URL:vibefork", "/f"])?;
+        reg(&["add", PROTOCOL_KEY, "/ve", "/d", "URL:Vibefork", "/f"])?;
         reg(&["add", PROTOCOL_KEY, "/v", "URL Protocol", "/d", "", "/f"])?;
         reg(&["add", PROTOCOL_COMMAND_KEY, "/ve", "/d", &command, "/f"])
     }
@@ -374,7 +374,7 @@ mod linux {
             std::fs::create_dir_all(p).map_err(|e| e.to_string())?;
         }
         let body = format!(
-            "[Desktop Entry]\nType=Application\nName=vibefork\nExec=\"{}\" handle %u\nNoDisplay=true\nMimeType=x-scheme-handler/vibefork;\n",
+            "[Desktop Entry]\nType=Application\nName=Vibefork\nExec=\"{}\" handle %u\nNoDisplay=true\nMimeType=x-scheme-handler/vibefork;\n",
             exe.display()
         );
         std::fs::write(&f, body).map_err(|e| e.to_string())?;
@@ -396,7 +396,7 @@ mod linux {
             std::fs::create_dir_all(p).map_err(|e| e.to_string())?;
         }
         let body = format!(
-            "[Desktop Entry]\nType=Application\nName=vibefork\nExec=\"{}\" {}\nX-GNOME-Autostart-enabled=true\n",
+            "[Desktop Entry]\nType=Application\nName=Vibefork\nExec=\"{}\" {}\nX-GNOME-Autostart-enabled=true\n",
             program.display(),
             args.join(" ")
         );
@@ -415,7 +415,7 @@ mod macos {
     /// `Info.plist` of the bundle: the URL scheme is declared here and picked up by Launch Services.
     pub(super) fn write_bundle(macos_dir: &Path) -> Result<(), String> {
         let contents = macos_dir.parent().ok_or("bad bundle path")?;
-        let plist = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict>\n<key>CFBundleIdentifier</key><string>me.vibefork.agent</string>\n<key>CFBundleName</key><string>vibefork</string>\n<key>CFBundleExecutable</key><string>vibefork-tray</string>\n<key>LSUIElement</key><true/>\n<key>LSMinimumSystemVersion</key><string>10.15</string>\n<key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>vibefork</string><key>CFBundleURLSchemes</key><array><string>vibefork</string></array></dict></array>\n</dict></plist>\n";
+        let plist = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict>\n<key>CFBundleIdentifier</key><string>me.vibefork.agent</string>\n<key>CFBundleName</key><string>Vibefork</string>\n<key>CFBundleExecutable</key><string>vibefork-tray</string>\n<key>LSUIElement</key><true/>\n<key>LSMinimumSystemVersion</key><string>10.15</string>\n<key>CFBundleURLTypes</key><array><dict><key>CFBundleURLName</key><string>vibefork</string><key>CFBundleURLSchemes</key><array><string>vibefork</string></array></dict></array>\n</dict></plist>\n";
         std::fs::write(contents.join("Info.plist"), plist).map_err(|e| e.to_string())
     }
 

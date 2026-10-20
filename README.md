@@ -1,4 +1,4 @@
-# vibefork agent
+# Vibefork agent
 
 The local agent of [vibefork.me](https://vibefork.me): make your own change in any open-source
 project with the AI you already have — on your machine.

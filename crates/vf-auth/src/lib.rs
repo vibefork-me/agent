@@ -133,7 +133,7 @@ impl Auth {
             "Site: {origin}\nBrowser: {name}\nCode: {code}\n\nAllow only if the same code is shown on the page."
         );
         std::thread::spawn(move || {
-            let allowed = me.dialog.confirm("vibefork: connect a browser?", &text);
+            let allowed = me.dialog.confirm("Vibefork: connect a browser?", &text);
             let saved = allowed
                 && me
                     .store
@@ -243,7 +243,7 @@ impl Auth {
             .map(|t| format!("\nTarget: {}", t.chars().take(200).collect::<String>()))
             .unwrap_or_default();
         self.dialog.confirm(
-            "vibefork: confirm an action",
+            "Vibefork: confirm an action",
             &format!("{origin} asks to:\n\n{action}{target}"),
         )
     }
@@ -259,7 +259,7 @@ impl Auth {
         };
         let project_shown: String = project.chars().take(80).collect();
         let allowed = self.dialog.confirm(
-            "vibefork: give access to a project?",
+            "Vibefork: give access to a project?",
             &format!(
                 "{origin} ({}) asks to work in the project:\n\n{project_shown}\n\nAllow only if you are doing this in your browser right now.",
                 pair.name

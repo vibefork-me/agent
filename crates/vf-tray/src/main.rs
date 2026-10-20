@@ -26,8 +26,8 @@ fn main() {
 
     let event_loop = EventLoopBuilder::new().build();
     let menu = Menu::new();
-    let status = MenuItem::new("vibefork: checking…", false, None);
-    let open = MenuItem::new("Open vibefork", true, None);
+    let status = MenuItem::new("Vibefork: checking…", false, None);
+    let open = MenuItem::new("Open Vibefork", true, None);
     let toggle = MenuItem::new("Stop the agent", true, None);
     let quit = MenuItem::new("Quit tray", true, None);
     let added = menu.append_items(&[
@@ -52,7 +52,7 @@ fn main() {
             // The icon is created inside the loop (required on macOS).
             let mut builder = TrayIconBuilder::new()
                 .with_menu(Box::new(menu.clone()))
-                .with_tooltip("vibefork");
+                .with_tooltip("Vibefork");
             if let Some(i) = icon(false) {
                 builder = builder.with_icon(i);
             }
@@ -75,8 +75,8 @@ fn main() {
             let version = hello(port);
             running = version.is_some();
             status.set_text(match &version {
-                Some(v) => format!("vibefork {v}: running on port {port}"),
-                None => "vibefork: stopped".into(),
+                Some(v) => format!("Vibefork {v}: running on port {port}"),
+                None => "Vibefork: stopped".into(),
             });
             toggle.set_text(if running {
                 "Stop the agent"

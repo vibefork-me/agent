@@ -1,4 +1,4 @@
-# Installs the vibefork agent for the current user (no administrator rights): downloads the binaries of
+# Installs the Vibefork agent for the current user (no administrator rights): downloads the binaries of
 # the release channel, checks their SHA-256 against the channel's manifest, runs `vibefork install`,
 # starts the agent and opens the interface.
 #
@@ -39,7 +39,7 @@ try {
     $dir = if ($env:VF_INSTALL_DIR) { $env:VF_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'Programs\vibefork' }
     & (Join-Path $dir 'vibefork.exe') start
     if (-not $env:VF_NO_OPEN) { & (Join-Path $dir 'vibefork.exe') open }
-    Write-Host "vibefork is installed: $dir\vibefork.exe (try ``vibefork doctor`` in a new terminal)"
+    Write-Host "Vibefork is installed: $dir\vibefork.exe (try ``vibefork doctor`` in a new terminal)"
 }
 finally {
     Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue

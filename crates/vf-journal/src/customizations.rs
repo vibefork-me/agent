@@ -74,7 +74,7 @@ pub fn slug(title: &str) -> String {
 /// Renders the whole file.
 pub fn render(items: &[Customization]) -> String {
     let mut s = format!(
-        "{MARKER}\n# Customizations\n\nPersonal changes on top of upstream, maintained by vibefork.\n"
+        "{MARKER}\n# Customizations\n\nPersonal changes on top of upstream, maintained by Vibefork.\n"
     );
     for c in items {
         s.push_str(&format!(
