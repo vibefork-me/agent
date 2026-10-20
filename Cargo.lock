@@ -3791,6 +3791,7 @@ dependencies = [
  "vf-auth",
  "vf-builds",
  "vf-core",
+ "vf-git",
  "vf-platform",
  "vf-protocol",
  "vf-providers",

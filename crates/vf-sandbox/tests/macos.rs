@@ -97,6 +97,21 @@ fn task_policy_runs_tools_and_keeps_the_home_closed() {
     let secret = base.join("secret.txt");
     std::fs::write(&secret, "PRIVATE").unwrap();
     let policy = task_policy(&project, &tools, &caches);
+    let exe = std::env::current_exe().unwrap();
+    let (wrapper, _) = prepare(&policy, &exe);
+    let wrapper = wrapper.unwrap();
+    let launched = Command::new(&wrapper.program)
+        .args(&wrapper.prefix)
+        .arg(&exe)
+        .arg("--list")
+        .envs(wrapper.env.iter().map(|(k, v)| (k, v)))
+        .output()
+        .unwrap();
+    assert!(
+        launched.status.success(),
+        "agent executable is available in Seatbelt: {}",
+        String::from_utf8_lossy(&launched.stderr)
+    );
     let script = format!(
         "cd {} && /usr/bin/env git --version >/dev/null 2>&1; uname -a > uname.txt && mktemp >/dev/null && cat uname.txt",
         project.display()

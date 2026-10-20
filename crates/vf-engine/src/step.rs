@@ -113,6 +113,11 @@ impl Engine {
         for (k, v) in prepared.env {
             env.set(k, v);
         }
+        if let Ok(agent) = std::env::current_exe()
+            && let Some(shim_dir) = install_git_shim(&self.tools, &agent)
+        {
+            env.prepend_path(&[shim_dir]);
+        }
         // Everything the model and the build start runs in the sandbox (when there is one).
         let level = match self.sandbox_helper.as_ref().filter(|_| sandboxed) {
             Some(helper) => {
@@ -286,6 +291,55 @@ impl Engine {
     }
 }
 
+fn install_git_shim(tools: &Path, agent: &Path) -> Option<std::path::PathBuf> {
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    if !git_shim_required(&path, cfg!(target_os = "macos"), || {
+        std::process::Command::new("xcode-select")
+            .arg("-p")
+            .output()
+            .is_ok_and(|o| o.status.success())
+    }) {
+        return None;
+    }
+    let dir = tools.join("shims");
+    if std::fs::create_dir_all(&dir).is_err() {
+        return None;
+    }
+    #[cfg(windows)]
+    let (file, content) = (
+        dir.join("git.cmd"),
+        format!("@\"{}\" git-shim %*\r\n", agent.display()),
+    );
+    #[cfg(not(windows))]
+    let (file, content) = (
+        dir.join("git"),
+        format!("#!/bin/sh\nexec \"{}\" git-shim \"$@\"\n", agent.display()),
+    );
+    if std::fs::write(&file, content).is_err() {
+        return None;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        if std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).is_err() {
+            return None;
+        }
+    }
+    Some(dir)
+}
+
+fn git_shim_required(
+    path: &std::ffi::OsStr,
+    macos: bool,
+    xcode_tools_present: impl FnOnce() -> bool,
+) -> bool {
+    let found = std::env::split_paths(path).any(|dir| {
+        let candidate = dir.join(if cfg!(windows) { "git.exe" } else { "git" });
+        candidate.is_file()
+    });
+    !found || (macos && !xcode_tools_present())
+}
+
 pub(crate) fn clip_bytes(mut s: String, max: usize) -> String {
     if s.len() > max {
         let mut cut = max;
@@ -336,5 +390,18 @@ mod tests {
     #[test]
     fn diff_is_clipped_on_char_boundary() {
         assert_eq!(clip_bytes("ааа".into(), 3), "а");
+    }
+
+    #[test]
+    fn shim_selection_detects_missing_git_and_broken_macos_stub() {
+        let root = std::env::temp_dir().join(format!("vf-git-shim-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        assert!(std::fs::create_dir_all(&root).is_ok());
+        assert!(git_shim_required(root.as_os_str(), false, || true));
+        let marker = root.join(if cfg!(windows) { "git.exe" } else { "git" });
+        assert!(std::fs::write(&marker, b"").is_ok());
+        assert!(git_shim_required(root.as_os_str(), true, || false));
+        assert!(!git_shim_required(root.as_os_str(), true, || true));
+        let _ = std::fs::remove_dir_all(root);
     }
 }

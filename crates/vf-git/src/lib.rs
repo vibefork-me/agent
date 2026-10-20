@@ -37,6 +37,12 @@ impl Repo {
         Self { dir: dir.into() }
     }
 
+    /// The repository that contains `dir` (the folder itself or a parent), like `git` finds it.
+    pub fn discover(dir: &Path) -> Option<Self> {
+        let repo = Repository::discover(dir).ok()?;
+        Some(Self::open(repo.workdir()?.to_path_buf()))
+    }
+
     /// The folder.
     pub fn dir(&self) -> &Path {
         &self.dir
@@ -145,6 +151,178 @@ impl Repo {
             .map_err(err)?;
         Ok(buf.as_str().unwrap_or_default().to_owned())
     }
+
+    /// The read-only subset of `git` exposed to the processes of a task. `add` and `commit` are
+    /// acknowledged (the agent records changes itself); other changing commands are refused, so a
+    /// tool never takes a refused `checkout` or `reset` for a done one.
+    pub fn shim(&self, args: &[String]) -> Result<ShimOutput, JournalError> {
+        let Some(command) = args.first().map(String::as_str) else {
+            return Ok(ShimOutput::Unsupported("missing command".into()));
+        };
+        if matches!(command, "add" | "commit") {
+            return Ok(ShimOutput::Recorded);
+        }
+        if matches!(
+            command,
+            "stash"
+                | "reset"
+                | "checkout"
+                | "switch"
+                | "restore"
+                | "rm"
+                | "mv"
+                | "merge"
+                | "rebase"
+                | "cherry-pick"
+                | "tag"
+                | "clean"
+                | "push"
+                | "pull"
+                | "fetch"
+                | "clone"
+                | "init"
+        ) {
+            return Ok(ShimOutput::Unsupported(format!(
+                "`git {command}` is not available here: change the files directly; Vibefork records every change and can roll back"
+            )));
+        }
+        let repo = self.repo()?;
+        match command {
+            "status" => Ok(ShimOutput::Text(self.status_short()?)),
+            "diff" => {
+                if args.iter().any(|a| a == "--stat") {
+                    let commit = repo.head().and_then(|h| h.peel_to_commit()).map_err(err)?;
+                    let mut opts = DiffOptions::new();
+                    opts.include_untracked(true)
+                        .recurse_untracked_dirs(true)
+                        .show_untracked_content(true);
+                    let diff = repo
+                        .diff_tree_to_workdir_with_index(
+                            Some(&commit.tree().map_err(err)?),
+                            Some(&mut opts),
+                        )
+                        .map_err(err)?;
+                    let stats = diff.stats().map_err(err)?;
+                    Ok(ShimOutput::Text(
+                        stats
+                            .to_buf(DiffStatsFormat::FULL, 80)
+                            .map_err(err)?
+                            .as_str()
+                            .unwrap_or_default()
+                            .to_owned(),
+                    ))
+                } else {
+                    let commit = repo.head().and_then(|h| h.peel_to_commit()).map_err(err)?;
+                    let mut opts = DiffOptions::new();
+                    opts.include_untracked(true)
+                        .recurse_untracked_dirs(true)
+                        .show_untracked_content(true);
+                    let diff = repo
+                        .diff_tree_to_workdir_with_index(
+                            Some(&commit.tree().map_err(err)?),
+                            Some(&mut opts),
+                        )
+                        .map_err(err)?;
+                    let mut text = String::new();
+                    diff.print(DiffFormat::Patch, |_, _, line| {
+                        if matches!(line.origin(), '+' | '-' | ' ') {
+                            text.push(line.origin());
+                        }
+                        text.push_str(&String::from_utf8_lossy(line.content()));
+                        true
+                    })
+                    .map_err(err)?;
+                    Ok(ShimOutput::Text(text))
+                }
+            }
+            "rev-parse" if args.iter().any(|a| a == "--show-toplevel") => Ok(ShimOutput::Text(
+                format!("{}\n", repo.workdir().unwrap_or(self.dir()).display()),
+            )),
+            "rev-parse" if args.iter().any(|a| a == "HEAD") => Ok(ShimOutput::Text(format!(
+                "{}\n",
+                repo.head()
+                    .and_then(|h| h.peel_to_commit())
+                    .map_err(err)?
+                    .id()
+            ))),
+            "branch" if args.iter().any(|a| a == "--show-current") => {
+                let name = repo
+                    .head()
+                    .map_err(err)?
+                    .shorthand()
+                    .unwrap_or_default()
+                    .to_owned();
+                Ok(ShimOutput::Text(format!("{name}\n")))
+            }
+            "log" => {
+                let limit = args
+                    .windows(2)
+                    .find(|w| w[0] == "-n")
+                    .and_then(|w| w[1].parse::<usize>().ok())
+                    .unwrap_or(10);
+                let mut walk = repo.revwalk().map_err(err)?;
+                walk.push_head().map_err(err)?;
+                let mut text = String::new();
+                for oid in walk.take(limit) {
+                    let c = repo.find_commit(oid.map_err(err)?).map_err(err)?;
+                    if args.iter().any(|a| a == "--oneline") {
+                        text.push_str(&format!(
+                            "{} {}\n",
+                            short(c.id()),
+                            c.summary().ok().flatten().unwrap_or_default()
+                        ));
+                    } else {
+                        text.push_str(&format!(
+                            "commit {}\n\n    {}\n\n",
+                            c.id(),
+                            c.message().unwrap_or_default().replace('\n', "\n    ")
+                        ));
+                    }
+                }
+                Ok(ShimOutput::Text(text))
+            }
+            "show" => {
+                let c = repo
+                    .revparse_single(args.get(1).map(String::as_str).unwrap_or("HEAD"))
+                    .and_then(|o| o.peel_to_commit())
+                    .map_err(err)?;
+                let mut text = format!(
+                    "commit {}\nAuthor: {}\n\n    {}\n\n",
+                    c.id(),
+                    c.author(),
+                    c.message().unwrap_or_default().trim()
+                );
+                let parent = c.parent(0).ok();
+                let before = parent.as_ref().and_then(|p| p.tree().ok());
+                let after = c.tree().map_err(err)?;
+                let diff = repo
+                    .diff_tree_to_tree(before.as_ref(), Some(&after), None)
+                    .map_err(err)?;
+                diff.print(DiffFormat::Patch, |_, _, line| {
+                    if matches!(line.origin(), '+' | '-' | ' ') {
+                        text.push(line.origin());
+                    }
+                    text.push_str(&String::from_utf8_lossy(line.content()));
+                    true
+                })
+                .map_err(err)?;
+                Ok(ShimOutput::Text(text))
+            }
+            other => Ok(ShimOutput::Unsupported(format!(
+                "unsupported command `{other}`"
+            ))),
+        }
+    }
+}
+
+/// Result from the safe Git command subset.
+pub enum ShimOutput {
+    /// Command output.
+    Text(String),
+    /// Vibefork records changes automatically.
+    Recorded,
+    /// Command is not supported.
+    Unsupported(String),
 }
 
 /// One file changed between two commits.
@@ -337,5 +515,59 @@ impl Vcs for Repo {
             .diff_tree_to_tree(Some(&a), Some(&b), None)
             .map_err(err)?;
         Ok(diff.stats().map_err(err)?.files_changed())
+    }
+}
+
+#[cfg(test)]
+mod shim_tests {
+    use super::*;
+
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn shim_reads_status_diff_and_log_without_changing_the_repository() {
+        let dir = std::env::temp_dir().join(format!("vf-git-shim-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(std::fs::create_dir_all(&dir).is_ok());
+        assert!(std::fs::write(dir.join("file.txt"), "before\n").is_ok());
+        let repo = Repo::init_with(&dir, "initial").expect("repository initializes");
+        assert!(std::fs::write(dir.join("file.txt"), "after\n").is_ok());
+
+        let status = repo
+            .shim(&["status".into(), "--short".into()])
+            .expect("status");
+        assert!(matches!(status, ShimOutput::Text(ref text) if text.contains("file.txt")));
+        let diff = repo.shim(&["diff".into(), "HEAD".into()]).expect("diff");
+        assert!(matches!(diff, ShimOutput::Text(ref text) if text.contains("+after")));
+        let log = repo
+            .shim(&["log".into(), "-n".into(), "1".into(), "--oneline".into()])
+            .expect("log");
+        assert!(matches!(log, ShimOutput::Text(ref text) if text.contains("initial")));
+        assert!(matches!(
+            repo.shim(&["commit".into()])
+                .expect("commit acknowledgement"),
+            ShimOutput::Recorded
+        ));
+        assert!(matches!(
+            repo.shim(&["checkout".into(), "file.txt".into()])
+                .expect("checkout refusal"),
+            ShimOutput::Unsupported(_)
+        ));
+        assert_eq!(
+            std::fs::read_to_string(dir.join("file.txt"))
+                .ok()
+                .as_deref(),
+            Some("after\n"),
+            "a refused command changes nothing"
+        );
+        std::fs::create_dir_all(dir.join("sub")).expect("subfolder");
+        let found = Repo::discover(&dir.join("sub")).expect("found from a subfolder");
+        assert!(
+            matches!(found.shim(&["status".into()]), Ok(ShimOutput::Text(ref t)) if t.contains("file.txt"))
+        );
+        assert!(
+            repo.shim(&["not-a-command".into()])
+                .is_ok_and(|o| matches!(o, ShimOutput::Unsupported(_)))
+        );
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

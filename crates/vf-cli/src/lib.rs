@@ -42,7 +42,7 @@ pub trait App {
     fn backend(&self) -> Box<dyn vf_protocol::Backend>;
 }
 
-const USAGE: &str = "usage: vibefork <serve | start | stop | status | open | import | save | github | pairs | keys | storage | doctor | update | install | uninstall | autostart | logs | version>";
+const USAGE: &str = "usage: vibefork <serve | start | stop | status | open | import | save | github | pairs | keys | storage | doctor | update | install | uninstall | autostart | logs | git-shim | version>";
 
 /// Entry point used by the `vibefork` binary.
 pub fn run(args: &[String], app: &dyn App) -> ExitCode {
@@ -51,6 +51,7 @@ pub fn run(args: &[String], app: &dyn App) -> ExitCode {
     match args.first().map(String::as_str) {
         None if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() => menu::run(),
         Some("serve") => app.serve(),
+        Some("git-shim") => git_shim(rest),
         // Internal: the agent runs sandboxed programs through itself.
         Some(vf_sandbox::EXEC_COMMAND) => {
             let raw: Vec<std::ffi::OsString> = std::env::args_os().skip(2).collect();
@@ -87,6 +88,38 @@ pub fn run(args: &[String], app: &dyn App) -> ExitCode {
         Some(other) => {
             eprintln!("vibefork: unknown command `{other}` (try `vibefork help`)");
             ExitCode::from(2)
+        }
+    }
+}
+
+fn git_shim(args: &[String]) -> ExitCode {
+    let dir = match std::env::current_dir() {
+        Ok(dir) => dir,
+        Err(e) => {
+            eprintln!("vibefork git: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let Some(repo) = vf_git::Repo::discover(&dir) else {
+        eprintln!("fatal: not a git repository (or any of the parent directories)");
+        return ExitCode::from(128);
+    };
+    match repo.shim(args) {
+        Ok(vf_git::ShimOutput::Text(text)) => {
+            print!("{text}");
+            ExitCode::SUCCESS
+        }
+        Ok(vf_git::ShimOutput::Recorded) => {
+            eprintln!("changes are recorded by Vibefork automatically");
+            ExitCode::SUCCESS
+        }
+        Ok(vf_git::ShimOutput::Unsupported(reason)) => {
+            eprintln!("vibefork git: {reason}");
+            ExitCode::FAILURE
+        }
+        Err(e) => {
+            eprintln!("vibefork git: {e}");
+            ExitCode::FAILURE
         }
     }
 }

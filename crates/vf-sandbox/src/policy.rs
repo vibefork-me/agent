@@ -78,6 +78,11 @@ pub fn task_policy(project: &Path, tools: &Path, caches: &Path) -> SandboxPolicy
         tools.to_path_buf(),
         caches.to_path_buf(),
     ];
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(parent) = exe.parent()
+    {
+        read.push(parent.to_path_buf());
+    }
     #[cfg(unix)]
     {
         read.extend(SYSTEM_READ.iter().map(PathBuf::from));
@@ -139,6 +144,11 @@ mod tests {
                 "the home itself is not open"
             );
             assert!(p.read.iter().chain(&p.write).all(|x| !x.ends_with(".ssh")));
+        }
+        if let Ok(exe) = std::env::current_exe()
+            && let Some(parent) = exe.parent()
+        {
+            assert!(p.read.iter().any(|path| path == parent));
         }
     }
 }
