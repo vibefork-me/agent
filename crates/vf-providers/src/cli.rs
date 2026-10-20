@@ -15,9 +15,8 @@ pub(crate) fn collect(
     cancel: &Cancel,
 ) -> Result<String, String> {
     let bin = bin.ok_or_else(|| format!("{name} CLI not found"))?;
-    let mut cmd = process::command(bin);
+    let mut cmd = req.env.command(bin);
     cmd.args(args).current_dir(req.dir);
-    req.env.apply(&mut cmd);
     let mut stdout = String::new();
     let mut stderr = String::new();
     let exit = process::run_streaming(
@@ -69,9 +68,8 @@ pub(crate) fn run_cli(
         }));
         return tracker.finish(-1, false);
     };
-    let mut cmd = process::command(bin);
+    let mut cmd = req.env.command(bin);
     cmd.args(&args).current_dir(req.dir);
-    req.env.apply(&mut cmd);
     let exit =
         process::run_streaming(
             cmd,

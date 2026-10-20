@@ -1,12 +1,25 @@
 [package]
 name = "vf-sandbox"
-description = "`Sandbox` trait; the only implementation is `NoopSandbox` (no isolation yet)."
+description = "Isolation of untrusted execution: policy, launcher, Landlock on Linux."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish.workspace = true
+
+[dependencies]
+vf-core.workspace = true
+serde_json.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+landlock = "0.4"
+
+# Test helper with `sandbox-exec` (the agent binary has the same command).
+[[bin]]
+name = "vf-sandbox-helper"
+path = "src/bin/helper.rs"
+test = false
 
 [lints.rust]
 unsafe_code = "deny"

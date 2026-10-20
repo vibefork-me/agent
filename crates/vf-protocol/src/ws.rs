@@ -156,6 +156,9 @@ pub enum ServerMessage {
         toolchain: Vec<String>,
         /// Plan position, for plan steps.
         step: Option<StepInfo>,
+        /// Isolation of the model's processes: `none`, `weak`, `os`, `micro_vm`.
+        #[serde(default)]
+        isolation: String,
     },
     /// A normalized provider event.
     Evt {

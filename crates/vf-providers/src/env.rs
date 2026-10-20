@@ -3,8 +3,11 @@
 
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
+use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
+
+use vf_core::sandbox::Wrapper;
 
 /// Prefixes of variables that never reach a child (compared case-insensitively).
 const DROPPED_PREFIXES: &[&str] = &["CLAUDECODE", "CLAUDE_CODE_", "CLAUDE_", "VF_"];
@@ -15,6 +18,7 @@ const DROPPED_SECRETS: &[&str] = &["OPENROUTER_API_KEY"];
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChildEnv {
     vars: BTreeMap<OsString, OsString>,
+    wrapper: Option<Wrapper>,
 }
 
 impl ChildEnv {
@@ -33,7 +37,10 @@ impl ChildEnv {
                     && !DROPPED_SECRETS.contains(&k.as_str())
             })
             .collect();
-        Self { vars }
+        Self {
+            vars,
+            wrapper: None,
+        }
     }
 
     /// Sets a variable.
@@ -95,6 +102,28 @@ impl ChildEnv {
         }
     }
 
+    /// Runs every command made by [`ChildEnv::command`] through a sandbox launcher.
+    pub fn set_wrapper(&mut self, wrapper: Option<Wrapper>) {
+        self.wrapper = wrapper;
+    }
+
+    /// A command for `program` with these variables — inside the sandbox when a wrapper is set.
+    pub fn command(&self, program: &Path) -> Command {
+        let mut cmd = match &self.wrapper {
+            Some(w) => {
+                let mut c = crate::process::command(&w.program);
+                c.args(&w.prefix).arg(program);
+                c
+            }
+            None => crate::process::command(program),
+        };
+        self.apply(&mut cmd);
+        if let Some(w) = &self.wrapper {
+            cmd.envs(w.env.iter().map(|(k, v)| (k, v)));
+        }
+        cmd
+    }
+
     /// Replaces the environment of `cmd` with these variables.
     pub fn apply(&self, cmd: &mut Command) {
         cmd.env_clear().envs(&self.vars);
@@ -121,6 +150,25 @@ mod tests {
         );
         assert_eq!(env.vars.len(), 2, "{env:?}");
         assert_eq!(env.get("path"), Some(OsStr::new("/bin")));
+    }
+
+    #[test]
+    fn commands_go_through_the_wrapper() {
+        let mut env = ChildEnv::from_vars([(OsString::from("A"), OsString::from("1"))]);
+        env.set_wrapper(Some(Wrapper {
+            program: PathBuf::from("/agent"),
+            prefix: vec!["sandbox-exec".into(), "--".into()],
+            env: vec![("VF_SANDBOX_POLICY".into(), "{}".into())],
+        }));
+        let mut cmd = env.command(Path::new("/bin/sh"));
+        cmd.arg("-c");
+        assert_eq!(cmd.get_program(), "/agent");
+        let args: Vec<_> = cmd.get_args().collect();
+        assert_eq!(args, ["sandbox-exec", "--", "/bin/sh", "-c"]);
+        assert!(
+            cmd.get_envs()
+                .any(|(k, v)| k == "VF_SANDBOX_POLICY" && v == Some(OsStr::new("{}")))
+        );
     }
 
     #[test]

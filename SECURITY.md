@@ -20,13 +20,16 @@ Report vulnerabilities privately through GitHub: **Security → Report a vulnera
 | Your API keys leak | Keys live in the OS secret store; they are not passed to other programs; secrets are redacted in logs | `attacks.rs` (`secrets_never_reach_the_logs`), `vf-providers` (`env`) |
 | Your personal AI setup is used | Claude Code and Codex run without your user settings, MCP servers, plugins and rules | `vf-providers/tests/normalize.rs` |
 | A project's files act on the agent | Git hooks, `core.fsmonitor`, external diff and signing are off for every git call; the agent's own model loop cannot leave the project or touch `.git` | `vf-git/tests/checkpoint.rs`, `vf-providers` (`tools`) |
+| A model or a project reads your other files (Linux) | Landlock sandbox for the CLI, its commands and builds | `vf-sandbox/tests/linux.rs` (canary) |
 | Malformed input crashes or misleads the agent | Parsers of untrusted input are fuzzed | `vf-engine/tests/robustness.rs`, `fuzz/` |
 | Another user of the machine | Nothing works without pairing; the agent's folder is owner-only | — |
 
 ## Known limits
 
-- **No isolation yet.** Builds and commands run by a model have your user's rights; the agent keeps
-  them in the project folder by default, but a malicious project or a model can reach other files.
-  Process isolation is planned; the `Sandbox` interface is in place.
+- **Isolation on Linux only.** On Linux (Landlock, no root) the coding CLI, everything it runs, the
+  agent's own model loop and builds see only the project, the agent's tools and caches, system
+  folders and the CLIs' own data; the rest of your home is closed. Network is open. On macOS and
+  Windows these processes still have your user's rights. The level is reported with every task.
+- Inside the sandbox the coding CLI's own sign-in data is readable by the commands it runs.
 - Windows Authenticode and Apple notarization signatures are not set up yet; releases are verified
   by the agent's own signature.

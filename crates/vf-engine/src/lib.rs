@@ -39,6 +39,7 @@ pub struct Engine {
     tools: PathBuf,
     caches: PathBuf,
     artifacts: PathBuf,
+    sandbox_helper: Option<PathBuf>,
 }
 
 impl Engine {
@@ -53,7 +54,15 @@ impl Engine {
             tools: settings.storage.tools.clone(),
             caches: settings.storage.caches.clone(),
             artifacts: settings.storage.artifacts.clone(),
+            sandbox_helper: None,
         }
+    }
+
+    /// Runs the model's processes and builds in the sandbox, launched through `helper` (the agent
+    /// binary, which has `sandbox-exec`). Without it nothing is isolated.
+    pub fn with_sandbox(mut self, helper: PathBuf) -> Self {
+        self.sandbox_helper = Some(helper);
+        self
     }
 
     /// Every model available now.

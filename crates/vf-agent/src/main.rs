@@ -82,7 +82,7 @@ impl vf_cli::App for Agent {
                 },
                 auth,
                 ui,
-                Arc::new(Engine::new(s, providers())),
+                Arc::new(engine(s)),
             )
             .await
         });
@@ -110,6 +110,18 @@ fn auto_update(settings: &Settings) {
             Err(e) => tracing::info!(error = %e, "update check failed"),
         }
         std::thread::sleep(std::time::Duration::from_secs(6 * 3600));
+    }
+}
+
+/// The engine; the model's processes run in the sandbox through this binary (`sandbox-exec`).
+fn engine(s: &Settings) -> Engine {
+    let engine = Engine::new(s, providers());
+    match std::env::current_exe() {
+        Ok(exe) => engine.with_sandbox(exe),
+        Err(e) => {
+            tracing::warn!(error = %e, "no sandbox: the agent binary is not found");
+            engine
+        }
     }
 }
 

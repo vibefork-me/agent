@@ -43,6 +43,11 @@ pub fn run(args: &[String], app: &dyn App) -> ExitCode {
     match args.first().map(String::as_str) {
         None if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() => menu::run(),
         Some("serve") => app.serve(),
+        // Internal: the agent runs sandboxed programs through itself.
+        Some(vf_sandbox::EXEC_COMMAND) => {
+            let raw: Vec<std::ffi::OsString> = std::env::args_os().skip(2).collect();
+            vf_sandbox::exec_from_env(&raw)
+        }
         Some("start") => agent::start(),
         Some("stop") => agent::stop(),
         Some("status") => agent::status(json),

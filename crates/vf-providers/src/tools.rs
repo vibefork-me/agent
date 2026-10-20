@@ -207,9 +207,8 @@ fn run_command(
     env: &ChildEnv,
     cancel: &Cancel,
 ) -> Result<String, String> {
-    let mut cmd = shell(command);
+    let mut cmd = shell(command, env);
     cmd.current_dir(dir);
-    env.apply(&mut cmd);
     let mut text = String::new();
     let exit = process::run_streaming(cmd, None, cancel, Some(COMMAND_TIMEOUT), &mut |_, line| {
         text.push_str(&line);
@@ -229,9 +228,9 @@ fn run_command(
 /// The command through the system shell: `cmd /d /s /c "<command>"` (the line is passed as is,
 /// like a terminal would) or `/bin/sh -c <command>`.
 #[cfg(windows)]
-fn shell(command: &str) -> Command {
+fn shell(command: &str, env: &ChildEnv) -> Command {
     use std::os::windows::process::CommandExt as _;
-    let mut c = process::command(Path::new("cmd.exe"));
+    let mut c = env.command(Path::new("cmd.exe"));
     c.arg("/d")
         .arg("/s")
         .arg("/c")
@@ -240,8 +239,8 @@ fn shell(command: &str) -> Command {
 }
 
 #[cfg(not(windows))]
-fn shell(command: &str) -> Command {
-    let mut c = process::command(Path::new("/bin/sh"));
+fn shell(command: &str, env: &ChildEnv) -> Command {
+    let mut c = env.command(Path::new("/bin/sh"));
     c.args(["-c", command]);
     c
 }

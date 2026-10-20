@@ -10,6 +10,7 @@ use vf_journal::{JournalStore as _, Vcs as _};
 use vf_protocol::http::{JournalEntry, RollbackResponse};
 use vf_protocol::ws::ServerMessage;
 use vf_protocol::{BackendError, Cancel};
+use vf_providers::ChildEnv;
 use vf_providers::process::{self, Stream};
 
 use crate::Engine;
@@ -65,11 +66,10 @@ impl Engine {
             return error(out, format!("not enough resources: {text}"));
         }
 
-        let (env, _) = self.child_env(&dir, out, cancel);
+        let (env, _, _) = self.child_env(&dir, out, cancel);
         let started = Instant::now();
-        let mut cmd = shell(&dir, &recipe.program, &recipe.args);
+        let mut cmd = shell(&dir, &recipe.program, &recipe.args, &env);
         cmd.current_dir(&dir);
-        env.apply(&mut cmd);
         let exit = process::run_streaming(
             cmd,
             None,
@@ -172,7 +172,7 @@ impl Engine {
 /// wrapper in the project is called by full path, the current folder may not be searched),
 /// `/bin/sh` elsewhere.
 #[cfg(windows)]
-fn shell(dir: &Path, program: &str, args: &[String]) -> std::process::Command {
+fn shell(dir: &Path, program: &str, args: &[String], env: &ChildEnv) -> std::process::Command {
     use std::os::windows::process::CommandExt as _;
     let first = if dir.join(program).is_file() {
         format!("\"{}\"", dir.join(program).display())
@@ -183,7 +183,7 @@ fn shell(dir: &Path, program: &str, args: &[String]) -> std::process::Command {
         .chain(args.iter().cloned())
         .collect::<Vec<_>>()
         .join(" ");
-    let mut c = process::command(Path::new("cmd.exe"));
+    let mut c = env.command(Path::new("cmd.exe"));
     c.arg("/d")
         .arg("/s")
         .arg("/c")
@@ -192,12 +192,12 @@ fn shell(dir: &Path, program: &str, args: &[String]) -> std::process::Command {
 }
 
 #[cfg(not(windows))]
-fn shell(_dir: &Path, program: &str, args: &[String]) -> std::process::Command {
+fn shell(_dir: &Path, program: &str, args: &[String], env: &ChildEnv) -> std::process::Command {
     let line = std::iter::once(program.to_owned())
         .chain(args.iter().cloned())
         .collect::<Vec<_>>()
         .join(" ");
-    let mut c = process::command(Path::new("/bin/sh"));
+    let mut c = env.command(Path::new("/bin/sh"));
     c.args(["-c", &line]);
     c
 }

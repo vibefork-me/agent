@@ -8,6 +8,7 @@ use vf_journal::{JournalStore as _, StepReport, StepStart, handoff_preamble};
 use vf_protocol::ws::{ServerMessage, StepInfo, ToolchainStatus};
 use vf_protocol::{Cancel, Event};
 use vf_providers::{ChildEnv, Output, Provider, RunRequest};
+use vf_sandbox::IsolationLevel;
 use vf_toolchains::Progress;
 
 use crate::{Engine, MAX_DIFF};
@@ -61,7 +62,7 @@ impl Engine {
         dir: &Path,
         out: &mut dyn FnMut(ServerMessage),
         cancel: &Cancel,
-    ) -> (ChildEnv, Vec<String>) {
+    ) -> (ChildEnv, Vec<String>, IsolationLevel) {
         let mut env = ChildEnv::from_current();
         // Commits made by the model carry the agent's identity, not the user's git identity.
         for (k, v) in [
@@ -111,14 +112,22 @@ impl Engine {
         for (k, v) in prepared.env {
             env.set(k, v);
         }
-        (
-            env,
-            prepared
-                .paths
-                .iter()
-                .map(|p| p.display().to_string())
-                .collect(),
-        )
+        // Everything the model and the build start runs in the sandbox (when there is one).
+        let level = match &self.sandbox_helper {
+            Some(helper) => {
+                let policy = vf_sandbox::task_policy(dir, &self.tools, &self.caches);
+                let (wrapper, level) = vf_sandbox::prepare(&policy, helper);
+                env.set_wrapper(wrapper);
+                level
+            }
+            None => IsolationLevel::None,
+        };
+        let paths = prepared
+            .paths
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect();
+        (env, paths, level)
     }
 
     /// Runs one step and journals it.
@@ -152,7 +161,7 @@ impl Engine {
             }
         }
 
-        let (env, toolchain) = self.child_env(req.dir, out, cancel);
+        let (env, toolchain, isolation) = self.child_env(req.dir, out, cancel);
         out(ServerMessage::Started {
             project: req.project.to_owned(),
             provider: id.to_owned(),
@@ -165,6 +174,7 @@ impl Engine {
             handoff,
             toolchain,
             step: req.step.cloned(),
+            isolation: isolation.as_str().into(),
         });
         tracing::info!(
             project = req.project,

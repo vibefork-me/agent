@@ -1114,6 +1114,11 @@
               "description": "Context handed over from the journal.",
               "type": "boolean"
             },
+            "isolation": {
+              "default": "",
+              "description": "Isolation of the model's processes: `none`, `weak`, `os`, `micro_vm`.",
+              "type": "string"
+            },
             "model": {
               "description": "Model.",
               "type": "string"

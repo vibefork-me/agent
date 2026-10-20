@@ -1,0 +1,112 @@
+//! The policy of a task: the project and the agent's folders, the system, and the data of the
+//! coding CLIs. The rest of the user's home stays closed.
+
+use std::path::{Path, PathBuf};
+
+use vf_core::sandbox::SandboxPolicy;
+
+/// System folders: readable (programs, libraries, certificates, DNS settings).
+#[cfg(unix)]
+const SYSTEM_READ: &[&str] = &[
+    "/usr",
+    "/bin",
+    "/sbin",
+    "/lib",
+    "/lib32",
+    "/lib64",
+    "/libx32",
+    "/etc",
+    "/opt",
+    "/nix",
+    "/snap",
+    "/proc",
+    "/sys",
+    "/run",
+    "/var/lib",
+    "/Library",
+    "/System",
+    "/Applications",
+    "/private/etc",
+    "/private/var/db",
+];
+/// System folders a process needs to write.
+#[cfg(unix)]
+const SYSTEM_WRITE: &[&str] = &[
+    "/dev",
+    "/tmp",
+    "/var/tmp",
+    "/private/tmp",
+    "/private/var/folders",
+];
+
+/// Inside the home: data of the coding CLIs and package managers (read and write).
+const HOME_WRITE: &[&str] = &[
+    ".claude",
+    ".claude.json",
+    ".codex",
+    ".npm",
+    ".cache",
+    ".local",
+    ".bun",
+    ".yarn",
+    ".pnpm-store",
+    ".gradle",
+    ".m2",
+];
+/// Inside the home: tool settings and installs (read only).
+const HOME_READ: &[&str] = &[
+    ".gitconfig",
+    ".config/git",
+    ".nvm",
+    ".cargo",
+    ".rustup",
+    ".sdkman",
+    ".pyenv",
+    ".volta",
+];
+
+/// The policy for work in `project`: it and the agent's `tools` / `caches` are writable.
+pub fn task_policy(project: &Path, tools: &Path, caches: &Path) -> SandboxPolicy {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let mut read: Vec<PathBuf> = Vec::new();
+    let mut write: Vec<PathBuf> = vec![
+        project.to_path_buf(),
+        tools.to_path_buf(),
+        caches.to_path_buf(),
+    ];
+    #[cfg(unix)]
+    {
+        read.extend(SYSTEM_READ.iter().map(PathBuf::from));
+        write.extend(SYSTEM_WRITE.iter().map(PathBuf::from));
+    }
+    if let Some(home) = &home {
+        write.extend(HOME_WRITE.iter().map(|p| home.join(p)));
+        read.extend(HOME_READ.iter().map(|p| home.join(p)));
+    }
+    if let Some(tmp) = std::env::var_os("TMPDIR").map(PathBuf::from) {
+        write.push(tmp);
+    }
+    // Only paths that exist (a rule for a missing path cannot be created).
+    read.retain(|p| p.exists());
+    write.retain(|p| p.exists());
+    SandboxPolicy { read, write }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn project_and_agent_folders_are_writable_home_is_not() {
+        let tmp = std::env::temp_dir();
+        let p = task_policy(&tmp, &tmp, &tmp);
+        assert!(p.write.contains(&tmp));
+        if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+            assert!(
+                !p.read.contains(&home) && !p.write.contains(&home),
+                "the home itself is not open"
+            );
+            assert!(p.read.iter().chain(&p.write).all(|x| !x.ends_with(".ssh")));
+        }
+    }
+}

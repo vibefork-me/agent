@@ -17,6 +17,7 @@ vf-platform.workspace = true
 vf-providers.workspace = true
 vf-toolchains.workspace = true
 vf-builds.workspace = true
+vf-sandbox.workspace = true
 tracing.workspace = true
 
 [lints]
