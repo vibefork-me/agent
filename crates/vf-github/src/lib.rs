@@ -187,6 +187,26 @@ fn http() -> Result<reqwest::Client, GithubError> {
         .map_err(|e| GithubError::Http(e.to_string()))
 }
 
+/// The error for a request refused by GitHub's limit of requests (60 an hour per address without
+/// a sign-in, 5000 with one).
+fn rate_limited(status: u16, headers: &reqwest::header::HeaderMap) -> Option<GithubError> {
+    let num = |name: &str| {
+        headers
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse::<u64>().ok())
+    };
+    if !matches!(status, 403 | 429) || num("x-ratelimit-remaining") != Some(0) {
+        return None;
+    }
+    let minutes = num("x-ratelimit-reset")
+        .map(|at| at.saturating_sub(now()).div_ceil(60).max(1))
+        .unwrap_or(60);
+    Some(GithubError::Http(format!(
+        "GitHub's limit of requests is reached; connect GitHub or try again in {minutes} min"
+    )))
+}
+
 /// REST client; anonymous for public data or with the user's token.
 pub struct Client {
     token: Option<Secret<String>>,
@@ -225,7 +245,11 @@ impl Client {
                 .await
                 .map_err(|e| GithubError::Http(e.to_string()))?;
             let status = res.status();
+            let limit = rate_limited(status.as_u16(), res.headers());
             let v: Value = res.json().await.unwrap_or(Value::Null);
+            if let Some(e) = limit {
+                return Err(e);
+            }
             match status.as_u16() {
                 200..=299 => Ok(v),
                 404 => Err(GithubError::NotFound),
@@ -346,28 +370,50 @@ impl Client {
             .find(|i| i.repos.iter().any(|r| r.eq_ignore_ascii_case(full_name))))
     }
 
-    /// The fork of `upstream` owned by `login`, under any name (the newest forks first).
+    /// The fork of `upstream` owned by `login`, under any name: among the repositories the app
+    /// reaches, then among the user's public forks (the newest first; up to 30 checked). The list
+    /// of an original's forks is not used: for a popular original GitHub often fails to give it.
     pub fn find_fork(&self, upstream: &str, login: &str) -> Result<Option<RepoInfo>, GithubError> {
+        let mut candidates: Vec<String> = self
+            .installations()?
+            .into_iter()
+            .filter(|i| !i.all)
+            .flat_map(|i| i.repos)
+            .collect();
         for page in 1..=3 {
             let v = self.get(&format!(
-                "/repos/{upstream}/forks?sort=newest&per_page=100&page={page}"
+                "/users/{login}/repos?type=owner&sort=created&direction=desc&per_page=100&page={page}"
             ))?;
             let list = v.as_array().cloned().unwrap_or_default();
-            if let Some(f) = list.iter().find(|f| {
-                f["owner"]["login"]
-                    .as_str()
-                    .is_some_and(|o| o.eq_ignore_ascii_case(login))
-            }) {
-                return Ok(Some(RepoInfo {
-                    id: f["id"].as_u64().unwrap_or(0),
-                    full_name: f["full_name"].as_str().unwrap_or_default().to_owned(),
-                    default_branch: f["default_branch"].as_str().unwrap_or("main").to_owned(),
-                    parent: Some(upstream.to_owned()),
-                    private: f["private"].as_bool().unwrap_or(false),
-                }));
-            }
+            candidates.extend(
+                list.iter()
+                    .filter(|r| r["fork"].as_bool() == Some(true))
+                    .filter_map(|r| r["full_name"].as_str().map(str::to_owned)),
+            );
             if list.len() < 100 {
                 break;
+            }
+        }
+        let mut checked = std::collections::HashSet::new();
+        for full in candidates {
+            if checked.len() >= 30 {
+                break;
+            }
+            if !full
+                .split('/')
+                .next()
+                .is_some_and(|o| o.eq_ignore_ascii_case(login))
+                || !checked.insert(full.to_ascii_lowercase())
+            {
+                continue;
+            }
+            if let Some(info) = self.repo(&full)?
+                && info
+                    .parent
+                    .as_deref()
+                    .is_some_and(|p| p.eq_ignore_ascii_case(upstream))
+            {
+                return Ok(Some(info));
             }
         }
         Ok(None)
@@ -520,6 +566,7 @@ impl Client {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -544,6 +591,21 @@ mod tests {
         ] {
             assert_eq!(parse_repo(bad), None, "{bad}");
         }
+    }
+
+    #[test]
+    fn limit_of_requests() {
+        let mut h = reqwest::header::HeaderMap::new();
+        h.insert("x-ratelimit-remaining", "0".parse().unwrap());
+        h.insert(
+            "x-ratelimit-reset",
+            (now() + 600).to_string().parse().unwrap(),
+        );
+        let e = rate_limited(403, &h).unwrap().to_string();
+        assert!(e.contains("connect GitHub or try again in 10 min"), "{e}");
+        assert!(rate_limited(404, &h).is_none());
+        h.insert("x-ratelimit-remaining", "5".parse().unwrap());
+        assert!(rate_limited(403, &h).is_none());
     }
 
     #[test]
