@@ -1,0 +1,43 @@
+name: macos-builds
+
+# Release builds of the agent for macOS (Apple silicon and Intel) in two versions, 0.0.1 and 0.0.2,
+# for an acceptance run on a Mac: the first is installed, the second is the update. Unsigned by
+# Apple; the release channel is signed offline. Manual runs only.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [aarch64-apple-darwin, x86_64-apple-darwin]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Toolchain (pinned in rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Target
+        run: rustup target add ${{ matrix.target }}
+      - name: Build cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+          add-rust-environment-hash-key: false
+      - name: Build 0.0.1 and 0.0.2
+        run: |
+          for v in 0.0.1 0.0.2; do
+            sed -i '' -E "s/^version = \"[0-9.]+\"/version = \"$v\"/" Cargo.toml
+            cargo build --release --target ${{ matrix.target }} -p vf-agent -p vf-tray
+            mkdir -p "out/$v"
+            cp "target/${{ matrix.target }}/release/vibefork" "target/${{ matrix.target }}/release/vibefork-tray" "out/$v/"
+            "out/$v/vibefork" version || true
+          done
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos-${{ matrix.target }}
+          path: out/
