@@ -265,6 +265,7 @@ fn home() -> PathBuf {
         .unwrap_or_default()
 }
 
+#[cfg(any(windows, target_os = "macos"))]
 fn run(cmd: &mut Command) -> Result<String, String> {
     #[cfg(windows)]
     {
