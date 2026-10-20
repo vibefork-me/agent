@@ -1027,6 +1027,13 @@
     "SaveRequest": {
       "description": "Request of `POST /v1/save`.",
       "properties": {
+        "copy": {
+          "description": "Repository to save into (`owner/name`), when the user picked one; otherwise the agent finds or proposes it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "project": {
           "description": "Project.",
           "type": "string"
@@ -1049,6 +1056,27 @@
         },
         "copy": {
           "description": "The user's copy: `owner/name`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "files": {
+          "description": "Files of a conflict.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "name": {
+          "description": "Name for the repository the user creates.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "next_url": {
+          "description": "The page after `url` (see [`SaveStep`]).",
           "type": [
             "string",
             "null"
@@ -1096,9 +1124,16 @@
           "type": "string"
         },
         {
-          "description": "Create the copy on github.com (`url`).",
+          "description": "Create the copy of the original on github.com (`url`; `name` — a free name for it when the usual one is taken; `next_url` — allowing the app on it, for a private copy).",
           "enum": [
             "create_copy"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The project has no original on GitHub: create an empty private repository (`url`, named `name`), then allow the app on it (`next_url`).",
+          "enum": [
+            "create_repo"
           ],
           "type": "string"
         },
@@ -1106,6 +1141,20 @@
           "description": "Allow the app on the copy (`url`).",
           "enum": [
             "allow_app"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The app reaches every repository of the account: leave only the copy (`url`).",
+          "enum": [
+            "narrow_access"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The copy has moved on, and these `files` were changed both there and here: nothing saved.",
+          "enum": [
+            "conflict"
           ],
           "type": "string"
         }

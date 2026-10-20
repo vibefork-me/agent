@@ -133,3 +133,45 @@ fn project_hooks_never_run_and_agent_identity_is_used() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn changes_from_nothing_and_blob_ids() {
+    let dir = temp_dir("blobs");
+    std::fs::create_dir_all(dir.join("src")).unwrap();
+    std::fs::write(dir.join("a.txt"), "one\n").unwrap();
+    std::fs::write(dir.join("src/b.txt"), "two\n").unwrap();
+    let repo = Repo::init(&dir).unwrap();
+    let start = repo.head().unwrap();
+
+    let mut all: Vec<String> = repo
+        .changes("", &start)
+        .unwrap()
+        .into_iter()
+        .map(|c| c.path)
+        .collect();
+    all.sort();
+    assert_eq!(all, ["a.txt", "src/b.txt"]);
+
+    std::fs::write(dir.join("a.txt"), "changed\n").unwrap();
+    repo.commit_all("edit", &[]).unwrap();
+    let head = repo.head().unwrap();
+    let paths = vec![
+        "a.txt".to_owned(),
+        "src/b.txt".to_owned(),
+        "missing".to_owned(),
+    ];
+    let (before, after) = (
+        repo.blob_ids(&start, &paths).unwrap(),
+        repo.blob_ids(&head, &paths).unwrap(),
+    );
+    assert_ne!(before["a.txt"], after["a.txt"]);
+    assert_eq!(before["src/b.txt"], after["src/b.txt"]);
+    assert!(!after.contains_key("missing"));
+    // Git's own blob id of "two\n".
+    assert_eq!(
+        after["src/b.txt"],
+        "f719efd430d52bcfc8566a43b2eb655688d38871"
+    );
+    assert!(repo.blob_ids("", &paths).unwrap().is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+}

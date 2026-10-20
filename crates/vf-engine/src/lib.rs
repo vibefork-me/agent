@@ -19,7 +19,7 @@ use vf_journal::JournalStore as _;
 use vf_platform::{JournalFiles, ProjectError, Projects, Settings};
 use vf_protocol::http::{
     GithubConnectResponse, GithubStatusResponse, ImportRequest, ImportResponse, JournalResponse,
-    ModelsResponse, ProjectsResponse, RollbackResponse, SaveResponse,
+    ModelsResponse, ProjectsResponse, RollbackResponse, SaveRequest, SaveResponse,
 };
 use vf_protocol::ws::ServerMessage;
 use vf_protocol::{Backend, BackendError, Cancel, ModelInfo, TaskRequest};
@@ -258,12 +258,12 @@ impl Backend for Engine {
         self.needs_confirm(project)
     }
 
-    fn save(&self, project: &str) -> Result<SaveResponse, BackendError> {
+    fn save(&self, req: &SaveRequest) -> Result<SaveResponse, BackendError> {
         let mut out = |_| {};
         let mut result = Err(BackendError::BadRequest(
             "a task is running in this project".into(),
         ));
-        self.exclusive(project, &mut out, |_| result = self.save_project(project));
+        self.exclusive(&req.project, &mut out, |_| result = self.save_project(req));
         result
     }
 

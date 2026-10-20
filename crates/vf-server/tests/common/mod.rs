@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use vf_protocol::http::{
     GithubConnectResponse, GithubStatusResponse, ImportRequest, ImportResponse, JournalResponse,
-    ModelsResponse, ProjectsResponse, RollbackResponse, SaveResponse, SaveStep,
+    ModelsResponse, ProjectsResponse, RollbackResponse, SaveRequest, SaveResponse, SaveStep,
 };
 use vf_protocol::ws::ServerMessage;
 use vf_protocol::{Backend, BackendError, Cancel, TaskRequest};
@@ -62,12 +62,15 @@ impl Backend for FakeBackend {
     fn save_needs_confirm(&self, _: &str) -> bool {
         true
     }
-    fn save(&self, _: &str) -> Result<SaveResponse, BackendError> {
+    fn save(&self, _: &SaveRequest) -> Result<SaveResponse, BackendError> {
         Ok(SaveResponse {
             step: SaveStep::Saved,
             url: None,
             copy: None,
             commit: None,
+            next_url: None,
+            name: None,
+            files: Vec::new(),
         })
     }
     fn run_task(&self, _: TaskRequest, out: &mut dyn FnMut(ServerMessage), _: &Cancel) {

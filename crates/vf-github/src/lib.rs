@@ -5,11 +5,13 @@
 //!
 //! The app has only `contents: write` and `metadata: read`, on the repositories the user installs it
 //! on (one copy at a time). It cannot create, delete or administer repositories: the user creates
-//! the copy on github.com ([`fork_url`]) and allows the app on it ([`install_url`]).
+//! the copy on github.com ([`fork_url`], or [`new_repo_url`] for a project that has no original on
+//! GitHub) and allows the app on it ([`install_url`], [`install_url_any`]).
 
 mod archive;
 mod device;
 
+use std::collections::HashMap;
 use std::future::Future;
 use std::time::Duration;
 
@@ -101,6 +103,35 @@ pub fn install_url(user_id: u64, repo_id: u64) -> String {
     format!(
         "https://github.com/apps/{APP_SLUG}/installations/new/permissions?suggested_target_id={user_id}&repository_ids[]={repo_id}"
     )
+}
+
+/// The page where the user creates an empty repository with a prefilled name (private).
+pub fn new_repo_url(name: &str) -> String {
+    format!("https://github.com/new?name={name}&visibility=private")
+}
+
+/// The page that installs the app; the user picks the repository there (it is not visible to
+/// the app before, so it cannot be preselected).
+pub fn install_url_any(user_id: u64) -> String {
+    format!(
+        "https://github.com/apps/{APP_SLUG}/installations/new/permissions?suggested_target_id={user_id}"
+    )
+}
+
+/// The page where the user changes which repositories an installation of the app reaches.
+pub fn installation_url(installation_id: u64) -> String {
+    format!("https://github.com/settings/installations/{installation_id}")
+}
+
+/// An installation of the app visible to the user.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Installation {
+    /// Id.
+    pub id: u64,
+    /// The app reaches every repository of the account.
+    pub all: bool,
+    /// Repositories it reaches (`owner/name`).
+    pub repos: Vec<String>,
 }
 
 /// A repository.
@@ -277,9 +308,10 @@ impl Client {
         })?
     }
 
-    /// Whether the app is installed on `full_name` for this user.
-    pub fn app_installed_on(&self, full_name: &str) -> Result<bool, GithubError> {
+    /// Installations of the app the user sees.
+    pub fn installations(&self) -> Result<Vec<Installation>, GithubError> {
         let installations = self.get("/user/installations")?;
+        let mut out = Vec::new();
         for inst in installations["installations"]
             .as_array()
             .into_iter()
@@ -292,16 +324,102 @@ impl Client {
             let repos = self.get(&format!(
                 "/user/installations/{id}/repositories?per_page=100"
             ))?;
-            if repos["repositories"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .any(|r| r["full_name"] == full_name)
-            {
-                return Ok(true);
+            out.push(Installation {
+                id,
+                all: inst["repository_selection"] == "all",
+                repos: repos["repositories"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|r| r["full_name"].as_str().map(str::to_owned))
+                    .collect(),
+            });
+        }
+        Ok(out)
+    }
+
+    /// The installation of the app that reaches `full_name`.
+    pub fn installation_on(&self, full_name: &str) -> Result<Option<Installation>, GithubError> {
+        Ok(self
+            .installations()?
+            .into_iter()
+            .find(|i| i.repos.iter().any(|r| r.eq_ignore_ascii_case(full_name))))
+    }
+
+    /// The fork of `upstream` owned by `login`, under any name (the newest forks first).
+    pub fn find_fork(&self, upstream: &str, login: &str) -> Result<Option<RepoInfo>, GithubError> {
+        for page in 1..=3 {
+            let v = self.get(&format!(
+                "/repos/{upstream}/forks?sort=newest&per_page=100&page={page}"
+            ))?;
+            let list = v.as_array().cloned().unwrap_or_default();
+            if let Some(f) = list.iter().find(|f| {
+                f["owner"]["login"]
+                    .as_str()
+                    .is_some_and(|o| o.eq_ignore_ascii_case(login))
+            }) {
+                return Ok(Some(RepoInfo {
+                    id: f["id"].as_u64().unwrap_or(0),
+                    full_name: f["full_name"].as_str().unwrap_or_default().to_owned(),
+                    default_branch: f["default_branch"].as_str().unwrap_or("main").to_owned(),
+                    parent: Some(upstream.to_owned()),
+                    private: f["private"].as_bool().unwrap_or(false),
+                }));
+            }
+            if list.len() < 100 {
+                break;
             }
         }
-        Ok(false)
+        Ok(None)
+    }
+
+    /// Whether a repository has no commits.
+    pub fn is_empty(&self, full_name: &str) -> Result<bool, GithubError> {
+        let v = self.get(&format!("/repos/{full_name}/branches?per_page=1"))?;
+        Ok(v.as_array().is_none_or(Vec::is_empty))
+    }
+
+    /// The commit a branch points to; `None` when there is no such branch.
+    pub fn ref_head(&self, full_name: &str, branch: &str) -> Result<Option<String>, GithubError> {
+        match self.get(&format!("/repos/{full_name}/git/ref/heads/{branch}")) {
+            Ok(v) => Ok(v["object"]["sha"].as_str().map(str::to_owned)),
+            Err(GithubError::NotFound) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Git blob ids of `paths` at commit `sha` (a path that is not a file there is absent).
+    pub fn blob_ids(
+        &self,
+        full_name: &str,
+        sha: &str,
+        paths: &[String],
+    ) -> Result<HashMap<String, String>, GithubError> {
+        let v = self.get(&format!("/repos/{full_name}/git/trees/{sha}?recursive=1"))?;
+        let mut out = HashMap::new();
+        if v["truncated"].as_bool() != Some(true) {
+            for e in v["tree"].as_array().into_iter().flatten() {
+                if e["type"] == "blob"
+                    && let (Some(p), Some(id)) = (e["path"].as_str(), e["sha"].as_str())
+                    && paths.iter().any(|x| x == p)
+                {
+                    out.insert(p.to_owned(), id.to_owned());
+                }
+            }
+            return Ok(out);
+        }
+        for p in paths {
+            match self.get(&format!("/repos/{full_name}/contents/{p}?ref={sha}")) {
+                Ok(f) if f["type"] == "file" => {
+                    if let Some(id) = f["sha"].as_str() {
+                        out.insert(p.clone(), id.to_owned());
+                    }
+                }
+                Ok(_) | Err(GithubError::NotFound) => {}
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(out)
     }
 
     /// Whether a commit exists in a repository.
@@ -313,20 +431,39 @@ impl Client {
         }
     }
 
-    /// Writes `changes` on top of commit `parent` as one commit and points [`SAVE_BRANCH`] at it.
-    /// Returns the new commit.
+    /// Writes `changes` on top of commit `parent` as one commit and points `branch` at it (only
+    /// forward: a branch that moved elsewhere is not overwritten). `parent: None` — the repository
+    /// is empty: `changes` are all its files, the commit is its first one and `branch` its default
+    /// branch. Returns the new commit.
     pub fn save(
         &self,
         full_name: &str,
-        parent: &str,
+        parent: Option<&str>,
+        branch: &str,
         message: &str,
         changes: &[Change],
     ) -> Result<String, GithubError> {
-        let base = self.get(&format!("/repos/{full_name}/git/commits/{parent}"))?;
-        let base_tree = base["tree"]["sha"]
-            .as_str()
-            .ok_or_else(|| GithubError::Data("no tree".into()))?
-            .to_owned();
+        let base_tree = match parent {
+            Some(parent) => {
+                let base = self.get(&format!("/repos/{full_name}/git/commits/{parent}"))?;
+                Some(
+                    base["tree"]["sha"]
+                        .as_str()
+                        .ok_or_else(|| GithubError::Data("no tree".into()))?
+                        .to_owned(),
+                )
+            }
+            None => {
+                // The Git Data API does not write into an empty repository: one file through the
+                // contents API makes it non-empty; the first commit below replaces that commit.
+                self.call(
+                    reqwest::Method::PUT,
+                    &format!("/repos/{full_name}/contents/.vibefork"),
+                    Some(json!({ "message": "vibefork: start", "content": "dmliZWZvcmsK" })),
+                )?;
+                None
+            }
+        };
         let mut entries = Vec::new();
         for c in changes {
             match c {
@@ -345,33 +482,38 @@ impl Client {
                 ),
             }
         }
-        let tree = self.post(
-            &format!("/repos/{full_name}/git/trees"),
-            json!({ "base_tree": base_tree, "tree": entries }),
-        )?;
+        let mut tree_body = json!({ "tree": entries });
+        if let Some(t) = base_tree {
+            tree_body["base_tree"] = json!(t);
+        }
+        let tree = self.post(&format!("/repos/{full_name}/git/trees"), tree_body)?;
+        let parents: Vec<&str> = parent.into_iter().collect();
         let commit = self.post(
             &format!("/repos/{full_name}/git/commits"),
-            json!({ "message": message, "tree": tree["sha"], "parents": [parent] }),
+            json!({ "message": message, "tree": tree["sha"], "parents": parents }),
         )?;
         let sha = commit["sha"]
             .as_str()
             .ok_or_else(|| GithubError::Data("no commit".into()))?
             .to_owned();
-        let path = format!("/repos/{full_name}/git/refs/heads/{SAVE_BRANCH}");
-        match self.call(
-            reqwest::Method::PATCH,
-            &path,
-            Some(json!({ "sha": sha, "force": false })),
-        ) {
-            Ok(_) => {}
-            // The branch does not exist yet (GitHub answers 422 for a missing ref).
-            Err(GithubError::NotFound | GithubError::Http(_)) => {
-                self.post(
-                    &format!("/repos/{full_name}/git/refs"),
-                    json!({ "ref": format!("refs/heads/{SAVE_BRANCH}"), "sha": sha }),
-                )?;
-            }
-            Err(e) => return Err(e),
+        if self.ref_head(full_name, branch)?.is_some() {
+            self.call(
+                reqwest::Method::PATCH,
+                &format!("/repos/{full_name}/git/refs/heads/{branch}"),
+                // Forced only over the start commit of an empty repository.
+                Some(json!({ "sha": sha, "force": parent.is_none() })),
+            )
+            .map_err(|e| match e {
+                GithubError::Http(m) if m.contains("422") => GithubError::Data(format!(
+                    "branch {branch} of {full_name} has changes not made with Vibefork"
+                )),
+                e => e,
+            })?;
+        } else {
+            self.post(
+                &format!("/repos/{full_name}/git/refs"),
+                json!({ "ref": format!("refs/heads/{branch}"), "sha": sha }),
+            )?;
         }
         Ok(sha)
     }
@@ -407,6 +549,14 @@ mod tests {
     #[test]
     fn links() {
         assert_eq!(fork_url("o/r"), "https://github.com/o/r/fork");
+        assert_eq!(
+            new_repo_url("r"),
+            "https://github.com/new?name=r&visibility=private"
+        );
+        assert_eq!(
+            install_url_any(1),
+            "https://github.com/apps/vibefork-me/installations/new/permissions?suggested_target_id=1"
+        );
         assert_eq!(
             install_url(1, 2),
             "https://github.com/apps/vibefork-me/installations/new/permissions?suggested_target_id=1&repository_ids[]=2"

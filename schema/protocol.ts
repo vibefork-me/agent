@@ -97,13 +97,13 @@ export type RollbackRequest = { commit: string; project: string };
 export type RollbackResponse = { commit: string; project: string };
 
 /** Request of `POST /v1/save`. */
-export type SaveRequest = { project: string };
+export type SaveRequest = { copy?: string | null; project: string };
 
 /** Response of `POST /v1/save`. */
-export type SaveResponse = { commit?: string | null; copy?: string | null; step: SaveStep; url?: string | null };
+export type SaveResponse = { commit?: string | null; copy?: string | null; files?: (string)[]; name?: string | null; next_url?: string | null; step: SaveStep; url?: string | null };
 
 /** What "Save" did or what the user does next. */
-export type SaveStep = "saved" | "unchanged" | "connect_github" | "create_copy" | "allow_app";
+export type SaveStep = "saved" | "unchanged" | "connect_github" | "create_copy" | "create_repo" | "allow_app" | "narrow_access" | "conflict";
 
 /** Messages from the agent. */
 export type ServerMessage = { keyId: string; type: "authed" } | { data: string; type: "echo" } | { choice: ModelInfo; rating: Rating; type: "routing" } | { rating?: Rating | null; type: "planning" } | { costUsd?: number | null; planner: string; steps: (PlanStepInfo)[]; type: "plan" } | { error?: string | null; path?: string | null; seconds?: string | null; status: ToolchainStatus; tool: string; type: "toolchain" } | { handoff: boolean; isolation?: string; model: string; project: string; provider: string; resume: boolean; step?: StepInfo | null; toolchain: (string)[]; type: "started" } | { ev: Event; provider: string; type: "evt" } | { text: string; type: "stderr" } | { commit?: string | null; n: number; of: number; ok: boolean; type: "step-done" } | { type: "cancelled" } | { code: number; commit?: string | null; diff: string; model?: string | null; plan?: boolean; provider?: string | null; sessionId?: string | null; status: string; type: "done" } | { text: string; type: "estimate"; verdict: string } | { text: string; type: "build_log" } | { artifacts?: string | null; code: number; files: (string)[]; seconds: number; type: "build_done" } | { error: string; type: "error" };

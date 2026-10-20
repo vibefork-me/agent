@@ -159,12 +159,18 @@ pub struct FileChange {
 }
 
 impl Repo {
-    /// Files added, changed or deleted from `base` to `head`, with their new content.
+    /// Files added, changed or deleted from `base` to `head`, with their new content; `base` empty —
+    /// every file of `head`.
     pub fn changes(&self, base: &str, head: &str) -> Result<Vec<FileChange>, JournalError> {
         let repo = self.repo()?;
-        let (a, b) = (tree_of(&repo, base)?, tree_of(&repo, head)?);
+        let a = if base.is_empty() {
+            None
+        } else {
+            Some(tree_of(&repo, base)?)
+        };
+        let b = tree_of(&repo, head)?;
         let diff = repo
-            .diff_tree_to_tree(Some(&a), Some(&b), None)
+            .diff_tree_to_tree(a.as_ref(), Some(&b), None)
             .map_err(err)?;
         let mut out = Vec::new();
         for d in diff.deltas() {
@@ -187,6 +193,29 @@ impl Repo {
                     mode: format!("{:o}", u32::from(new.mode())),
                     content: Some(blob.content().to_vec()),
                 });
+            }
+        }
+        Ok(out)
+    }
+
+    /// Git blob ids of `paths` at `commit` (a path that is not a file there is absent; `commit`
+    /// empty — none).
+    pub fn blob_ids(
+        &self,
+        commit: &str,
+        paths: &[String],
+    ) -> Result<std::collections::HashMap<String, String>, JournalError> {
+        let mut out = std::collections::HashMap::new();
+        if commit.is_empty() {
+            return Ok(out);
+        }
+        let repo = self.repo()?;
+        let tree = tree_of(&repo, commit)?;
+        for p in paths {
+            if let Ok(e) = tree.get_path(Path::new(p))
+                && e.kind() == Some(git2::ObjectType::Blob)
+            {
+                out.insert(p.clone(), e.id().to_string());
             }
         }
         Ok(out)

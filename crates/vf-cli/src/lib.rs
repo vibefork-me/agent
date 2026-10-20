@@ -5,7 +5,7 @@
 //! vibefork start | stop | status      the background agent (status: --json)
 //! vibefork open [--local]             open the interface (hosted, or the agent's own page)
 //! vibefork import <owner/name | url>   take a project from GitHub (no git needed)
-//! vibefork save <project>             save to your copy on GitHub (walks through the steps)
+//! vibefork save <project> [--to owner/name]   save to your copy on GitHub (walks through the steps)
 //! vibefork github [connect | status | disconnect]   the agent's GitHub sign-in
 //! vibefork pairs [revoke <key id>]    paired browsers
 //! vibefork keys [set|remove <name>]   API keys in the OS secret store

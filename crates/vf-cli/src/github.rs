@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use vf_platform::agent_process::open_url;
 use vf_protocol::Backend;
-use vf_protocol::http::{ImportRequest, SaveStep};
+use vf_protocol::http::{ImportRequest, SaveRequest, SaveStep};
 
 /// How long the terminal waits for a step done on github.com.
 const STEP_TIMEOUT: Duration = Duration::from_secs(15 * 60);
@@ -97,16 +97,21 @@ pub(crate) fn github(backend: &dyn Backend, args: &[String]) -> ExitCode {
     }
 }
 
-/// Saves, walking through the steps the user does on github.com.
+/// Saves, walking through the steps the user does on github.com. `--to owner/name` — the
+/// repository to save into.
 pub(crate) fn save(backend: &dyn Backend, args: &[String]) -> ExitCode {
-    let Some(project) = args.first() else {
-        eprintln!("usage: vibefork save <project>");
+    let (Some(project), copy) = (args.first(), args.iter().position(|a| a == "--to")) else {
+        eprintln!("usage: vibefork save <project> [--to owner/name]");
         return ExitCode::from(2);
+    };
+    let req = SaveRequest {
+        project: project.clone(),
+        copy: copy.and_then(|i| args.get(i + 1)).cloned(),
     };
     let started = Instant::now();
     let mut last = None;
     while started.elapsed() < STEP_TIMEOUT {
-        let r = match backend.save(project) {
+        let r = match backend.save(&req) {
             Ok(r) => r,
             Err(e) => return fail(e),
         };
@@ -128,16 +133,49 @@ pub(crate) fn save(backend: &dyn Backend, args: &[String]) -> ExitCode {
                 }
                 continue;
             }
-            SaveStep::CreateCopy | SaveStep::AllowApp => {
+            SaveStep::Conflict => {
+                eprintln!(
+                    "vibefork: nothing saved — {} has moved on, and these files were changed both there and here:",
+                    r.copy.unwrap_or_default()
+                );
+                for f in &r.files {
+                    eprintln!("  {f}");
+                }
+                return ExitCode::FAILURE;
+            }
+            SaveStep::CreateCopy
+            | SaveStep::CreateRepo
+            | SaveStep::AllowApp
+            | SaveStep::NarrowAccess => {
                 if first_time {
-                    let what = if r.step == SaveStep::CreateCopy {
-                        "Create your copy of the project on GitHub (one button: Create fork)"
-                    } else {
-                        "Allow Vibefork to save into your copy (one button: Install)"
+                    let name = r.name.as_deref().unwrap_or_default();
+                    let what = match r.step {
+                        SaveStep::CreateCopy if name.is_empty() => {
+                            "Create your copy of the project on GitHub (one button: Create fork)".to_owned()
+                        }
+                        SaveStep::CreateCopy => format!(
+                            "Create your copy of the project on GitHub: name it {name} (your repository with the usual name is something else), then Create fork"
+                        ),
+                        SaveStep::CreateRepo => format!(
+                            "Create an empty private repository {name} on GitHub (one button: Create repository)"
+                        ),
+                        SaveStep::NarrowAccess => {
+                            "Vibefork reaches all your repositories: choose \"Only select repositories\" and leave only your copy, then Save".to_owned()
+                        }
+                        _ => "Allow Vibefork to save into your copy (one button: Install)".to_owned(),
                     };
                     let url = r.url.unwrap_or_default();
                     println!("{what}: {url}");
                     let _ = open_url(&url);
+                    if let Some(next) = r.next_url {
+                        println!("Press Enter when it is created.");
+                        let mut line = String::new();
+                        let _ = std::io::stdin().read_line(&mut line);
+                        println!(
+                            "Allow Vibefork on it — choose \"Only select repositories\" and pick it, then Install: {next}"
+                        );
+                        let _ = open_url(&next);
+                    }
                 }
             }
         }

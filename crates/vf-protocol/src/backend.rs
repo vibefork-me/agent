@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use crate::http::{
     GithubConnectResponse, GithubStatusResponse, ImportRequest, ImportResponse, JournalResponse,
-    ModelsResponse, ProjectsResponse, RollbackResponse, SaveResponse,
+    ModelsResponse, ProjectsResponse, RollbackResponse, SaveRequest, SaveResponse,
 };
 use crate::ws::ServerMessage;
 
@@ -104,7 +104,7 @@ pub trait Backend: Send + Sync {
     /// Whether saving this project must be confirmed by the user first (first save).
     fn save_needs_confirm(&self, project: &str) -> bool;
     /// Saves the project's work into the user's copy on GitHub, or tells the next step.
-    fn save(&self, project: &str) -> Result<SaveResponse, BackendError>;
+    fn save(&self, req: &SaveRequest) -> Result<SaveResponse, BackendError>;
 }
 
 #[cfg(test)]

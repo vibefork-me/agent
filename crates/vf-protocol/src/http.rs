@@ -239,6 +239,10 @@ pub struct ImportResponse {
 pub struct SaveRequest {
     /// Project.
     pub project: String,
+    /// Repository to save into (`owner/name`), when the user picked one; otherwise the agent
+    /// finds or proposes it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub copy: Option<String>,
 }
 
 /// What "Save" did or what the user does next.
@@ -251,10 +255,18 @@ pub enum SaveStep {
     Unchanged,
     /// Connect GitHub first (`POST /v1/github/connect`).
     ConnectGithub,
-    /// Create the copy on github.com (`url`).
+    /// Create the copy of the original on github.com (`url`; `name` — a free name for it when
+    /// the usual one is taken; `next_url` — allowing the app on it, for a private copy).
     CreateCopy,
+    /// The project has no original on GitHub: create an empty private repository (`url`, named
+    /// `name`), then allow the app on it (`next_url`).
+    CreateRepo,
     /// Allow the app on the copy (`url`).
     AllowApp,
+    /// The app reaches every repository of the account: leave only the copy (`url`).
+    NarrowAccess,
+    /// The copy has moved on, and these `files` were changed both there and here: nothing saved.
+    Conflict,
 }
 
 /// Response of `POST /v1/save`.
@@ -268,6 +280,15 @@ pub struct SaveResponse {
     pub copy: Option<String>,
     /// Saved commit.
     pub commit: Option<String>,
+    /// The page after `url` (see [`SaveStep`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_url: Option<String>,
+    /// Name for the repository the user creates.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Files of a conflict.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<String>,
 }
 
 /// Response of `GET /v1/projects`.

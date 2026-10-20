@@ -375,5 +375,5 @@ pub(crate) async fn save(
     if !approved {
         return error(StatusCode::FORBIDDEN, "save not confirmed");
     }
-    with_backend(state, &headers, &origin.0, move |b| b.save(&req.project)).await
+    with_backend(state, &headers, &origin.0, move |b| b.save(&req)).await
 }
