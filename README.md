@@ -9,7 +9,8 @@ project with the AI you already have — on your machine.
 ## Use
 
 ```sh
-vibefork install          # per-user, no administrator rights: binaries, vibefork:// handler, start at login, PATH
+vibefork install          # per-user, no administrator rights: binaries, vibefork:// handler, PATH
+                          # the agent starts on demand from a vibefork://start link; `vibefork autostart on` starts it at login
 vibefork start            # the agent in the background (vibefork serve — in this terminal)
 vibefork open             # the interface; pair the browser in the dialog that appears
 vibefork import owner/name   # take a project from GitHub (no git needed)
@@ -18,6 +19,7 @@ vibefork doctor           # what works on this machine
 vibefork keys set openrouter   # optional: free OpenRouter models without any CLI installed
 vibefork update           # signed self-update; vibefork update --rollback
 vibefork uninstall        # removes the binaries and registrations, keeps projects and data
+                          # --full: also all agent data and keys; --full --with-projects: projects too (asks first)
 ```
 
 `vibefork` without arguments in a terminal shows the status and a menu.

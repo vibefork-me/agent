@@ -5,7 +5,7 @@
 //! |---|---|---|---|
 //! | Binaries | `%LOCALAPPDATA%\Programs\vibefork` | `~/Applications/Vibefork.app/Contents/MacOS` | `~/.local/bin` |
 //! | `vibefork://` | `HKCU\Software\Classes\vibefork` | `CFBundleURLTypes` in `Info.plist` | `~/.local/share/applications/vibefork.desktop` + `xdg-mime` |
-//! | Autostart | `HKCU\…\Run` value `vibefork` | `~/Library/LaunchAgents/me.vibefork.agent.plist` | `~/.config/autostart/vibefork.desktop` |
+//! | Autostart (off by default: the agent starts on demand from a `vibefork://start` link) | `HKCU\…\Run` value `vibefork` | `~/Library/LaunchAgents/me.vibefork.agent.plist` | `~/.config/autostart/vibefork.desktop` |
 //! | `PATH` | user `Path` variable | — (`~/Applications/…` link not needed for the app) | `~/.local/bin` is on `PATH` by default |
 
 use std::path::{Path, PathBuf};
@@ -219,6 +219,18 @@ pub fn remove_autostart() -> Result<(), String> {
     return remove_file_ok(&macos::launch_agent());
     #[allow(unreachable_code)]
     Ok(())
+}
+
+/// Whether the agent starts at login.
+pub fn autostart_enabled() -> bool {
+    #[cfg(windows)]
+    return windows::query(windows::RUN_KEY, Some("vibefork")).is_some();
+    #[cfg(target_os = "linux")]
+    return linux::autostart_file().exists();
+    #[cfg(target_os = "macos")]
+    return macos::launch_agent().exists();
+    #[allow(unreachable_code)]
+    false
 }
 
 /// Whether the handler is registered to an existing program (for `doctor`).

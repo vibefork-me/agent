@@ -175,17 +175,25 @@ pub(crate) fn open(local: bool) -> ExitCode {
     }
 }
 
-/// `vibefork://…` links: start the agent and open the interface. The link is data: nothing in it
-/// is executed (invariant 4); only `vibefork://open/local` picks the agent's own page.
+/// `vibefork://…` links. The link is data: nothing in it is executed (invariant 4).
+/// `vibefork://start` only starts the agent (the interface wakes it up); any other link starts it
+/// and opens the interface (`vibefork://open/local` — the agent's own page).
 pub(crate) fn handle(url: &str) -> ExitCode {
     let Some(rest) = url.strip_prefix("vibefork://") else {
         eprintln!("vibefork: not a vibefork:// link");
         return ExitCode::from(2);
     };
-    let local = rest
-        .trim_end_matches('/')
-        .eq_ignore_ascii_case("open/local");
-    open(local)
+    let action = rest.trim_end_matches('/').to_ascii_lowercase();
+    // `vibefork://start`: the interface wakes the agent up; no new browser tab.
+    if action == "start" {
+        let s = Settings::from_env();
+        return if ensure_started(&s) {
+            ExitCode::SUCCESS
+        } else {
+            ExitCode::FAILURE
+        };
+    }
+    open(action == "open/local")
 }
 
 pub(crate) fn logs(lines: usize) -> ExitCode {

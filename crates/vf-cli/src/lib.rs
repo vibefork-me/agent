@@ -12,7 +12,9 @@
 //! vibefork storage [move <kind> <dir>]  heavy folders
 //! vibefork doctor [--json]            what works on this machine
 //! vibefork update [--check|--rollback]  signed self-update
-//! vibefork install [--no-autostart] | uninstall   per-user, no administrator rights
+//! vibefork install [--autostart]      per-user, no administrator rights
+//! vibefork uninstall [--full [--with-projects]]   programs; --full: all agent data; --with-projects: projects too
+//! vibefork autostart [on | off | status]   start at login (off by default)
 //! vibefork logs [<lines>]             the background agent's log
 //! vibefork handle <vibefork://…>      the link handler
 //! vibefork version
@@ -40,7 +42,7 @@ pub trait App {
     fn backend(&self) -> Box<dyn vf_protocol::Backend>;
 }
 
-const USAGE: &str = "usage: vibefork <serve | start | stop | status | open | import | save | github | pairs | keys | storage | doctor | update | install | uninstall | logs | version>";
+const USAGE: &str = "usage: vibefork <serve | start | stop | status | open | import | save | github | pairs | keys | storage | doctor | update | install | uninstall | autostart | logs | version>";
 
 /// Entry point used by the `vibefork` binary.
 pub fn run(args: &[String], app: &dyn App) -> ExitCode {
@@ -72,7 +74,8 @@ pub fn run(args: &[String], app: &dyn App) -> ExitCode {
         Some("doctor") => doctor::run(json),
         Some("update") => update::run(rest),
         Some("install") => setup::install(rest),
-        Some("uninstall") => setup::uninstall(),
+        Some("autostart") => setup::autostart(rest),
+        Some("uninstall") => setup::uninstall(rest),
         None | Some("--version" | "-V" | "version") => {
             println!("vibefork {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
