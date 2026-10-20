@@ -25,6 +25,11 @@ jobs:
         run: rustup show active-toolchain || rustup toolchain install
       - name: Build cache
         uses: Swatinem/rust-cache@v2
+        with:
+          # Toolchains the engine tests install (Node LTS through mise).
+          cache-directories: target/tmp/vf-engine-tools
+          # The key follows rust-toolchain.toml, not the toolchains preinstalled on the runner image.
+          add-rust-environment-hash-key: false
       - name: System libraries (Secret Service, tray)
         run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config libgtk-3-dev libxdo-dev libayatana-appindicator3-dev
       - name: Format
@@ -55,6 +60,11 @@ jobs:
         run: rustup show active-toolchain || rustup toolchain install
       - name: Build cache
         uses: Swatinem/rust-cache@v2
+        with:
+          # Toolchains the engine tests install (Node LTS through mise).
+          cache-directories: target/tmp/vf-engine-tools
+          # The key follows rust-toolchain.toml, not the toolchains preinstalled on the runner image.
+          add-rust-environment-hash-key: false
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Tests
