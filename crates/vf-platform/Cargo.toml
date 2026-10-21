@@ -11,6 +11,8 @@ publish.workspace = true
 [features]
 # Test builds only: every confirm dialog is approved without being shown.
 insecure-auto-approve = []
+# Enables reading provider credentials from environment variables in development builds.
+dev-env-secrets = []
 
 [dependencies]
 vf-core.workspace = true

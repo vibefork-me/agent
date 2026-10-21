@@ -18,13 +18,13 @@ jobs:
       matrix:
         target: [aarch64-apple-darwin, x86_64-apple-darwin]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Toolchain (pinned in rust-toolchain.toml)
         run: rustup show active-toolchain || rustup toolchain install
       - name: Target
         run: rustup target add ${{ matrix.target }}
       - name: Build cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: ${{ matrix.target }}
           add-rust-environment-hash-key: false
@@ -37,7 +37,7 @@ jobs:
             cp "target/${{ matrix.target }}/release/vibefork" "target/${{ matrix.target }}/release/vibefork-tray" "out/$v/"
             "out/$v/vibefork" version || true
           done
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: macos-${{ matrix.target }}
           path: out/

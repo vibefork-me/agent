@@ -1,0 +1,48 @@
+# Installs a release-pinned Vibefork agent for the current user (no administrator rights).
+# This file is rendered with the SHA-256 values of release binaries before it is published.
+#
+#   irm https://vibefork.me/install.ps1 | iex
+#
+# VF_UPDATE_URL may point to a mirror, but only binaries matching these embedded hashes are run.
+# VF_NO_OPEN = "1" disables opening the browser.
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+
+$channel = if ($env:VF_UPDATE_URL) { $env:VF_UPDATE_URL.TrimEnd('/') } else { '@@CHANNEL@@' }
+$version = '@@VERSION@@'
+$hashes = @{
+@@WINDOWS_HASH_ENTRIES@@
+}
+$arch = switch ($env:PROCESSOR_ARCHITECTURE) { 'AMD64' { 'x86_64' } 'ARM64' { 'aarch64' } default { throw "vibefork: unsupported processor $env:PROCESSOR_ARCHITECTURE" } }
+$asset = "vibefork-windows-$arch.exe"
+$expected = $hashes[$asset]
+if (-not $expected) { throw "vibefork: no pinned Windows build for $arch in release $version" }
+
+$tmp = Join-Path ([IO.Path]::GetTempPath()) ("vibefork-install-" + [Guid]::NewGuid())
+New-Item -ItemType Directory -Path $tmp | Out-Null
+try {
+    # The expected digest is embedded in this release-specific script. Never inspect an unpinned manifest.
+    $path = Join-Path $tmp 'vibefork.exe'
+    Invoke-WebRequest "$channel/$asset" -OutFile $path -UseBasicParsing
+    if ((Get-FileHash $path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) {
+        throw "vibefork: $asset does not match the hash pinned in this installer"
+    }
+    $trayAsset = "vibefork-tray-windows-$arch.exe"
+    $trayExpected = $hashes[$trayAsset]
+    if ($trayExpected) {
+        $trayPath = Join-Path $tmp 'vibefork-tray.exe'
+        Invoke-WebRequest "$channel/$trayAsset" -OutFile $trayPath -UseBasicParsing
+        if ((Get-FileHash $trayPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $trayExpected) {
+            throw "vibefork: $trayAsset does not match the hash pinned in this installer"
+        }
+    }
+    & $path install
+    if ($LASTEXITCODE -ne 0) { throw 'vibefork: installation failed' }
+    $dir = if ($env:VF_INSTALL_DIR) { $env:VF_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'Programs\vibefork' }
+    & (Join-Path $dir 'vibefork.exe') start
+    if (-not $env:VF_NO_OPEN) { & (Join-Path $dir 'vibefork.exe') open }
+    Write-Host "Vibefork $version is installed: $dir\vibefork.exe (try ``vibefork doctor`` in a new terminal)"
+}
+finally {
+    Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
+}

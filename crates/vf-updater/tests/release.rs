@@ -110,6 +110,34 @@ async fn verified_binary_only() {
 }
 
 #[tokio::test]
+async fn tampered_manifest_and_unsigned_local_channel_are_rejected() {
+    let key = SigningKey::generate(&mut OsRng);
+    let original = serde_json::to_vec(&Manifest {
+        version: "1.0.0".into(),
+        files: BTreeMap::from([(asset_name("vibefork"), sha256_hex(b"trusted"))]),
+        expires_at: None,
+    })
+    .unwrap();
+    let sig = sign(&original, &key);
+    let mut tampered = original;
+    tampered[0] ^= 1;
+    let app = Router::new()
+        .route("/local/manifest.json", get(move || async move { tampered }))
+        .route("/local/manifest.sig", get(move || async move { sig }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move { axum::serve(listener, app).await });
+    let local_override = format!("http://127.0.0.1:{port}/local");
+
+    assert!(
+        Release::fetch(&local_override, &key.verifying_key())
+            .await
+            .is_err(),
+        "a local URL override cannot make a tampered or unsigned manifest trusted"
+    );
+}
+
+#[tokio::test]
 async fn release_fetch_uses_certified_release_subkey_and_checks_purpose() {
     let root = SigningKey::generate(&mut OsRng);
     let subkey = SigningKey::generate(&mut OsRng);

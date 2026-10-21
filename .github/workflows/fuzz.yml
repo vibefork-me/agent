@@ -18,7 +18,7 @@ jobs:
       matrix:
         target: [project_path, client_message, manifest, provider_stream, plan]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Nightly and cargo-fuzz
         run: rustup toolchain install nightly --profile minimal && cargo +nightly install cargo-fuzz --locked
       - name: Fuzz ${{ matrix.target }}
@@ -26,7 +26,7 @@ jobs:
         run: cargo +nightly fuzz run ${{ matrix.target }} -- -max_total_time=120
       - name: Crash inputs
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: fuzz-${{ matrix.target }}
           path: fuzz/artifacts/
