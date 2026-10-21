@@ -12,7 +12,7 @@
 //! | `VF_CACHES_DIR` | `storage.caches` | `<state>/caches` | Package caches (Gradle, npm, …) |
 //! | `VF_ARTIFACTS_DIR` | `storage.artifacts` | `<state>/artifacts` | Build artifacts |
 //! | `VF_UPDATE_URL` | `updateUrl` | `https://code.vibefork.me/releases/stable` | Signed release channel |
-//! | `VF_AUTO_UPDATE` | `autoUpdate` | on (off for development builds `0.0.0`) | `0`: no background update check |
+//! | `VF_AUTO_UPDATE` | `autoUpdate` | on (off for development builds `0.0.0`) | `0`: check, but do not install |
 //! | `VF_SIMULATE_CLEAN_MACHINE` | — | off | `1`: child processes do not see Java / Gradle / Maven of the system (tests) |
 
 use std::path::{Path, PathBuf};
@@ -57,7 +57,7 @@ pub struct ConfigFile {
     /// Release channel URL.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub update_url: Option<String>,
-    /// Background update check.
+    /// Install a newer signed release in the background. Absent means the default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_update: Option<bool>,
     /// Storage paths; missing ones use defaults.
@@ -97,7 +97,8 @@ pub struct Settings {
     pub storage: Storage,
     /// Signed release channel.
     pub update_url: String,
-    /// Check for updates in the background.
+    /// Install a newer signed release in the background. When this is off, the check still
+    /// runs and the available version is recorded for the user to install.
     pub auto_update: bool,
     /// Hide the system's Java / Gradle / Maven from child processes (tests of a clean machine).
     pub simulate_clean_machine: bool,
@@ -147,12 +148,9 @@ impl Settings {
                 .ok()
                 .or(file.update_url.clone())
                 .unwrap_or_else(|| DEFAULT_UPDATE_URL.to_owned()),
-            auto_update: match std::env::var("VF_AUTO_UPDATE").ok().as_deref() {
-                Some("0") => false,
-                Some(_) => true,
-                None => file
-                    .auto_update
-                    .unwrap_or(env!("CARGO_PKG_VERSION") != "0.0.0"),
+            auto_update: {
+                let env_auto = std::env::var("VF_AUTO_UPDATE").ok();
+                resolve_auto_update(env_auto.as_deref(), file.auto_update)
             },
             state_dir,
             simulate_clean_machine: std::env::var("VF_SIMULATE_CLEAN_MACHINE")
@@ -189,6 +187,14 @@ impl Settings {
         write_config(&self.state_dir, &file)
     }
 
+    /// Stores whether background installs are on. The environment variable still wins on the
+    /// next read.
+    pub fn save_auto_update(&self, enabled: bool) -> std::io::Result<()> {
+        let mut file = read_config(&self.state_dir);
+        file.auto_update = Some(enabled);
+        write_config(&self.state_dir, &file)
+    }
+
     /// Stores a storage path in `config.json` (used after moving a folder).
     pub fn save_storage(&self, storage: &Storage) -> std::io::Result<()> {
         let mut file = read_config(&self.state_dir);
@@ -208,6 +214,64 @@ pub fn read_config(state_dir: &Path) -> ConfigFile {
         .ok()
         .and_then(|b| serde_json::from_slice(&b).ok())
         .unwrap_or_default()
+}
+
+/// `autoUpdate` from the environment and the config file.
+///
+/// `VF_AUTO_UPDATE=0` forces a check without install. Any other value forces install.
+/// With no variable, the file wins, and a missing file is on except for a `0.0.0` build.
+pub fn resolve_auto_update(env: Option<&str>, configured: Option<bool>) -> bool {
+    match env {
+        Some("0") => false,
+        Some(_) => true,
+        None => configured.unwrap_or(env!("CARGO_PKG_VERSION") != "0.0.0"),
+    }
+}
+
+/// File that names a signed release the user has not installed yet.
+pub fn update_notice_path(state_dir: &Path) -> PathBuf {
+    state_dir.join("update-available.json")
+}
+
+/// Records a version the background check found. The user installs it with `vibefork update`.
+pub fn write_update_notice(state_dir: &Path, version: &str) -> std::io::Result<()> {
+    if !is_notice_version(version) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "version is not a release number",
+        ));
+    }
+    std::fs::create_dir_all(state_dir)?;
+    let bytes = serde_json::to_vec(&UpdateNotice {
+        available: version.to_owned(),
+    })
+    .map_err(std::io::Error::other)?;
+    std::fs::write(update_notice_path(state_dir), bytes)
+}
+
+/// The recorded version, if the file is present and well formed.
+pub fn read_update_notice(state_dir: &Path) -> Option<String> {
+    let bytes = std::fs::read(update_notice_path(state_dir)).ok()?;
+    let notice: UpdateNotice = serde_json::from_slice(&bytes).ok()?;
+    is_notice_version(&notice.available).then_some(notice.available)
+}
+
+/// Removes the recorded version (the install finished, or this build is current).
+pub fn clear_update_notice(state_dir: &Path) {
+    let _ = std::fs::remove_file(update_notice_path(state_dir));
+}
+
+fn is_notice_version(version: &str) -> bool {
+    !version.is_empty()
+        && version.len() <= 64
+        && version
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '+' | '-'))
+}
+
+#[derive(Serialize, Deserialize)]
+struct UpdateNotice {
+    available: String,
 }
 
 fn write_config(state_dir: &Path, file: &ConfigFile) -> std::io::Result<()> {
@@ -256,5 +320,65 @@ mod tests {
         assert!(std::fs::write(dir.join("config.json"), b"{broken").is_ok());
         assert_eq!(read_config(&dir), ConfigFile::default(), "broken file");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn auto_update_env_wins_and_off_is_stored() {
+        assert!(!resolve_auto_update(Some("0"), Some(true)));
+        assert!(resolve_auto_update(Some("1"), Some(false)));
+        assert!(!resolve_auto_update(None, Some(false)));
+        assert!(resolve_auto_update(None, Some(true)));
+        assert_eq!(
+            resolve_auto_update(None, None),
+            env!("CARGO_PKG_VERSION") != "0.0.0"
+        );
+
+        let dir = temp_dir("auto");
+        let settings = Settings {
+            state_dir: dir.clone(),
+            port: 1,
+            extra_origins: Vec::new(),
+            ui_bundle_url: String::new(),
+            storage: Storage {
+                projects: dir.join("p"),
+                tools: dir.join("t"),
+                caches: dir.join("c"),
+                artifacts: dir.join("a"),
+            },
+            update_url: String::new(),
+            auto_update: true,
+            simulate_clean_machine: false,
+        };
+        assert!(settings.save_auto_update(false).is_ok());
+        assert_eq!(read_config(&dir).auto_update, Some(false));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn update_notice_round_trip() {
+        let dir = temp_dir("notice");
+        assert_eq!(read_update_notice(&dir), None);
+        assert!(write_update_notice(&dir, "../1").is_err());
+        assert!(write_update_notice(&dir, "1.2.3").is_ok());
+        assert_eq!(read_update_notice(&dir).as_deref(), Some("1.2.3"));
+        assert!(std::fs::write(update_notice_path(&dir), b"{broken").is_ok());
+        assert_eq!(read_update_notice(&dir), None, "broken file");
+        assert!(write_update_notice(&dir, "1.2.4").is_ok());
+        clear_update_notice(&dir);
+        assert_eq!(read_update_notice(&dir), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let counter = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        std::env::temp_dir().join(format!(
+            "vf-settings-{tag}-{}-{nanos}-{counter}",
+            std::process::id()
+        ))
     }
 }

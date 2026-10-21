@@ -64,10 +64,7 @@ impl vf_cli::App for Agent {
             if let Err(e) = vf_platform::agent_process::write_pid(&s.state_dir) {
                 tracing::warn!(error = %e, "cannot write the pid file");
             }
-            if s.auto_update {
-                let settings = s.clone();
-                std::thread::spawn(move || auto_update(&settings));
-            }
+            std::thread::spawn(auto_update);
             let (url, cache, slot) = (s.ui_bundle_url.clone(), s.ui_cache_dir(), ui.clone());
             tokio::spawn(async move {
                 match UiBundle::download(&url, &ui_key, &cache).await {
@@ -101,16 +98,28 @@ impl vf_cli::App for Agent {
     }
 }
 
-/// Checks the signed release channel at start and every 6 hours; a newer version replaces the
-/// binaries and takes effect on the next start.
-fn auto_update(settings: &Settings) {
+/// Checks the signed release channel at start and every 6 hours. When automatic updates are on,
+/// a newer version replaces the binaries and takes effect on the next start. When they are off,
+/// the version is recorded and the user installs it with `vibefork update`.
+fn auto_update() {
     loop {
-        match vf_cli::update::update(settings, false) {
+        let settings = Settings::from_env();
+        let check_only = vf_cli::update::background_check_only(settings.auto_update);
+        match vf_cli::update::update(&settings, check_only) {
             Ok(vf_cli::update::Outcome::Updated(v)) => {
+                vf_platform::settings::clear_update_notice(&settings.state_dir);
                 tracing::info!(version = %v, "update installed; it takes effect on the next start");
                 return;
             }
-            Ok(_) => {}
+            Ok(vf_cli::update::Outcome::Available(v)) => {
+                match vf_platform::settings::write_update_notice(&settings.state_dir, &v) {
+                    Ok(()) => tracing::info!(version = %v, "update available"),
+                    Err(e) => tracing::warn!(error = %e, "cannot record the available update"),
+                }
+            }
+            Ok(vf_cli::update::Outcome::Current(_)) => {
+                vf_platform::settings::clear_update_notice(&settings.state_dir);
+            }
             Err(e) => tracing::info!(error = %e, "update check failed"),
         }
         std::thread::sleep(std::time::Duration::from_secs(6 * 3600));

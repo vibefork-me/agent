@@ -124,6 +124,8 @@ pub(crate) fn status(json: bool) -> ExitCode {
             "pid": pid,
             "ui": format!("http://127.0.0.1:{}/ui/", s.port),
             "stateDir": s.state_dir.display().to_string(),
+            "autoUpdate": s.auto_update,
+            "updateAvailable": vf_platform::settings::read_update_notice(&s.state_dir),
         });
         println!("{v}");
     } else {
@@ -140,6 +142,13 @@ pub(crate) fn status(json: bool) -> ExitCode {
             "ui: {HOSTED_UI_ORIGIN} · fallback http://127.0.0.1:{}/ui/",
             s.port
         );
+        println!(
+            "automatic updates: {}",
+            if s.auto_update { "on" } else { "off" }
+        );
+        if let Some(version) = vf_platform::settings::read_update_notice(&s.state_dir) {
+            println!("update {version} is available — `vibefork update`");
+        }
         println!("data: {}", s.state_dir.display());
     }
     if alive.is_some() {

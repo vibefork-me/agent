@@ -11,7 +11,7 @@
 //! vibefork keys [set|remove <name>]   API keys in the OS secret store
 //! vibefork storage [move <kind> <dir>]  heavy folders
 //! vibefork doctor [--json]            what works on this machine
-//! vibefork update [--check|--rollback]  signed self-update
+//! vibefork update [--check|--rollback|--auto on|off]  signed self-update
 //! vibefork install [--autostart]      per-user, no administrator rights
 //! vibefork uninstall [--full [--with-projects]]   programs; --full: all agent data; --with-projects: projects too
 //! vibefork autostart [on | off | status]   start at login (off by default)
