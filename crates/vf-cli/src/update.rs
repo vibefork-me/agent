@@ -16,6 +16,12 @@ pub enum Outcome {
     Available(String),
 }
 
+/// A background check installs only when automatic updates are on. The signature checks are the
+/// same either way; `vibefork update` still installs when this returns `true`.
+pub fn background_check_only(auto_update: bool) -> bool {
+    !auto_update
+}
+
 /// Checks the channel and, unless `check_only`, installs a newer version next to the running binary.
 pub fn update(settings: &Settings, check_only: bool) -> Result<Outcome, String> {
     let key = vf_updater::signing::public_key(vf_updater::RELEASE_PUBLIC_KEY)
@@ -67,6 +73,7 @@ pub fn update(settings: &Settings, check_only: bool) -> Result<Outcome, String> 
 pub(crate) fn run(args: &[String]) -> ExitCode {
     let s = Settings::from_env();
     match args.first().map(String::as_str) {
+        Some("--auto") => set_auto(args.get(1).map(String::as_str)),
         Some("--rollback") => {
             let Ok(exe) = std::env::current_exe() else {
                 return ExitCode::FAILURE;
@@ -85,14 +92,19 @@ pub(crate) fn run(args: &[String]) -> ExitCode {
         }
         flag @ (None | Some("--check")) => match update(&s, flag.is_some()) {
             Ok(Outcome::Current(v)) => {
+                vf_platform::settings::clear_update_notice(&s.state_dir);
                 println!("up to date ({v})");
                 ExitCode::SUCCESS
             }
             Ok(Outcome::Available(v)) => {
+                if let Err(e) = vf_platform::settings::write_update_notice(&s.state_dir, &v) {
+                    eprintln!("vibefork: {e}");
+                }
                 println!("version {v} is available — `vibefork update`");
                 ExitCode::SUCCESS
             }
             Ok(Outcome::Updated(v)) => {
+                vf_platform::settings::clear_update_notice(&s.state_dir);
                 println!("updated to {v}");
                 crate::agent::restart_if_running(&s);
                 ExitCode::SUCCESS
@@ -103,8 +115,40 @@ pub(crate) fn run(args: &[String]) -> ExitCode {
             }
         },
         _ => {
-            eprintln!("usage: vibefork update [--check | --rollback]");
+            eprintln!("usage: vibefork update [--check | --rollback | --auto on|off]");
             ExitCode::from(2)
         }
+    }
+}
+
+fn set_auto(value: Option<&str>) -> ExitCode {
+    let enabled = match value {
+        Some("on") => true,
+        Some("off") => false,
+        _ => {
+            eprintln!("usage: vibefork update --auto on|off");
+            return ExitCode::from(2);
+        }
+    };
+    let s = Settings::from_env();
+    if let Err(e) = s.save_auto_update(enabled) {
+        eprintln!("vibefork: {e}");
+        return ExitCode::FAILURE;
+    }
+    println!("automatic updates: {}", if enabled { "on" } else { "off" });
+    if std::env::var("VF_AUTO_UPDATE").is_ok() {
+        println!("VF_AUTO_UPDATE overrides the saved setting in this process");
+    }
+    ExitCode::SUCCESS
+}
+
+#[cfg(test)]
+mod tests {
+    use super::background_check_only;
+
+    #[test]
+    fn turned_off_checks_without_installing() {
+        assert!(background_check_only(false));
+        assert!(!background_check_only(true));
     }
 }

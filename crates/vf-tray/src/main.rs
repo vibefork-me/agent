@@ -2,7 +2,8 @@
 //!
 //! A separate process: the core has no GUI dependencies and runs headless; a tray crash does not stop
 //! the core. It starts the agent when launched (autostart at login points here), shows its state
-//! from `GET /v1/hello`, and acts through the `vibefork` binary next to it.
+//! from `GET /v1/hello`, shows a signed update when one is recorded, and acts through the
+//! `vibefork` binary next to it.
 
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
@@ -22,16 +23,20 @@ const POLL: Duration = Duration::from_secs(5);
 
 fn main() {
     let core = core_binary();
-    run_core(&core, "start");
+    run_core(&core, &["start"]);
 
     let event_loop = EventLoopBuilder::new().build();
     let menu = Menu::new();
     let status = MenuItem::new("Vibefork: checking…", false, None);
+    let install = MenuItem::new("Install update", false, None);
+    let automatic = MenuItem::new("Automatic updates", true, None);
     let open = MenuItem::new("Open Vibefork", true, None);
     let toggle = MenuItem::new("Stop the agent", true, None);
     let quit = MenuItem::new("Quit tray", true, None);
     let added = menu.append_items(&[
         &status,
+        &install,
+        &automatic,
         &PredefinedMenuItem::separator(),
         &open,
         &toggle,
@@ -60,9 +65,15 @@ fn main() {
         }
         if let Ok(e) = MenuEvent::receiver().try_recv() {
             if e.id == open.id() {
-                run_core(&core, "open");
+                run_core(&core, &["open"]);
+            } else if e.id == install.id() {
+                run_core(&core, &["update"]);
+            } else if e.id == automatic.id() {
+                let next = if auto_update_enabled() { "off" } else { "on" };
+                run_core(&core, &["update", "--auto", next]);
+                last_poll = Instant::now() - POLL;
             } else if e.id == toggle.id() {
-                run_core(&core, if running { "stop" } else { "start" });
+                run_core(&core, &[if running { "stop" } else { "start" }]);
                 last_poll = Instant::now() - POLL;
             } else if e.id == quit.id() {
                 tray = None;
@@ -73,10 +84,30 @@ fn main() {
         if last_poll.elapsed() >= POLL {
             last_poll = Instant::now();
             let version = hello(port);
+            let notice = update_notice();
             running = version.is_some();
-            status.set_text(match &version {
-                Some(v) => format!("Vibefork {v}: running on port {port}"),
-                None => "Vibefork: stopped".into(),
+            status.set_text(match (&version, &notice) {
+                (Some(v), Some(u)) => {
+                    format!("Vibefork {v}: running on port {port} · update {u} available")
+                }
+                (Some(v), None) => format!("Vibefork {v}: running on port {port}"),
+                (None, Some(u)) => format!("Vibefork: stopped · update {u} available"),
+                (None, None) => "Vibefork: stopped".into(),
+            });
+            match &notice {
+                Some(u) => {
+                    install.set_text(format!("Install update {u}"));
+                    install.set_enabled(true);
+                }
+                None => {
+                    install.set_text("Install update");
+                    install.set_enabled(false);
+                }
+            }
+            automatic.set_text(if auto_update_enabled() {
+                "Turn automatic updates off"
+            } else {
+                "Turn automatic updates on"
             });
             toggle.set_text(if running {
                 "Stop the agent"
@@ -104,9 +135,9 @@ fn core_binary() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(name))
 }
 
-fn run_core(core: &PathBuf, command: &str) {
+fn run_core(core: &PathBuf, args: &[&str]) {
     let mut cmd = Command::new(core);
-    cmd.arg(command)
+    cmd.args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -125,14 +156,51 @@ fn port() -> u16 {
         .ok()
         .and_then(|p| p.parse().ok())
         .or_else(|| {
-            let state = std::env::var_os("VF_STATE_DIR")
-                .map(PathBuf::from)
-                .or_else(default_state_dir)?;
-            let text = std::fs::read_to_string(state.join("config.json")).ok()?;
+            let text = std::fs::read_to_string(state_dir()?.join("config.json")).ok()?;
             let v: serde_json::Value = serde_json::from_str(&text).ok()?;
             v["port"].as_u64().and_then(|p| u16::try_from(p).ok())
         })
         .unwrap_or(47801)
+}
+
+fn state_dir() -> Option<PathBuf> {
+    std::env::var_os("VF_STATE_DIR")
+        .map(PathBuf::from)
+        .or_else(default_state_dir)
+}
+
+/// Saved `autoUpdate`, with `VF_AUTO_UPDATE` winning. A missing value means on.
+fn auto_update_enabled() -> bool {
+    match std::env::var("VF_AUTO_UPDATE").ok().as_deref() {
+        Some("0") => return false,
+        Some(_) => return true,
+        None => {}
+    }
+    let Some(dir) = state_dir() else {
+        return true;
+    };
+    let Ok(text) = std::fs::read_to_string(dir.join("config.json")) else {
+        return true;
+    };
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return true;
+    };
+    v.get("autoUpdate")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(true)
+}
+
+/// Version recorded by a check that did not install.
+fn update_notice() -> Option<String> {
+    let text = std::fs::read_to_string(state_dir()?.join("update-available.json")).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let version = v.get("available")?.as_str()?;
+    let safe = !version.is_empty()
+        && version.len() <= 64
+        && version
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '+' | '-'));
+    safe.then(|| version.to_owned())
 }
 
 fn default_state_dir() -> Option<PathBuf> {
