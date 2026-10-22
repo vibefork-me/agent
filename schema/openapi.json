@@ -497,6 +497,13 @@
             "description": "Always `vibefork`.",
             "type": "string"
           },
+          "extraOrigins": {
+            "description": "Extra allowed web origins configured on the agent (if any).",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "platform": {
             "description": "`windows`, `macos`, `linux`.",
             "type": "string"

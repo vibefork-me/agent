@@ -34,7 +34,7 @@ export type GithubConnectResponse = { expiresIn: number; userCode: string; verif
 export type GithubStatusResponse = { connected: boolean; error?: string | null; login?: string | null; pending: boolean };
 
 /** `GET /v1/hello` — the only call that needs neither a session nor an allowed origin. */
-export type Hello = { agent: string; platform: string; version: string };
+export type Hello = { agent: string; extraOrigins?: (string)[]; platform: string; version: string };
 
 /** Request of `POST /v1/projects/import`: a project from GitHub, without git on the machine. */
 export type ImportRequest = { repo: string };

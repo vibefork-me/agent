@@ -62,6 +62,14 @@ pub(crate) async fn guard(State(state): State<AppState>, mut req: Request, next:
         return error(StatusCode::FORBIDDEN, "origin not allowed");
     }
 
+    if state.config.is_extra_origin(&origin) {
+        tracing::warn!(
+            %origin,
+            path = %req.uri().path(),
+            "⚠️ SECURITY: request allowed via extraOrigins"
+        );
+    }
+
     if req.method() == Method::OPTIONS {
         let mut res = StatusCode::NO_CONTENT.into_response();
         add_cors(res.headers_mut(), &origin);

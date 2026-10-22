@@ -62,6 +62,10 @@ pub(crate) fn ensure_started(s: &Settings) -> bool {
 
 pub(crate) fn start() -> ExitCode {
     let s = Settings::from_env();
+    if !s.extra_origins.is_empty() {
+        eprintln!("⚠️  SECURITY WARNING: extraOrigins enabled: {:?}", s.extra_origins);
+        eprintln!("    Web pages on these origins can access the local agent, projects, and API.");
+    }
     if hello(s.port).is_some() {
         println!("already running on port {}", s.port);
         return ExitCode::SUCCESS;
@@ -142,6 +146,9 @@ pub(crate) fn status(json: bool) -> ExitCode {
             "ui: {HOSTED_UI_ORIGIN} · fallback http://127.0.0.1:{}/ui/",
             s.port
         );
+        if !s.extra_origins.is_empty() {
+            println!("⚠️  extraOrigins enabled: {:?}", s.extra_origins);
+        }
         println!(
             "automatic updates: {}",
             if s.auto_update { "on" } else { "off" }

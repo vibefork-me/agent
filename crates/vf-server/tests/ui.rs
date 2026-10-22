@@ -83,6 +83,7 @@ fn agent(ui: UiSlot) -> Router {
         Config {
             port: 47801,
             allowed_origins: vec![],
+            extra_origins: vec![],
         },
         auth,
         ui,

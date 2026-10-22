@@ -56,6 +56,8 @@ pub struct Config {
     pub port: u16,
     /// Allowed web origins; the agent's own loopback origins are always allowed.
     pub allowed_origins: Vec<String>,
+    /// Extra origins configured by the user (if any).
+    pub extra_origins: Vec<String>,
 }
 
 impl Config {
@@ -63,6 +65,11 @@ impl Config {
         origin == format!("http://127.0.0.1:{}", self.port)
             || origin == format!("http://localhost:{}", self.port)
             || self.allowed_origins.iter().any(|o| o == origin)
+    }
+
+    /// Whether `origin` was allowed because of `extra_origins`.
+    pub fn is_extra_origin(&self, origin: &str) -> bool {
+        self.extra_origins.iter().any(|o| o == origin)
     }
 }
 

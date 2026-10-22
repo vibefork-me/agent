@@ -49,6 +49,7 @@ fn app(dialog_allows: bool) -> Router {
         Config {
             port: PORT,
             allowed_origins: vec![UI.into(), OTHER.into()],
+            extra_origins: vec![],
         },
         auth,
         Arc::new(RwLock::new(None)),
@@ -500,6 +501,7 @@ async fn dangerous_action_follows_the_dialog() {
             Config {
                 port: PORT,
                 allowed_origins: vec![UI.into()],
+                extra_origins: vec![],
             },
             Auth::load(dir.clone(), Arc::new(Always(true))).unwrap(),
             Arc::new(RwLock::new(None)),
@@ -510,6 +512,7 @@ async fn dangerous_action_follows_the_dialog() {
             Config {
                 port: PORT,
                 allowed_origins: vec![UI.into()],
+                extra_origins: vec![],
             },
             Auth::load(dir, Arc::new(Always(allows))).unwrap(),
             Arc::new(RwLock::new(None)),
@@ -645,6 +648,7 @@ async fn projects_need_a_grant_from_the_dialog() {
             Config {
                 port: PORT,
                 allowed_origins: vec![UI.into()],
+                extra_origins: vec![],
             },
             Auth::load(dir.clone(), Arc::new(Always(allows))).unwrap(),
             Arc::new(RwLock::new(None)),
@@ -739,4 +743,23 @@ async fn secrets_never_reach_the_logs() {
     let text = String::from_utf8_lossy(&logs.lock().unwrap()).into_owned();
     assert!(text.contains("rejected"), "logging is captured: {text}");
     assert!(!text.contains(&token), "session token in the logs");
+}
+
+#[tokio::test]
+async fn extra_origins_in_hello_and_guard_logs() {
+    let auth = Auth::load(temp_dir(), Arc::new(Always(true))).unwrap();
+    let app = router(
+        Config {
+            port: PORT,
+            allowed_origins: vec![UI.into(), "http://localhost:5173".into()],
+            extra_origins: vec!["http://localhost:5173".into()],
+        },
+        auth,
+        Arc::new(RwLock::new(None)),
+        common::backend(),
+    );
+    let (s, v, acao) = call(&app, Req::get("/v1/hello", Some("http://localhost:5173"))).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(acao.as_deref(), Some("http://localhost:5173"));
+    assert_eq!(v["extraOrigins"], json!(["http://localhost:5173"]));
 }

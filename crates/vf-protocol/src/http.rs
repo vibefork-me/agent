@@ -8,6 +8,7 @@ use crate::model::ModelInfo;
 
 /// `GET /v1/hello` — the only call that needs neither a session nor an allowed origin.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct Hello {
     /// Always `vibefork`.
     pub agent: String,
@@ -15,6 +16,9 @@ pub struct Hello {
     pub version: String,
     /// `windows`, `macos`, `linux`.
     pub platform: String,
+    /// Extra allowed web origins configured on the agent (if any).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extra_origins: Vec<String>,
 }
 
 /// An error body: `{ "error": "…" }`.

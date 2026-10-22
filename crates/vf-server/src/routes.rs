@@ -54,11 +54,12 @@ fn no_session() -> Response {
     error(StatusCode::UNAUTHORIZED, "no session")
 }
 
-pub(crate) async fn hello() -> Json<Hello> {
+pub(crate) async fn hello(State(state): State<AppState>) -> Json<Hello> {
     Json(Hello {
         agent: "vibefork".into(),
         version: env!("CARGO_PKG_VERSION").into(),
         platform: platform().into(),
+        extra_origins: state.config.extra_origins.clone(),
     })
 }
 
