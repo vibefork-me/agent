@@ -106,6 +106,7 @@ fn setup() -> (PathBuf, Engine, Arc<Scripted>) {
         state_dir: base.join("state"),
         port: 1,
         extra_origins: vec![],
+        ignored_extra_origins: vec![],
         ui_bundle_url: String::new(),
         storage: Storage {
             projects: base.join("projects"),

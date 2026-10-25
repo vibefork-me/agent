@@ -59,7 +59,7 @@ pub(crate) async fn hello(State(state): State<AppState>) -> Json<Hello> {
         agent: "vibefork".into(),
         version: env!("CARGO_PKG_VERSION").into(),
         platform: platform().into(),
-        extra_origins: state.config.extra_origins.clone(),
+        extra_origins_active: !state.config.extra_origins.is_empty(),
     })
 }
 

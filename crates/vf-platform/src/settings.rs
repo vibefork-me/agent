@@ -5,7 +5,7 @@
 //! |---|---|---|---|
 //! | `VF_STATE_DIR` | — | Windows `%LOCALAPPDATA%\vibefork`, otherwise `~/.vibefork` | Light data: config, pairings, journals, UI cache, logs |
 //! | `VF_PORT` | `port` | last used port, else `47801` | Preferred port (the next 4 are tried if busy) |
-//! | `VF_EXTRA_ORIGINS` | `extraOrigins` | — | Extra web origins allowed to call the agent (comma-separated) |
+//! | `VF_EXTRA_ORIGINS` | `extraOrigins` | — | Extra web origins allowed to call the agent (comma-separated); honoured only in builds with the `dev-extra-origins` feature |
 //! | `VF_UI_BUNDLE_URL` | `uiBundleUrl` | `https://code.vibefork.me/bundle` | Where the signed UI bundle is downloaded from |
 //! | `VF_PROJECTS_DIR` | `storage.projects` | `~/vibefork-projects` | Projects (git repositories) |
 //! | `VF_TOOLS_DIR` | `storage.tools` | `<state>/tools` | Toolchains, `mise` |
@@ -90,7 +90,11 @@ pub struct Settings {
     /// Preferred port.
     pub port: u16,
     /// Web origins allowed besides the hosted UI and the agent's own loopback origin.
+    /// Always empty in builds without the `dev-extra-origins` feature.
     pub extra_origins: Vec<String>,
+    /// Configured extra origins that are not in effect: the build lacks `dev-extra-origins`,
+    /// or the value is not `http(s)://host[:port]`.
+    pub ignored_extra_origins: Vec<String>,
     /// Signed UI bundle location.
     pub ui_bundle_url: String,
     /// Heavy folders.
@@ -124,21 +128,24 @@ impl Settings {
                 .or(stored.artifacts)
                 .unwrap_or_else(|| state_dir.join("artifacts")),
         };
+        let configured: Vec<String> = std::env::var("VF_EXTRA_ORIGINS")
+            .map(|v| {
+                v.split(',')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_else(|_| file.extra_origins.clone());
+        let (extra_origins, ignored_extra_origins) = split_extra_origins(configured);
         Self {
             port: std::env::var("VF_PORT")
                 .ok()
                 .and_then(|p| p.parse().ok())
                 .or(file.port)
                 .unwrap_or(DEFAULT_PORT),
-            extra_origins: std::env::var("VF_EXTRA_ORIGINS")
-                .map(|v| {
-                    v.split(',')
-                        .map(str::trim)
-                        .filter(|s| !s.is_empty())
-                        .map(str::to_owned)
-                        .collect()
-                })
-                .unwrap_or(file.extra_origins),
+            extra_origins,
+            ignored_extra_origins,
             ui_bundle_url: std::env::var("VF_UI_BUNDLE_URL")
                 .ok()
                 .or(file.ui_bundle_url)
@@ -302,6 +309,38 @@ fn default_state_dir() -> PathBuf {
     home().join(".vibefork")
 }
 
+/// Splits configured extra origins into those in effect and those ignored.
+///
+/// Builds without the `dev-extra-origins` feature (release builds) put every value in the ignored list.
+/// Development builds keep only well-formed `http(s)://host[:port]` origins (no path, no `null`).
+pub fn split_extra_origins(configured: Vec<String>) -> (Vec<String>, Vec<String>) {
+    if !cfg!(feature = "dev-extra-origins") {
+        return (Vec::new(), configured);
+    }
+    configured.into_iter().partition(|o| is_web_origin(o))
+}
+
+/// Whether `s` is a serialized web origin `http(s)://host[:port]`.
+fn is_web_origin(s: &str) -> bool {
+    let Some(rest) = s
+        .strip_prefix("http://")
+        .or_else(|| s.strip_prefix("https://"))
+    else {
+        return false;
+    };
+    let (host, port) = match rest.rsplit_once(':') {
+        Some((h, p)) if !h.ends_with(']') || rest.starts_with('[') => (h, Some(p)),
+        _ => (rest, None),
+    };
+    let host_ok = host == "[::1]"
+        || (!host.is_empty()
+            && host
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-'));
+    let port_ok = port.is_none_or(|p| !p.is_empty() && p.len() <= 5 && p.parse::<u16>().is_ok());
+    host_ok && port_ok
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -338,6 +377,7 @@ mod tests {
             state_dir: dir.clone(),
             port: 1,
             extra_origins: Vec::new(),
+            ignored_extra_origins: Vec::new(),
             ui_bundle_url: String::new(),
             storage: Storage {
                 projects: dir.join("p"),
@@ -380,5 +420,23 @@ mod tests {
             "vf-settings-{tag}-{}-{nanos}-{counter}",
             std::process::id()
         ))
+    }
+
+    #[test]
+    fn extra_origins_are_ignored_without_the_dev_feature_and_validated_with_it() {
+        let configured = vec![
+            "http://localhost:5173".to_owned(),
+            "null".to_owned(),
+            "https://example.com/path".to_owned(),
+            "http://[::1]:8080".to_owned(),
+        ];
+        let (active, ignored) = split_extra_origins(configured.clone());
+        if cfg!(feature = "dev-extra-origins") {
+            assert_eq!(active, vec!["http://localhost:5173", "http://[::1]:8080"]);
+            assert_eq!(ignored, vec!["null", "https://example.com/path"]);
+        } else {
+            assert!(active.is_empty());
+            assert_eq!(ignored, configured);
+        }
     }
 }

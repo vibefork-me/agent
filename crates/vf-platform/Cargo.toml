@@ -11,6 +11,8 @@ publish.workspace = true
 [features]
 # Test builds only: every confirm dialog is approved without being shown.
 insecure-auto-approve = []
+# Development only: honour `extraOrigins` / `VF_EXTRA_ORIGINS`. Release builds must not enable it (checked in CI).
+dev-extra-origins = []
 # Enables reading provider credentials from environment variables in development builds.
 dev-env-secrets = []
 

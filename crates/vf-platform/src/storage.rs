@@ -197,6 +197,7 @@ mod tests {
             state_dir: state.clone(),
             port: 1,
             extra_origins: Vec::new(),
+            ignored_extra_origins: Vec::new(),
             ui_bundle_url: String::new(),
             storage: Storage {
                 projects: base.join("p"),

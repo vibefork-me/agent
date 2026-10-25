@@ -48,6 +48,12 @@ impl vf_cli::App for Agent {
         )));
         let mut origins = vec![HOSTED_UI_ORIGIN.to_owned()];
         origins.extend(s.extra_origins.iter().cloned());
+        if !s.ignored_extra_origins.is_empty() {
+            tracing::warn!(
+                ignored = ?s.ignored_extra_origins,
+                "extraOrigins ignored: release build or not an http(s)://host[:port] origin"
+            );
+        }
         if !s.extra_origins.is_empty() {
             tracing::warn!(
                 origins = ?s.extra_origins,

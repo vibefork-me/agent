@@ -769,5 +769,6 @@ async fn extra_origins_in_hello_and_guard_logs() {
     let (s, v, acao) = call(&app, Req::get("/v1/hello", Some("http://localhost:5173"))).await;
     assert_eq!(s, StatusCode::OK);
     assert_eq!(acao.as_deref(), Some("http://localhost:5173"));
-    assert_eq!(v["extraOrigins"], json!(["http://localhost:5173"]));
+    assert_eq!(v["extraOriginsActive"], json!(true));
+    assert!(v.get("extraOrigins").is_none(), "the list is not exposed");
 }
