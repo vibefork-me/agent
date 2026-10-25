@@ -122,6 +122,7 @@ impl Engine {
         let error = |out: &mut dyn FnMut(ServerMessage), e: &str| {
             out(ServerMessage::Error {
                 error: e.to_owned(),
+                code: None,
             })
         };
         let dir = match self.projects.resolve(&task.project) {
@@ -176,6 +177,7 @@ impl Engine {
         let Some(p) = self.provider(provider).cloned() else {
             return out(ServerMessage::Error {
                 error: format!("unknown provider {provider}"),
+                code: None,
             });
         };
         let req = StepRequest {
@@ -225,6 +227,7 @@ impl Engine {
             if !busy.insert(project.to_owned()) {
                 return out(ServerMessage::Error {
                     error: "a task is already running in this project".into(),
+                    code: None,
                 });
             }
         }

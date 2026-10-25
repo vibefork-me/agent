@@ -90,33 +90,34 @@ fn connect(backend: &dyn Backend) -> Result<(), String> {
 
 pub(crate) fn github(backend: &dyn Backend, args: &[String]) -> ExitCode {
     match args.first().map(String::as_str) {
-        None | Some("status") => match backend.github_status() {
-            Ok(s) if s.connected => {
-                println!(
-                    "connected{}",
-                    s.login.map(|l| format!(" as {l}")).unwrap_or_default()
-                );
-                ExitCode::SUCCESS
+        None | Some("status") => {
+            let lang = vf_platform::system_language();
+            match backend.github_status() {
+                Ok(s) if s.connected => {
+                    println!("{}", vf_core::catalog::cli_github_connected(lang, s.login.as_deref()));
+                    ExitCode::SUCCESS
+                }
+                Ok(_) => {
+                    println!("{}", vf_core::catalog::cli_github_not_connected(lang));
+                    ExitCode::from(3)
+                }
+                Err(e) => fail(e),
             }
-            Ok(_) => {
-                println!("not connected — `vibefork github connect`");
-                ExitCode::from(3)
-            }
-            Err(e) => fail(e),
-        },
+        }
         Some("connect") => match connect(backend) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => fail(e),
         },
-        Some("disconnect") => match vf_platform::secrets::remove("github") {
-            Ok(()) => {
-                println!(
-                    "disconnected (the app stays installed on your copies; remove it in GitHub settings if you want)"
-                );
-                ExitCode::SUCCESS
+        Some("disconnect") => {
+            let lang = vf_platform::system_language();
+            match vf_platform::secrets::remove("github") {
+                Ok(()) => {
+                    println!("{}", vf_core::catalog::cli_github_disconnected(lang));
+                    ExitCode::SUCCESS
+                }
+                Err(e) => fail(e),
             }
-            Err(e) => fail(e),
-        },
+        }
         Some(_) => {
             eprintln!("usage: vibefork github [status | connect | disconnect]");
             ExitCode::from(2)

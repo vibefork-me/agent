@@ -19,11 +19,15 @@ use crate::AppState;
 use crate::guard::EffectiveOrigin;
 
 pub(crate) fn error(status: StatusCode, message: &str) -> Response {
+    error_with_code(status, message, None)
+}
+
+pub(crate) fn error_with_code(status: StatusCode, message: &str, code: Option<&str>) -> Response {
     (
         status,
         Json(ErrorBody {
             error: message.to_owned(),
-            code: None,
+            code: code.map(str::to_owned),
             reset_minutes: None,
         }),
     )
@@ -31,15 +35,15 @@ pub(crate) fn error(status: StatusCode, message: &str) -> Response {
 }
 
 fn auth_error(e: &AuthError) -> Response {
-    let status = match e {
-        AuthError::BadKey => StatusCode::BAD_REQUEST,
-        AuthError::Storage => StatusCode::INTERNAL_SERVER_ERROR,
-        AuthError::TooManyPairings => StatusCode::TOO_MANY_REQUESTS,
-        AuthError::NotPaired | AuthError::BadChallenge | AuthError::BadSignature => {
-            StatusCode::UNAUTHORIZED
-        }
+    let (status, code) = match e {
+        AuthError::BadKey => (StatusCode::BAD_REQUEST, "bad_key"),
+        AuthError::Storage => (StatusCode::INTERNAL_SERVER_ERROR, "storage_error"),
+        AuthError::TooManyPairings => (StatusCode::TOO_MANY_REQUESTS, "too_many_pairings"),
+        AuthError::NotPaired => (StatusCode::UNAUTHORIZED, "not_paired"),
+        AuthError::BadChallenge => (StatusCode::UNAUTHORIZED, "bad_challenge"),
+        AuthError::BadSignature => (StatusCode::UNAUTHORIZED, "bad_signature"),
     };
-    error(status, &e.to_string())
+    error_with_code(status, &e.to_string(), Some(code))
 }
 
 /// The session of a request: `Authorization: Bearer <token>` bound to the request's origin.
@@ -54,7 +58,7 @@ fn session_from(state: &AppState, headers: &HeaderMap, origin: &str) -> Option<S
 
 /// The `401` response for a request without a valid session.
 fn no_session() -> Response {
-    error(StatusCode::UNAUTHORIZED, "no session")
+    error_with_code(StatusCode::UNAUTHORIZED, "no session", Some("no_session"))
 }
 
 pub(crate) async fn hello(State(state): State<AppState>) -> Json<Hello> {
@@ -281,7 +285,7 @@ pub(crate) async fn ai_connect(
         "claude" => "Claude",
         "codex" => "ChatGPT (Codex)",
         "openrouter" => "OpenRouter",
-        _ => return error(StatusCode::BAD_REQUEST, "unknown provider"),
+        _ => return error_with_code(StatusCode::BAD_REQUEST, "unknown provider", Some("unknown_provider")),
     };
     {
         let mut running = state.connecting.lock().unwrap_or_else(|p| p.into_inner());
@@ -291,10 +295,11 @@ pub(crate) async fn ai_connect(
     }
     let auth = state.auth.clone();
     let o = origin.0.clone();
+    let lang = auth.dialog().language();
     let prompt = if is_openrouter {
-        format!("connect {name} with an API key")
+        vf_core::catalog::action_connect_ai_key(lang, name)
     } else {
-        format!("set up {name} (official app) and sign in in your browser")
+        vf_core::catalog::action_connect_ai_subscription(lang, name)
     };
     let approved = tokio::task::spawn_blocking(move || auth.confirm_action(&o, &prompt, None))
         .await
@@ -305,14 +310,15 @@ pub(crate) async fn ai_connect(
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .remove(&req.provider);
-        return error(StatusCode::FORBIDDEN, "not confirmed");
+        return error_with_code(StatusCode::FORBIDDEN, "not confirmed", Some("action_not_confirmed"));
     }
 
     if is_openrouter {
         let auth = state.auth.clone();
         let o = origin.0.clone();
+        let secret_prompt = vf_core::catalog::openrouter_key_prompt(lang);
         let secret = tokio::task::spawn_blocking(move || {
-            auth.ask_secret(&o, "enter OpenRouter API key (get one at openrouter.ai)")
+            auth.ask_secret(&o, secret_prompt)
         })
         .await
         .unwrap_or(None);
@@ -461,24 +467,22 @@ pub(crate) async fn rollback(
         return no_session();
     }
     if !project_allowed(&state, &headers, &origin.0, &req.project).await {
-        return error(StatusCode::FORBIDDEN, "no access to this project");
+        return error_with_code(StatusCode::FORBIDDEN, "no access to this project", Some("project_forbidden"));
     }
     let auth = state.auth.clone();
+    let lang = auth.dialog().language();
+    let prompt = vf_core::catalog::action_rollback(lang);
     let (o, target) = (
         origin.0.clone(),
         format!("{} → {}", req.project, req.commit),
     );
     let approved = tokio::task::spawn_blocking(move || {
-        auth.confirm_action(
-            &o,
-            "roll the project back (later changes are dropped)",
-            Some(&target),
-        )
+        auth.confirm_action(&o, prompt, Some(&target))
     })
     .await
     .unwrap_or(false);
     if !approved {
-        return error(StatusCode::FORBIDDEN, "rollback not confirmed");
+        return error_with_code(StatusCode::FORBIDDEN, "rollback not confirmed", Some("rollback_not_confirmed"));
     }
     with_backend(state, &headers, &origin.0, move |b| {
         b.rollback(&req.project, &req.commit)
@@ -523,7 +527,7 @@ pub(crate) async fn save(
         return no_session();
     }
     if !project_allowed(&state, &headers, &origin.0, &req.project).await {
-        return error(StatusCode::FORBIDDEN, "no access to this project");
+        return error_with_code(StatusCode::FORBIDDEN, "no access to this project", Some("project_forbidden"));
     }
     let (auth, backend, o, p) = (
         state.auth.clone(),
@@ -531,18 +535,20 @@ pub(crate) async fn save(
         origin.0.clone(),
         req.project.clone(),
     );
+    let lang = auth.dialog().language();
+    let prompt = vf_core::catalog::action_save(lang);
     let approved = tokio::task::spawn_blocking(move || {
         !backend.save_needs_confirm(&p)
             || auth.confirm_action(
                 &o,
-                "save the project's changes to your copy on GitHub (it may be public)",
+                prompt,
                 Some(&p),
             )
     })
     .await
     .unwrap_or(false);
     if !approved {
-        return error(StatusCode::FORBIDDEN, "save not confirmed");
+        return error_with_code(StatusCode::FORBIDDEN, "save not confirmed", Some("save_not_confirmed"));
     }
     with_backend(state, &headers, &origin.0, move |b| b.save(&req)).await
 }

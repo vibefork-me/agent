@@ -9,13 +9,15 @@ use vf_platform::storage::{Kind, move_folder, usage};
 
 pub(crate) fn run(args: &[String]) -> ExitCode {
     let mut settings = Settings::from_env();
+    let lang = vf_platform::system_language();
     match args {
         [] => {
+            let files_lbl = vf_core::catalog::cli_storage_header_files(lang);
             for kind in Kind::ALL {
                 let path = kind.path(&settings.storage);
                 let u = usage(path);
                 println!(
-                    "{:<10} {:>10}  {:>8} files  {}",
+                    "{:<10} {:>10}  {:>8} {files_lbl}  {}",
                     kind.name(),
                     size(u.bytes),
                     u.files,
@@ -26,24 +28,24 @@ pub(crate) fn run(args: &[String]) -> ExitCode {
         }
         [cmd, kind, to] if cmd == "move" => {
             let Some(kind) = Kind::parse(kind) else {
-                eprintln!("vibefork: unknown folder `{kind}` (projects, tools, caches, artifacts)");
+                eprintln!("{}", vf_core::catalog::cli_storage_unknown_folder(lang, kind));
                 return ExitCode::from(2);
             };
             if agent_running(settings.port) {
-                eprintln!(
-                    "vibefork: stop the agent first (it is listening on port {})",
-                    settings.port
-                );
+                eprintln!("{}", vf_core::catalog::cli_storage_stop_agent_first(lang, settings.port));
                 return ExitCode::FAILURE;
             }
             match move_folder(&mut settings, kind, Path::new(to)) {
                 Ok(u) => {
                     println!(
-                        "moved {} ({}, {} files) to {}",
-                        kind.name(),
-                        size(u.bytes),
-                        u.files,
-                        kind.path(&settings.storage).display()
+                        "{}",
+                        vf_core::catalog::cli_storage_moved(
+                            lang,
+                            kind.name(),
+                            &size(u.bytes),
+                            u.files,
+                            &kind.path(&settings.storage).display().to_string()
+                        )
                     );
                     ExitCode::SUCCESS
                 }

@@ -2083,6 +2083,13 @@
           {
             "description": "An error; for auth errors the connection is closed after it.",
             "properties": {
+              "code": {
+                "description": "Machine-readable error code.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "error": {
                 "description": "Reason.",
                 "type": "string"

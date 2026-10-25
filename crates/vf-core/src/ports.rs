@@ -5,6 +5,11 @@ use crate::Secret;
 
 /// A native OS dialog — the one UI a web page cannot click. Used for pairing and dangerous actions.
 pub trait ConfirmDialog: Send + Sync {
+    /// UI language of native dialogs. Defaults to English.
+    fn language(&self) -> crate::catalog::Language {
+        crate::catalog::Language::En
+    }
+
     /// Shows `text` with an Allow / Block choice. Blocks the calling thread; returns `false` on
     /// Block, on timeout and when no dialog can be shown.
     fn confirm(&self, title: &str, text: &str) -> bool;

@@ -142,14 +142,18 @@ pub(crate) fn status(json: bool) -> ExitCode {
         });
         println!("{v}");
     } else {
+        let lang = vf_platform::system_language();
         match &alive {
             Some(a) => println!(
-                "running · version {} · port {} · pid {}",
-                a.version,
-                s.port,
-                pid.map(|p| p.to_string()).unwrap_or_else(|| "?".into())
+                "{}",
+                vf_core::catalog::cli_status_running(
+                    lang,
+                    &a.version,
+                    s.port,
+                    &pid.map(|p| p.to_string()).unwrap_or_else(|| "?".into())
+                )
             ),
-            None => println!("not running (port {})", s.port),
+            None => println!("{}", vf_core::catalog::cli_status_not_running(lang, s.port)),
         }
         println!(
             "ui: {HOSTED_UI_ORIGIN} · fallback http://127.0.0.1:{}/ui/",
@@ -158,12 +162,9 @@ pub(crate) fn status(json: bool) -> ExitCode {
         if !s.extra_origins.is_empty() {
             println!("⚠️  extraOrigins enabled: {:?}", s.extra_origins);
         }
-        println!(
-            "automatic updates: {}",
-            if s.auto_update { "on" } else { "off" }
-        );
+        println!("{}", vf_core::catalog::cli_status_auto_update(lang, s.auto_update));
         if let Some(version) = vf_platform::settings::read_update_notice(&s.state_dir) {
-            println!("update {version} is available — `vibefork update`");
+            println!("{}", vf_core::catalog::cli_status_update_available(lang, &version));
         }
         println!("data: {}", s.state_dir.display());
     }
