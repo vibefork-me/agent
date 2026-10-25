@@ -108,7 +108,7 @@ pub fn signed_in_from_status(json: &str) -> bool {
 }
 
 /// Command-line arguments (the prompt goes through stdin).
-pub fn args(model: &str, resume: Option<&str>) -> Vec<String> {
+pub fn args(model: &str, resume: Option<&str>, system: Option<&str>) -> Vec<String> {
     let mut a: Vec<String> = [
         "-p",
         "--output-format",
@@ -132,11 +132,14 @@ pub fn args(model: &str, resume: Option<&str>) -> Vec<String> {
     if !model.is_empty() {
         a.extend(["--model".into(), model.into()]);
     }
+    if let Some(sys) = system.filter(|s| !s.trim().is_empty()) {
+        a.extend(["--append-system-prompt".into(), sys.to_owned()]);
+    }
     a
 }
 
 /// Arguments of a read-only question: only the read tools, one JSON result.
-pub fn ask_args(model: &str) -> Vec<String> {
+pub fn ask_args(model: &str, system: Option<&str>) -> Vec<String> {
     let mut a: Vec<String> = [
         "-p",
         "--output-format",
@@ -152,6 +155,9 @@ pub fn ask_args(model: &str) -> Vec<String> {
     .to_vec();
     if !model.is_empty() {
         a.extend(["--model".into(), model.into()]);
+    }
+    if let Some(sys) = system.filter(|s| !s.trim().is_empty()) {
+        a.extend(["--append-system-prompt".into(), sys.to_owned()]);
     }
     a
 }
@@ -291,7 +297,7 @@ impl Provider for Claude {
         let stdout = collect(
             self.bin().as_deref(),
             "claude",
-            &ask_args(req.model),
+            &ask_args(req.model, req.system),
             req,
             cancel,
         )?;
@@ -314,7 +320,7 @@ impl Provider for Claude {
         run_cli(
             self.bin().as_deref(),
             "claude",
-            args(req.model, req.resume),
+            args(req.model, req.resume, req.system),
             req,
             out,
             cancel,

@@ -58,6 +58,8 @@ pub struct TaskRequest {
     pub model: Option<String>,
     /// Continue with the history of the project.
     pub continue_: bool,
+    /// Language of the UI/response (`en`, `ru`, …); default is the OS language.
+    pub lang: Option<String>,
 }
 
 /// Cancellation of a running task, shared between the requester and the worker.

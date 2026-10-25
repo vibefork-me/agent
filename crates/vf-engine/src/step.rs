@@ -33,6 +33,8 @@ pub struct StepRequest<'a> {
     pub continue_: bool,
     /// Position in a plan.
     pub step: Option<&'a StepInfo>,
+    /// System instruction, if any.
+    pub system: Option<&'a str>,
 }
 
 /// How a step ended.
@@ -283,6 +285,7 @@ impl Engine {
             model: req.model,
             resume: resume.as_deref(),
             env: &env,
+            system: req.system,
         };
         let result = provider.run(
             &run,

@@ -30,6 +30,9 @@ pub enum ClientMessage {
         /// Continue with the history of the project.
         #[serde(default, rename = "continue")]
         continue_: bool,
+        /// Language of the UI/response (`en`, `ru`, …); default is the OS language.
+        #[serde(default)]
+        lang: Option<String>,
     },
     /// Build the project (confirmed in the native dialog).
     Build {

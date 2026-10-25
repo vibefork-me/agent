@@ -141,12 +141,19 @@ impl Engine {
         let provider = task.provider.clone().unwrap_or_else(|| "auto".into());
         let model = task.model.clone().unwrap_or_default();
         let inventory = self.inventory();
+        let lang = task
+            .lang
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+            .map(str::to_owned)
+            .unwrap_or_else(|| vf_platform::system_language().as_str().to_owned());
         let t = Task {
             project: &task.project,
             dir: &dir,
             repo: &repo,
             prompt: &task.prompt,
             continue_: task.continue_,
+            lang: &lang,
         };
         match provider.as_str() {
             "auto" => self.auto(&t, &inventory, out, cancel),
@@ -180,6 +187,7 @@ impl Engine {
                 code: None,
             });
         };
+        let system_instruction = vf_core::catalog::system_instruction(t.lang);
         let req = StepRequest {
             project: t.project,
             dir: t.dir,
@@ -188,6 +196,7 @@ impl Engine {
             model,
             continue_: t.continue_,
             step: None,
+            system: Some(&system_instruction),
         };
         let r = self.step(t.repo, p.as_ref(), &req, out, cancel);
         if r.cancelled {

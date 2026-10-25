@@ -168,7 +168,7 @@ pub fn models_from_cache(json: &str) -> Vec<ModelInfo> {
 /// Command-line arguments (the prompt goes through stdin: `-`).
 /// `exec resume` has no `-s` / `-C`: the sandbox mode is set through `-c`, the folder is the working
 /// directory of the process.
-pub fn args(dir: &Path, model: &str, resume: Option<&str>) -> Vec<String> {
+pub fn args(dir: &Path, model: &str, resume: Option<&str>, system: Option<&str>) -> Vec<String> {
     let mut a: Vec<String> = vec!["exec".into()];
     if resume.is_some() {
         a.extend(["resume", "-c", "sandbox_mode=\"danger-full-access\""].map(str::to_owned));
@@ -191,6 +191,10 @@ pub fn args(dir: &Path, model: &str, resume: Option<&str>) -> Vec<String> {
     );
     if !model.is_empty() {
         a.extend(["-m".into(), model.into()]);
+    }
+    if let Some(sys) = system.filter(|s| !s.trim().is_empty()) {
+        let json_val = serde_json::to_string(sys).unwrap_or_else(|_| format!("\"{sys}\""));
+        a.extend(["-c".into(), format!("developer_instructions={json_val}")]);
     }
     if let Some(r) = resume {
         a.push(r.into());
@@ -336,6 +340,10 @@ impl Provider for Codex {
         if !req.model.is_empty() {
             args.extend(["-m".into(), req.model.into()]);
         }
+        if let Some(sys) = req.system.filter(|s| !s.trim().is_empty()) {
+            let json_val = serde_json::to_string(sys).unwrap_or_else(|_| format!("\"{sys}\""));
+            args.extend(["-c".into(), format!("developer_instructions={json_val}")]);
+        }
         args.push("-".into());
         let stdout = collect(self.bin().as_deref(), "codex", &args, req, cancel)?;
         let text = stdout
@@ -357,7 +365,7 @@ impl Provider for Codex {
         run_cli(
             self.bin().as_deref(),
             "codex",
-            args(req.dir, req.model, req.resume),
+            args(req.dir, req.model, req.resume, req.system),
             req,
             out,
             cancel,

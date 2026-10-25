@@ -161,7 +161,7 @@ fn codex_models_cache_lists_visible_models_and_default() {
 
 #[test]
 fn cli_arguments_keep_the_prompt_out_and_the_personal_environment_off() {
-    let a = claude::args("haiku", Some("s1"));
+    let a = claude::args("haiku", Some("s1"), None);
     for flag in [
         "--setting-sources",
         "project,local",
@@ -174,7 +174,7 @@ fn cli_arguments_keep_the_prompt_out_and_the_personal_environment_off() {
     ] {
         assert!(a.iter().any(|x| x == flag), "{flag}");
     }
-    let c = codex::args(std::path::Path::new("/p"), "", Some("t1"));
+    let c = codex::args(std::path::Path::new("/p"), "", Some("t1"), None);
     assert_eq!(&c[..2], ["exec", "resume"]);
     assert_eq!(
         &c[c.len() - 2..],
@@ -185,7 +185,7 @@ fn cli_arguments_keep_the_prompt_out_and_the_personal_environment_off() {
         !c.iter().any(|x| x == "-s" || x == "-C"),
         "not accepted by exec resume"
     );
-    let fresh = codex::args(std::path::Path::new("/p"), "m", None);
+    let fresh = codex::args(std::path::Path::new("/p"), "m", None, None);
     assert_eq!(
         &fresh[..5],
         ["exec", "-s", "danger-full-access", "-C", "/p"]
@@ -194,4 +194,38 @@ fn cli_arguments_keep_the_prompt_out_and_the_personal_environment_off() {
         c.iter().any(|x| x == "--ignore-user-config") && c.iter().any(|x| x == "--ignore-rules")
     );
     assert_eq!(c.last().map(String::as_str), Some("-"), "prompt from stdin");
+}
+
+#[test]
+fn system_instructions_are_passed_to_all_providers() {
+    let sys = "The user is not a programmer. Answer in Russian.";
+
+    // 1. Claude Code CLI
+    let a = claude::args("haiku", None, Some(sys));
+    let append_pos = a.iter().position(|x| x == "--append-system-prompt");
+    assert!(
+        append_pos.is_some(),
+        "claude args must include --append-system-prompt"
+    );
+    assert_eq!(a[append_pos.unwrap() + 1], sys);
+
+    let ask = claude::ask_args("haiku", Some(sys));
+    let ask_append_pos = ask.iter().position(|x| x == "--append-system-prompt");
+    assert!(ask_append_pos.is_some());
+    assert_eq!(ask[ask_append_pos.unwrap() + 1], sys);
+
+    // 2. Codex CLI
+    let c = codex::args(std::path::Path::new("/p"), "m", None, Some(sys));
+    let dev_instr = format!("developer_instructions=\"{sys}\"");
+    assert!(
+        c.iter().any(|x| x == &dev_instr),
+        "codex args must include developer_instructions"
+    );
+
+    // 3. OpenAI-compatible / own loop
+    let prompt = vf_providers::openai::system_prompt(Some(sys));
+    assert!(
+        prompt.contains(sys),
+        "openai system prompt must contain instruction"
+    );
 }

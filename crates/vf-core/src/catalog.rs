@@ -436,6 +436,20 @@ pub fn cli_storage_moved(lang: Language, kind: &str, size: &str, files: u64, pat
     }
 }
 
+/// System instruction for coding models: reply in the user's language and keep answers accessible for non-programmers.
+pub fn system_instruction(lang: &str) -> String {
+    let lang_trimmed = lang.trim();
+    let lang_rule = match lang_trimmed.to_ascii_lowercase().as_str() {
+        "ru" | "russian" => "Answer in Russian.".to_string(),
+        "en" | "english" => "Answer in English.".to_string(),
+        other if !other.is_empty() => format!("Answer in language `{other}`."),
+        _ => "Answer in English.".to_string(),
+    };
+    format!(
+        "The user is not a programmer: explain briefly what this means for them, without code or technical jargon. Provide technical details only if explicitly requested. {lang_rule}"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -550,5 +564,23 @@ mod tests {
         let text_en =
             project_access_text(Language::En, "http://localhost:5173", "Chrome", &long_proj);
         assert!(text_en.contains(&long_proj));
+    }
+
+    #[test]
+    fn system_instruction_formats_non_programmer_tone_and_language() {
+        let ru = system_instruction("ru");
+        assert!(ru.contains("The user is not a programmer"));
+        assert!(ru.contains("without code or technical jargon"));
+        assert!(ru.contains("Answer in Russian."));
+
+        let en = system_instruction("en");
+        assert!(en.contains("The user is not a programmer"));
+        assert!(en.contains("Answer in English."));
+
+        let custom = system_instruction("de");
+        assert!(custom.contains("Answer in language `de`."));
+
+        let empty = system_instruction("");
+        assert!(empty.contains("Answer in English."));
     }
 }
