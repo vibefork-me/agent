@@ -76,3 +76,63 @@ fn canary_outside_the_policy_is_closed() {
     assert!(!ok, "the root folder itself is not listed in the policy");
     let _ = std::fs::remove_dir_all(&base);
 }
+
+#[test]
+fn canary_package_managers_in_home_are_closed() {
+    if available() != IsolationLevel::Os {
+        eprintln!("skipped: no Landlock in this kernel");
+        return;
+    }
+    let base = std::env::temp_dir().join(format!("vf-sb-pkg-{}", std::process::id()));
+    let (project, home, tools, caches) = (
+        base.join("project"),
+        base.join("fake-home"),
+        base.join("tools"),
+        base.join("caches"),
+    );
+    std::fs::create_dir_all(&project).unwrap();
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::create_dir_all(&tools).unwrap();
+    std::fs::create_dir_all(&caches).unwrap();
+
+    let system: Vec<PathBuf> = ["/usr", "/bin", "/lib", "/lib64", "/etc"]
+        .iter()
+        .map(PathBuf::from)
+        .filter(|p| p.exists())
+        .collect();
+
+    let policy = SandboxPolicy {
+        read: system,
+        write: vec![
+            project.clone(),
+            tools.clone(),
+            caches.clone(),
+            "/dev".into(),
+        ],
+        temp: None,
+    };
+
+    // Attempts to write into package manager paths in home must fail under policy
+    for blocked in [
+        ".gradle",
+        ".m2",
+        ".npm",
+        ".cache",
+        ".local",
+        ".bun",
+        ".yarn",
+        ".pnpm-store",
+    ] {
+        let (ok, _) = run(
+            &policy,
+            &format!(
+                "mkdir -p \"{0}/{1}\" && touch \"{0}/{1}/leak\"",
+                home.display(),
+                blocked
+            ),
+        );
+        assert!(!ok, "{blocked} in home must not be writable under policy");
+    }
+
+    let _ = std::fs::remove_dir_all(&base);
+}

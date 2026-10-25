@@ -40,19 +40,18 @@ const SYSTEM_WRITE: &[&str] = &[
     "/private/var/folders",
 ];
 
-/// Inside the home: data of the coding CLIs and package managers (read and write).
+/// Inside the home: data of the coding CLIs only (read and write).
+/// Package managers (.npm, .gradle, .m2, etc.) are excluded — redirected into agent caches.
 const HOME_WRITE: &[&str] = &[
     ".claude",
     ".claude.json",
     ".codex",
-    ".npm",
-    ".cache",
-    ".local",
-    ".bun",
-    ".yarn",
-    ".pnpm-store",
-    ".gradle",
-    ".m2",
+    ".cache/claude",
+    ".cache/claude-cli-nodejs",
+    ".cache/codex",
+    ".local/share/claude",
+    ".local/share/codex",
+    ".local/state/codex",
 ];
 /// Inside the home: tool settings and installs (read only).
 const HOME_READ: &[&str] = &[
@@ -105,14 +104,13 @@ pub fn task_policy(project: &Path, tools: &Path, caches: &Path) -> SandboxPolicy
     if let Some(tmp) = std::env::var_os("TMPDIR").map(PathBuf::from) {
         write.push(tmp);
     }
-    // Windows: CLIs installed per user, npm cache; a temp folder inside the agent's caches.
+    // Windows: CLIs installed per user; a temp folder inside the agent's caches.
     #[cfg(windows)]
     let temp = {
         let local = std::env::var_os("LOCALAPPDATA").map(PathBuf::from);
         let roaming = std::env::var_os("APPDATA").map(PathBuf::from);
         if let Some(l) = &local {
             read.push(l.join("OpenAI").join("Codex"));
-            write.push(l.join("npm-cache"));
         }
         if let Some(r) = &roaming {
             read.push(r.join("npm"));
@@ -138,12 +136,32 @@ mod tests {
         let tmp = std::env::temp_dir();
         let p = task_policy(&tmp, &tmp, &tmp);
         assert!(p.write.contains(&tmp));
-        if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+        if let Some(home) = std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+            .map(PathBuf::from)
+        {
             assert!(
                 !p.read.contains(&home) && !p.write.contains(&home),
                 "the home itself is not open"
             );
             assert!(p.read.iter().chain(&p.write).all(|x| !x.ends_with(".ssh")));
+
+            // Package managers must never be writable in home
+            for blocked in [
+                ".gradle",
+                ".m2",
+                ".npm",
+                ".cache",
+                ".local",
+                ".bun",
+                ".yarn",
+                ".pnpm-store",
+            ] {
+                assert!(
+                    !p.write.contains(&home.join(blocked)),
+                    "{blocked} must not be writable in home"
+                );
+            }
         }
         if let Ok(exe) = std::env::current_exe()
             && let Some(parent) = exe.parent()

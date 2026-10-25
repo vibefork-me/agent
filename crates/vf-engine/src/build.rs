@@ -66,7 +66,9 @@ impl Engine {
             return error(out, format!("not enough resources: {text}"));
         }
 
-        let (env, _, _) = self.child_env(&dir, true, out, cancel);
+        let run_id = crate::step::new_run_id(&format!("build-{project}"));
+        let _tmp_guard = crate::step::TmpGuard::new(&self.caches, &run_id);
+        let (env, _, _) = self.child_env(&dir, true, false, Some(&run_id), out, cancel);
         let started = Instant::now();
         let mut cmd = shell(&dir, &recipe.program, &recipe.args, &env);
         cmd.current_dir(&dir);

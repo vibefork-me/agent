@@ -62,6 +62,10 @@ pub struct Engine {
 impl Engine {
     /// An engine over the folders of `settings` with the given providers.
     pub fn new(settings: &Settings, providers: Vec<Arc<dyn Provider>>) -> Self {
+        step::clean_stale_tmp(
+            &settings.storage.caches.join("tmp"),
+            std::time::Duration::from_secs(86_400),
+        );
         Self {
             projects: Projects::new(&settings.storage.projects),
             journal: JournalFiles::new(settings.journal_dir()),
