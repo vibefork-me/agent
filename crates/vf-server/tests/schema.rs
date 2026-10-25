@@ -51,6 +51,8 @@ fn definitions() -> Map<String, Value> {
         FileResponse,
         FileDiffResponse,
         GraphResponse,
+        GraphSource,
+        DescribeRequest,
         GraphNode,
         GraphEdge,
         ClientMessage,

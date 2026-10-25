@@ -855,6 +855,25 @@ async fn files_need_a_session_and_a_project_grant() {
             .0,
         StatusCode::OK
     );
+    // Describing the map needs the project grant too.
+    let body = json!({ "project": "demo" });
+    assert_eq!(
+        call(&denying, Req::post("/v1/graph/describe", UI, body.clone()))
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+    let denied = login(&denying, &browser, &key_id, UI).await;
+    let r = Req {
+        token: Some(&denied),
+        ..Req::post("/v1/graph/describe", UI, body.clone())
+    };
+    assert_eq!(call(&denying, r).await.0, StatusCode::FORBIDDEN);
+    let r = Req {
+        token: Some(&token),
+        ..Req::post("/v1/graph/describe", UI, body)
+    };
+    assert_eq!(call(&allowing, r).await.0, StatusCode::BAD_REQUEST);
     // A file the engine refuses comes back as 403, not as content.
     assert_eq!(
         call(&allowing, get("/v1/file?project=demo&path=.env"))

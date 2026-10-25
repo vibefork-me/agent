@@ -2,11 +2,12 @@
 //! project was taken. Built from the files of the newest commit, so ignored files never show.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
 
 use vf_git::Repo;
 use vf_journal::Vcs as _;
 use vf_protocol::BackendError;
-use vf_protocol::http::{GraphEdge, GraphNode, GraphResponse};
+use vf_protocol::http::{DescribeRequest, GraphEdge, GraphNode, GraphResponse, GraphSource};
 
 use crate::Engine;
 
@@ -81,6 +82,7 @@ pub(crate) fn build(files: &[String], changed: &[String]) -> (Vec<GraphNode>, Ve
                 .rsplit_once('/')
                 .map_or_else(|| id.clone(), |(_, l)| l.to_owned()),
             id,
+            summary: None,
             files,
             changed,
         })
@@ -90,18 +92,20 @@ pub(crate) fn build(files: &[String], changed: &[String]) -> (Vec<GraphNode>, Ve
 }
 
 impl Engine {
-    pub(crate) fn project_graph(&self, project: &str) -> Result<GraphResponse, BackendError> {
+    /// The project folder, its newest commit, its files then and the files changed since it was
+    /// taken; `None` — no commits yet.
+    #[allow(clippy::type_complexity)]
+    fn graph_input(
+        &self,
+        project: &str,
+    ) -> Result<Option<(PathBuf, String, Vec<String>, Vec<String>)>, BackendError> {
         let root = self
             .projects
             .resolve(project)
             .map_err(|_| BackendError::NotFound("no such project".into()))?;
-        let repo = Repo::open(root);
+        let repo = Repo::open(root.clone());
         let Ok(head) = repo.head() else {
-            return Ok(GraphResponse {
-                revision: None,
-                nodes: Vec::new(),
-                edges: Vec::new(),
-            });
+            return Ok(None);
         };
         let files = repo
             .files_at(&head)
@@ -112,12 +116,47 @@ impl Engine {
                 .map_err(|e| BackendError::Internal(e.0))?,
             _ => Vec::new(),
         };
-        let (nodes, edges) = build(&files, &changed);
+        Ok(Some((root, head, files, changed)))
+    }
+
+    /// The model's map when there is one, the folders otherwise.
+    pub(crate) fn project_graph(&self, project: &str) -> Result<GraphResponse, BackendError> {
+        let Some((_, head, files, changed)) = self.graph_input(project)? else {
+            return Ok(GraphResponse {
+                source: GraphSource::Folders,
+                revision: None,
+                nodes: Vec::new(),
+                edges: Vec::new(),
+            });
+        };
+        let (source, (nodes, edges)) = match self.load_map(project) {
+            Some(m) => (GraphSource::Model, crate::map::build(&m, &files, &changed)),
+            None => (GraphSource::Folders, build(&files, &changed)),
+        };
         Ok(GraphResponse {
+            source,
             revision: Some(head),
             nodes,
             edges,
         })
+    }
+
+    pub(crate) fn describe_project_graph(
+        &self,
+        req: &DescribeRequest,
+    ) -> Result<GraphResponse, BackendError> {
+        let Some((root, head, files, _)) = self.graph_input(&req.project)? else {
+            return Err(BackendError::BadRequest(
+                "the project has no files yet".into(),
+            ));
+        };
+        let lang = req.lang.as_deref().unwrap_or("en");
+        self.describe_map(&req.project, &root, &head, &files, lang)
+            .map_err(|e| {
+                tracing::info!(project = %req.project, error = %e, "map not described");
+                BackendError::BadRequest(format!("no model could describe the project: {e}"))
+            })?;
+        self.project_graph(&req.project)
     }
 }
 

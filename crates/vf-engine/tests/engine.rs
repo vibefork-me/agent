@@ -42,7 +42,13 @@ impl Provider for Scripted {
         true
     }
     fn ask(&self, req: &AskRequest<'_>, _: &Cancel) -> Result<Answer, String> {
-        let text = if req.system.is_some() {
+        let text = if req
+            .system
+            .is_some_and(|s| s.contains("does not write code"))
+        {
+            assert!(req.prompt.contains("PROJECT DATA"));
+            r#"{"parts":[{"name":"Guide","summary":"Explains the project.","paths":["README.md"]},{"name":"Program","summary":"Does the work.","paths":["src"]}],"links":[{"from":"Guide","to":"Program"}]}"#
+        } else if req.system.is_some() {
             r#"{"complexity":"medium","decompose":true,"reason":"two parts"}"#
         } else {
             r#"{"steps":[{"title":"first","prompt":"do first","complexity":"simple"},{"title":"second","prompt":"do second","complexity":"medium"}]}"#
@@ -517,4 +523,36 @@ fn map_shows_parts_and_what_changed_since_the_start() {
     assert_ne!(g.revision.as_deref(), Some(start.as_str()));
     let src = g.nodes.iter().find(|n| n.id == "src").unwrap();
     assert_eq!((src.files, src.changed), (1, 1));
+}
+
+#[test]
+fn a_model_draws_the_map_in_plain_words() {
+    let (base, engine, _) = setup();
+    let demo = base.join("projects/demo");
+    std::fs::create_dir_all(demo.join("src")).unwrap();
+    std::fs::write(demo.join("src/main.rs"), "fn main() {}").unwrap();
+    vf_git::Repo::init_with(demo.clone(), "start").unwrap();
+    assert_eq!(
+        engine.graph("demo").unwrap().source,
+        vf_protocol::http::GraphSource::Folders
+    );
+    let req = vf_protocol::http::DescribeRequest {
+        project: "demo".into(),
+        lang: Some("ru".into()),
+    };
+    let g = engine.describe_graph(&req).unwrap();
+    assert_eq!(g.source, vf_protocol::http::GraphSource::Model);
+    let got: Vec<(&str, &str, u32)> = g
+        .nodes
+        .iter()
+        .map(|n| (n.id.as_str(), n.label.as_str(), n.files))
+        .collect();
+    assert_eq!(got, vec![("p1", "Guide", 1), ("p2", "Program", 1)]);
+    assert_eq!(g.nodes[0].summary.as_deref(), Some("Explains the project."));
+    assert_eq!(g.edges.len(), 1);
+    // Kept: the next read is the model's map without asking again.
+    assert_eq!(
+        engine.graph("demo").unwrap().source,
+        vf_protocol::http::GraphSource::Model
+    );
 }

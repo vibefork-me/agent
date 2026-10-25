@@ -9,9 +9,9 @@ use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use vf_auth::{AuthError, SessionInfo};
 use vf_protocol::http::{
-    ChallengeRequest, ChallengeResponse, ErrorBody, Hello, ImportRequest, Me, PairStartRequest,
-    PairStartResponse, PairStatusResponse, RevokeRequest, RevokeResponse, RollbackRequest,
-    SaveRequest, SessionRequest, SessionResponse,
+    ChallengeRequest, ChallengeResponse, DescribeRequest, ErrorBody, Hello, ImportRequest, Me,
+    PairStartRequest, PairStartResponse, PairStatusResponse, RevokeRequest, RevokeResponse,
+    RollbackRequest, SaveRequest, SessionRequest, SessionResponse,
 };
 use vf_protocol::{Backend, BackendError};
 
@@ -308,6 +308,22 @@ pub(crate) async fn graph(
         return error(StatusCode::FORBIDDEN, "no access to this project");
     }
     with_backend(state, &headers, &origin.0, move |b| b.graph(&project)).await
+}
+
+/// Has a model draw the project's map; the browser needs access to the project.
+pub(crate) async fn describe_graph(
+    State(state): State<AppState>,
+    Extension(origin): Extension<EffectiveOrigin>,
+    headers: HeaderMap,
+    Json(req): Json<DescribeRequest>,
+) -> Response {
+    if session_from(&state, &headers, &origin.0).is_none() {
+        return no_session();
+    }
+    if !project_allowed(&state, &headers, &origin.0, &req.project).await {
+        return error(StatusCode::FORBIDDEN, "no access to this project");
+    }
+    with_backend(state, &headers, &origin.0, move |b| b.describe_graph(&req)).await
 }
 
 /// Resets a project to a journal checkpoint after the native dialog confirms it (invariant 3).

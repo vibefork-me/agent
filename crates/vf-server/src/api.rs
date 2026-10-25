@@ -133,6 +133,14 @@ pub const ROUTES: &[Route] = &[
     },
     Route {
         method: "POST",
+        path: "/v1/graph/describe",
+        summary: "Have a model available now draw the project's map in plain words; slow",
+        request: Some("DescribeRequest"),
+        response: Some("GraphResponse"),
+        session: true,
+    },
+    Route {
+        method: "POST",
         path: "/v1/rollback",
         summary: "Reset a project to a journal checkpoint; confirmed in the native dialog",
         request: Some("RollbackRequest"),
