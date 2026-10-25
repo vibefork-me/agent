@@ -50,6 +50,43 @@ fn listing(root: &Path, skip: &[PathBuf]) -> BTreeMap<PathBuf, (u64, Option<Syst
     out
 }
 
+/// Files the operating system itself changes in the background (Windows: `AppData\…\Microsoft`
+/// and the registry hives; macOS: Apple's own services). Folders tools write to, like
+/// `~/Library/Caches/go-build`, are not noise.
+fn os_noise(home: &Path, path: &Path) -> bool {
+    let Ok(rel) = path.strip_prefix(home) else {
+        return false;
+    };
+    let parts: Vec<String> = rel
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect();
+    let at = |i: usize| parts.get(i).map(String::as_str).unwrap_or_default();
+    if cfg!(windows) {
+        return (at(0) == "AppData" && at(2) == "Microsoft")
+            || at(0).starts_with("NTUSER.DAT")
+            || at(0).starts_with("ntuser.dat");
+    }
+    if cfg!(target_os = "macos") && at(0) == "Library" {
+        let apple = |s: &str| s.starts_with("com.apple.") || s.starts_with("group.com.apple.");
+        return matches!(
+            at(1),
+            "Safari"
+                | "SafariSafeBrowsing"
+                | "Suggestions"
+                | "HomeKit"
+                | "Daemon Containers"
+                | "IdentityServices"
+                | "Biome"
+        ) || (at(1) == "Caches" && (apple(at(2)) || at(2) == "CloudKit"))
+            || (matches!(
+                at(1),
+                "Application Support" | "Preferences" | "Logs" | "Containers" | "Group Containers"
+            ) && (apple(at(2)) || at(2) == "ByHost"));
+    }
+    false
+}
+
 fn home() -> PathBuf {
     std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })
         .map(PathBuf::from)
@@ -153,7 +190,7 @@ fn builds_leave_nothing_in_the_home_folder() {
     let after = listing(&home, &skip);
     let leaks: Vec<String> = after
         .iter()
-        .filter(|(path, meta)| before.get(*path) != Some(*meta))
+        .filter(|(path, meta)| before.get(*path) != Some(*meta) && !os_noise(&home, path))
         .map(|(path, _)| path.display().to_string())
         .collect();
     let _ = std::fs::remove_dir_all(&base);

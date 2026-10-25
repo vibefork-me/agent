@@ -103,6 +103,13 @@ impl Mise {
             cmd.env(k, self.tools.join(dir));
         }
         cmd.env("MISE_YES", "1").env("MISE_QUIET", "1");
+        // Installers run tools of their own (Node, rustup): their temp files stay here too.
+        let tmp = self.tools.join("tmp");
+        let _ = std::fs::create_dir_all(&tmp);
+        for k in ["TEMP", "TMP", "TMPDIR"] {
+            cmd.env(k, &tmp);
+        }
+        cmd.env("NODE_COMPILE_CACHE", self.tools.join("node-compile-cache"));
         // Rust is installed through rustup: its homes too stay in the agent's folder.
         cmd.envs(rust_homes(&self.tools));
         cmd
