@@ -1,19 +1,24 @@
 //! Secrets in the OS store (Windows Credential Manager, macOS Keychain, Linux Secret Service),
 //! service `vibefork`. Values are returned as [`Secret`] and never logged (invariant 6).
 
+#[cfg(feature = "test-store")]
 use std::collections::HashMap;
+#[cfg(feature = "test-store")]
 use std::sync::{LazyLock, Mutex};
 
 use vf_core::Secret;
 
 const SERVICE: &str = "vibefork";
 
+#[cfg(feature = "test-store")]
 static TEST_STORE: LazyLock<Mutex<Option<HashMap<String, String>>>> =
     LazyLock::new(|| Mutex::new(None));
 
 /// Enables an in-memory secret store for automated tests where no OS secret service exists (e.g. headless CI).
-#[doc(hidden)]
+/// Only with the `test-store` feature, which release builds do not enable (checked in CI).
+#[cfg(feature = "test-store")]
 pub fn enable_test_store() {
+    #[cfg(feature = "test-store")]
     if let Ok(mut lock) = TEST_STORE.lock() {
         *lock = Some(HashMap::new());
     }
@@ -42,6 +47,7 @@ fn entry(name: &str) -> Result<keyring::Entry, SecretError> {
 
 /// Reads a secret; `None` when it is not stored.
 pub fn get(name: &str) -> Option<Secret<String>> {
+    #[cfg(feature = "test-store")]
     if let Ok(lock) = TEST_STORE.lock()
         && let Some(map) = lock.as_ref()
     {
@@ -55,6 +61,7 @@ pub fn set(name: &str, value: &str) -> Result<(), SecretError> {
     if !NAMES.contains(&name) {
         return Err(SecretError::Unknown(name.to_owned()));
     }
+    #[cfg(feature = "test-store")]
     if let Ok(mut lock) = TEST_STORE.lock()
         && let Some(map) = lock.as_mut()
     {
@@ -68,6 +75,7 @@ pub fn set(name: &str, value: &str) -> Result<(), SecretError> {
 
 /// Removes a secret (no error when it is not stored).
 pub fn remove(name: &str) -> Result<(), SecretError> {
+    #[cfg(feature = "test-store")]
     if let Ok(mut lock) = TEST_STORE.lock()
         && let Some(map) = lock.as_mut()
     {

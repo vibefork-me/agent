@@ -28,6 +28,7 @@ tracing.workspace = true
 workspace = true
 
 [dev-dependencies]
+vf-platform = { workspace = true, features = ["test-store"] }
 serde_json.workspace = true
 vf-core.workspace = true
 vf-updater.workspace = true

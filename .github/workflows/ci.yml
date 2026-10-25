@@ -44,7 +44,7 @@ jobs:
         run: cargo test -p vf-platform --features dev-extra-origins
       - name: Default build has no dev or insecure features
         run: |
-          if cargo tree -p vf-agent -e features -i vf-platform | grep -E 'vf-platform feature "(dev-extra-origins|insecure-auto-approve)"'; then
+          if cargo tree -p vf-agent -e features -i vf-platform | grep -E 'vf-platform feature "(dev-extra-origins|insecure-auto-approve|test-store)"'; then
             echo "a default vf-agent build enables a development-only feature" >&2
             exit 1
           fi
