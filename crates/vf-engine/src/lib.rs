@@ -32,7 +32,7 @@ use vf_protocol::{Backend, BackendError, Cancel, ModelInfo, TaskRequest};
 use vf_providers::Provider;
 
 use orchestrate::Task;
-pub use step::{StepRequest, StepResult};
+pub use step::{StepRequest, StepResult, clean_tmp};
 
 /// How long a subscription sign-in may take (the user finishes it in the browser).
 const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
@@ -93,6 +93,11 @@ impl Engine {
     pub fn with_sandbox(mut self, helper: PathBuf) -> Self {
         self.sandbox_helper = Some(helper);
         self
+    }
+
+    /// The agent's caches folder.
+    pub fn caches_dir(&self) -> &std::path::Path {
+        &self.caches
     }
 
     /// Every model available now.

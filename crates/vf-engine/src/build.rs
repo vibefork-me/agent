@@ -66,7 +66,7 @@ impl Engine {
             return error(out, format!("not enough resources: {text}"));
         }
 
-        let (env, _, _) = self.child_env(&dir, true, out, cancel);
+        let (env, _, _) = self.child_env(&dir, true, false, out, cancel);
         let started = Instant::now();
         let mut cmd = shell(&dir, &recipe.program, &recipe.args, &env);
         cmd.current_dir(&dir);
@@ -83,9 +83,15 @@ impl Engine {
         );
         let seconds = started.elapsed().as_secs_f64();
         let code = match exit {
-            Ok(e) if e.cancelled => return out(ServerMessage::Cancelled),
+            Ok(e) if e.cancelled => {
+                crate::step::clean_tmp(&self.caches.join("tmp"));
+                return out(ServerMessage::Cancelled);
+            }
             Ok(e) => e.code,
-            Err(e) => return error(out, format!("cannot start the build: {e}")),
+            Err(e) => {
+                crate::step::clean_tmp(&self.caches.join("tmp"));
+                return error(out, format!("cannot start the build: {e}"));
+            }
         };
         let (mut folder, mut files) = (None, Vec::new());
         if code == 0 {
@@ -110,6 +116,7 @@ impl Engine {
             files,
             seconds,
         });
+        crate::step::clean_tmp(&self.caches.join("tmp"));
     }
 
     pub(crate) fn reset_to(

@@ -658,3 +658,45 @@ fn openrouter_key_verification_and_dynamic_reload() {
 
     let _ = std::fs::remove_dir_all(&base);
 }
+
+#[test]
+fn internal_processes_get_fake_home_and_clis_keep_real_home() {
+    let (base, engine, _) = setup();
+    let project_dir = base.join("projects/demo");
+    let cancel = Cancel::default();
+
+    // 1. Internal processes / builds (is_cli = false): fake home and tmp in caches
+    let (env_internal, _, _) = engine.child_env(&project_dir, false, false, &mut |_| {}, &cancel);
+    let home = env_internal
+        .get("HOME")
+        .map(|s| s.to_string_lossy().to_string());
+    let userprofile = env_internal
+        .get("USERPROFILE")
+        .map(|s| s.to_string_lossy().to_string());
+    let tmp = env_internal
+        .get("TEMP")
+        .map(|s| s.to_string_lossy().to_string());
+
+    let expected_home = engine.caches_dir().join("home").display().to_string();
+    let expected_tmp = engine.caches_dir().join("tmp").display().to_string();
+
+    assert_eq!(home.as_deref(), Some(expected_home.as_str()));
+    assert_eq!(userprofile.as_deref(), Some(expected_home.as_str()));
+    assert_eq!(tmp.as_deref(), Some(expected_tmp.as_str()));
+
+    // Verify temp cleanup
+    let marker = engine.caches_dir().join("tmp").join("leak.txt");
+    std::fs::write(&marker, "test").unwrap();
+    assert!(marker.exists());
+    vf_engine::clean_tmp(&engine.caches_dir().join("tmp"));
+    assert!(!marker.exists());
+
+    // 2. CLI providers (is_cli = true): real home is preserved (not pointing to sandbox caches/home)
+    let (env_cli, _, _) = engine.child_env(&project_dir, false, true, &mut |_| {}, &cancel);
+    let cli_home = env_cli
+        .get("HOME")
+        .map(|s| s.to_string_lossy().to_string());
+    assert_ne!(cli_home.as_deref(), Some(expected_home.as_str()));
+
+    let _ = std::fs::remove_dir_all(&base);
+}

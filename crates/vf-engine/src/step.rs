@@ -57,14 +57,69 @@ pub struct StepResult {
 impl Engine {
     /// The environment of the model's (and the build's) processes: cleaned, the agent's git
     /// identity, the project's toolchain in front of `PATH`. Returns it with the toolchain folders.
-    pub(crate) fn child_env(
+    /// Prepares the environment for a child process.
+    pub fn child_env(
         &self,
         dir: &Path,
         sandboxed: bool,
+        is_cli: bool,
         out: &mut dyn FnMut(ServerMessage),
         cancel: &Cancel,
     ) -> (ChildEnv, Vec<String>, IsolationLevel) {
         let mut env = ChildEnv::from_current();
+
+        // For internal processes (builds and agent loops), redirect HOME, USERPROFILE,
+        // APPDATA, LOCALAPPDATA, XDG_*, and TEMP to the agent's caches folder so no files
+        // leak into the real user profile. Coding CLIs (claude/codex) keep the real HOME
+        // to access their auth sessions, but inherit explicit toolchain cache variables.
+        if !is_cli {
+            let sandbox_home = self.caches.join("home");
+            let sandbox_tmp = self.caches.join("tmp");
+            let _ = std::fs::create_dir_all(&sandbox_home);
+            let _ = std::fs::create_dir_all(&sandbox_tmp);
+
+            let home_str = sandbox_home.display().to_string();
+            let tmp_str = sandbox_tmp.display().to_string();
+
+            env.set("HOME", &home_str);
+            env.set("USERPROFILE", &home_str);
+            env.set(
+                "APPDATA",
+                sandbox_home
+                    .join("AppData")
+                    .join("Roaming")
+                    .display()
+                    .to_string(),
+            );
+            env.set(
+                "LOCALAPPDATA",
+                sandbox_home
+                    .join("AppData")
+                    .join("Local")
+                    .display()
+                    .to_string(),
+            );
+            env.set(
+                "XDG_CONFIG_HOME",
+                sandbox_home.join(".config").display().to_string(),
+            );
+            env.set(
+                "XDG_CACHE_HOME",
+                sandbox_home.join(".cache").display().to_string(),
+            );
+            env.set(
+                "XDG_DATA_HOME",
+                sandbox_home.join(".local").join("share").display().to_string(),
+            );
+            env.set(
+                "XDG_STATE_HOME",
+                sandbox_home.join(".local").join("state").display().to_string(),
+            );
+            env.set("TEMP", &tmp_str);
+            env.set("TMP", &tmp_str);
+            env.set("TMPDIR", &tmp_str);
+        }
+
         // Commits made by the model carry the agent's identity, not the user's git identity.
         for (k, v) in [
             ("GIT_AUTHOR_NAME", vf_git::AGENT_NAME),
@@ -169,7 +224,7 @@ impl Engine {
 
         let cli = matches!(id, "claude" | "codex");
         let sandboxed = !cli || vf_sandbox::supports_coding_clis();
-        let (env, toolchain, isolation) = self.child_env(req.dir, sandboxed, out, cancel);
+        let (env, toolchain, isolation) = self.child_env(req.dir, sandboxed, cli, out, cancel);
         out(ServerMessage::Started {
             project: req.project.to_owned(),
             provider: id.to_owned(),
@@ -258,6 +313,7 @@ impl Engine {
             ok = result.ok,
             "step end"
         );
+        clean_tmp(&self.caches.join("tmp"));
         match finished {
             Ok(outcome) => StepResult {
                 code: result.code,
@@ -286,6 +342,20 @@ impl Engine {
                     session: result.session,
                     ..StepResult::default()
                 }
+            }
+        }
+    }
+}
+
+/// Cleans all entries inside a directory without deleting the directory itself.
+pub fn clean_tmp(tmp: &Path) {
+    if let Ok(entries) = std::fs::read_dir(tmp) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.is_dir() {
+                let _ = std::fs::remove_dir_all(&p);
+            } else {
+                let _ = std::fs::remove_file(&p);
             }
         }
     }
