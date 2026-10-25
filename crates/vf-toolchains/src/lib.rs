@@ -7,6 +7,7 @@
 //! - [`prepare`] — installs what is needed and returns `PATH` entries and variables for the model's
 //!   processes.
 
+pub mod cli;
 pub mod detect;
 pub mod download;
 pub mod mise;

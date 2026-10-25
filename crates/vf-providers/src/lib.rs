@@ -18,7 +18,7 @@ pub mod openai;
 pub mod process;
 mod tools;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use vf_protocol::{Cancel, Event, ModelInfo, Usage};
 
@@ -114,6 +114,10 @@ pub trait Provider: Send + Sync {
     fn connect(&self, timeout: std::time::Duration) -> Result<(), String> {
         let _ = timeout;
         Err("this provider is connected another way".into())
+    }
+    /// Uses this binary of the provider's CLI from now on (one the agent installed).
+    fn use_cli(&self, bin: PathBuf) {
+        let _ = bin;
     }
     /// Whether the provider is set up: its CLI is installed (or it needs none) and the user is
     /// signed in (`None` — the agent cannot tell).

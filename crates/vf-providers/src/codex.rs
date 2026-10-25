@@ -21,11 +21,15 @@ const CACHE_TTL: Duration = Duration::from_secs(60);
 /// The Codex CLI.
 #[derive(Debug)]
 pub struct Codex {
-    bin: Option<PathBuf>,
+    bin: std::sync::RwLock<Option<PathBuf>>,
     cache: Mutex<Option<(Instant, Vec<ModelInfo>)>>,
 }
 
 impl Codex {
+    fn bin(&self) -> Option<PathBuf> {
+        self.bin.read().unwrap_or_else(|p| p.into_inner()).clone()
+    }
+
     /// Finds the CLI: `VF_CODEX_BIN`; on Windows the newest CLI of the Codex app
     /// (`%LOCALAPPDATA%\OpenAI\Codex\bin\<hash>\codex.exe`); else `codex` on `PATH`.
     pub fn detect() -> Self {
@@ -35,7 +39,7 @@ impl Codex {
             .or_else(app_cli)
             .or_else(|| process::find_program("codex"));
         Self {
-            bin,
+            bin: std::sync::RwLock::new(bin),
             cache: Mutex::new(None),
         }
     }
@@ -223,28 +227,32 @@ impl Provider for Codex {
     }
 
     fn connect(&self, timeout: Duration) -> Result<(), String> {
-        let bin = self.bin.as_ref().ok_or("Codex is not installed")?;
-        let mut cmd = process::command(bin);
+        let bin = self.bin().ok_or("Codex is not installed")?;
+        let mut cmd = process::command(&bin);
         cmd.arg("login");
         let exit = process::run_streaming(cmd, None, &Cancel::new(), Some(timeout), &mut |_, _| {})
             .map_err(|e| e.to_string())?;
         *self.cache.lock().unwrap_or_else(|p| p.into_inner()) = None;
-        if exit.code == 0 && Self::logged_in(bin) {
+        if exit.code == 0 && Self::logged_in(&bin) {
             Ok(())
         } else {
             Err(format!("sign-in did not finish (code {})", exit.code))
         }
     }
 
+    fn use_cli(&self, bin: PathBuf) {
+        *self.bin.write().unwrap_or_else(|p| p.into_inner()) = Some(bin);
+    }
+
     fn status(&self) -> crate::Status {
         crate::Status {
-            installed: self.bin.is_some(),
-            signed_in: Some(self.bin.is_some() && !self.models().is_empty()),
+            installed: self.bin().is_some(),
+            signed_in: Some(self.bin().is_some() && !self.models().is_empty()),
         }
     }
 
     fn models(&self) -> Vec<ModelInfo> {
-        let Some(bin) = &self.bin else {
+        let Some(bin) = self.bin() else {
             return Vec::new();
         };
         let mut cache = self.cache.lock().unwrap_or_else(|p| p.into_inner());
@@ -253,7 +261,7 @@ impl Provider for Codex {
         {
             return models.clone();
         }
-        let models = if Self::logged_in(bin) {
+        let models = if Self::logged_in(&bin) {
             let home = std::env::var_os("USERPROFILE")
                 .or_else(|| std::env::var_os("HOME"))
                 .map(PathBuf::from)
@@ -290,7 +298,7 @@ impl Provider for Codex {
             args.extend(["-m".into(), req.model.into()]);
         }
         args.push("-".into());
-        let stdout = collect(self.bin.as_deref(), "codex", &args, req, cancel)?;
+        let stdout = collect(self.bin().as_deref(), "codex", &args, req, cancel)?;
         let text = stdout
             .lines()
             .filter_map(|l| serde_json::from_str::<Value>(l).ok())
@@ -306,7 +314,7 @@ impl Provider for Codex {
 
     fn run(&self, req: &RunRequest<'_>, out: &mut dyn FnMut(Output), cancel: &Cancel) -> RunResult {
         run_cli(
-            self.bin.as_deref(),
+            self.bin().as_deref(),
             "codex",
             args(req.dir, req.model, req.resume),
             req,

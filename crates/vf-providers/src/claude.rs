@@ -16,12 +16,16 @@ use crate::{Answer, AskRequest, Output, Provider, RunRequest, RunResult, clip};
 /// The Claude Code CLI.
 #[derive(Debug)]
 pub struct Claude {
-    bin: Option<PathBuf>,
+    bin: std::sync::RwLock<Option<PathBuf>>,
     /// When the sign-in was last checked, and its result.
     signed_in: std::sync::Mutex<Option<(std::time::Instant, bool)>>,
 }
 
 impl Claude {
+    fn bin(&self) -> Option<PathBuf> {
+        self.bin.read().unwrap_or_else(|p| p.into_inner()).clone()
+    }
+
     /// Finds the CLI: `VF_CLAUDE_BIN`, else `claude` on `PATH`.
     pub fn detect() -> Self {
         let bin = std::env::var_os("VF_CLAUDE_BIN")
@@ -29,14 +33,14 @@ impl Claude {
             .map(PathBuf::from)
             .or_else(|| process::find_program("claude"));
         Self {
-            bin,
+            bin: std::sync::RwLock::new(bin),
             signed_in: std::sync::Mutex::new(None),
         }
     }
 
     /// Whether the user is signed in (`claude auth status`), cached for a minute.
     fn is_signed_in(&self) -> bool {
-        let Some(bin) = &self.bin else {
+        let Some(bin) = self.bin() else {
             return false;
         };
         let mut cache = self.signed_in.lock().unwrap_or_else(|p| p.into_inner());
@@ -46,7 +50,7 @@ impl Claude {
             return ok;
         }
         let mut out = String::new();
-        let mut cmd = process::command(bin);
+        let mut cmd = process::command(&bin);
         cmd.args(["auth", "status", "--json"]);
         let exit = process::run_streaming(
             cmd,
@@ -226,16 +230,20 @@ impl Provider for Claude {
         true
     }
 
+    fn use_cli(&self, bin: PathBuf) {
+        *self.bin.write().unwrap_or_else(|p| p.into_inner()) = Some(bin);
+    }
+
     fn status(&self) -> crate::Status {
         crate::Status {
-            installed: self.bin.is_some(),
+            installed: self.bin().is_some(),
             signed_in: Some(self.is_signed_in()),
         }
     }
 
     fn connect(&self, timeout: std::time::Duration) -> Result<(), String> {
-        let bin = self.bin.as_ref().ok_or("Claude Code is not installed")?;
-        let mut cmd = process::command(bin);
+        let bin = self.bin().ok_or("Claude Code is not installed")?;
+        let mut cmd = process::command(&bin);
         cmd.args(["auth", "login"]);
         let exit = process::run_streaming(cmd, None, &Cancel::new(), Some(timeout), &mut |_, _| {})
             .map_err(|e| e.to_string())?;
@@ -249,7 +257,7 @@ impl Provider for Claude {
 
     fn ask(&self, req: &AskRequest<'_>, cancel: &Cancel) -> Result<Answer, String> {
         let stdout = collect(
-            self.bin.as_deref(),
+            self.bin().as_deref(),
             "claude",
             &ask_args(req.model),
             req,
@@ -270,7 +278,7 @@ impl Provider for Claude {
 
     fn run(&self, req: &RunRequest<'_>, out: &mut dyn FnMut(Output), cancel: &Cancel) -> RunResult {
         run_cli(
-            self.bin.as_deref(),
+            self.bin().as_deref(),
             "claude",
             args(req.model, req.resume),
             req,
