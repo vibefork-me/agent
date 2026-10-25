@@ -87,6 +87,7 @@ async fn connection(mut socket: WebSocket, state: AppState, origin: String) {
                         &mut socket,
                         &ServerMessage::Error {
                             error: "auth failed".into(),
+                            code: Some("auth_failed".into()),
                         },
                     )
                     .await;
@@ -107,6 +108,7 @@ async fn connection(mut socket: WebSocket, state: AppState, origin: String) {
                 if running.is_some() {
                     Some(ServerMessage::Error {
                         error: "a task is already running".into(),
+                        code: Some("task_already_running".into()),
                     })
                 } else {
                     let task = TaskRequest {
@@ -125,6 +127,7 @@ async fn connection(mut socket: WebSocket, state: AppState, origin: String) {
                 if running.is_some() {
                     Some(ServerMessage::Error {
                         error: "a task is already running".into(),
+                        code: Some("task_already_running".into()),
                     })
                 } else {
                     let key = authed.clone().unwrap_or_default();
@@ -172,8 +175,10 @@ fn start_build(
     let cancel = Cancel::new();
     let (backend, auth, c) = (state.backend.clone(), state.auth.clone(), cancel.clone());
     tokio::task::spawn_blocking(move || {
+        let lang = auth.dialog().language();
+        let prompt = vf_core::catalog::action_build(lang);
         if auth.project_allowed(&key_id, &origin, &project)
-            && auth.confirm_action(&origin, "build and run the project's build", Some(&project))
+            && auth.confirm_action(&origin, prompt, Some(&project))
         {
             backend.build(
                 &project,
@@ -185,6 +190,7 @@ fn start_build(
         } else {
             let _ = tx.send(Out::Message(ServerMessage::Error {
                 error: "build not confirmed".into(),
+                code: Some("build_not_confirmed".into()),
             }));
         }
         let _ = tx.send(Out::Finished);
@@ -232,6 +238,7 @@ fn start(
         } else {
             let _ = tx.send(Out::Message(ServerMessage::Error {
                 error: "no access to this project".into(),
+                code: Some("project_forbidden".into()),
             }));
         }
         let _ = tx.send(Out::Finished);

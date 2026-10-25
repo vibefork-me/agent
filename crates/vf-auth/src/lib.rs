@@ -155,11 +155,11 @@ impl Auth {
 
         let me = self.clone();
         let (origin, jwk, id) = (origin.to_owned(), jwk.clone(), pair_id.clone());
-        let text = format!(
-            "Site: {origin}\nBrowser: {name}\nCode: {code}\n\nAllow only if the same code is shown on the page."
-        );
+        let lang = self.dialog.language();
+        let title = vf_core::catalog::pair_title(lang);
+        let text = vf_core::catalog::pair_text(lang, &origin, &name, &code);
         std::thread::spawn(move || {
-            let allowed = me.dialog.confirm("Vibefork: connect a browser?", &text);
+            let allowed = me.dialog.confirm(title, &text);
             let saved = allowed
                 && me
                     .store
@@ -264,23 +264,22 @@ impl Auth {
 
     /// Asks the user to confirm an action in the native dialog. Blocks.
     pub fn confirm_action(&self, origin: &str, action: &str, target: Option<&str>) -> bool {
+        let lang = self.dialog.language();
         let action = vf_core::dialog_field(action, 100);
-        let target = target
-            .map(|t| format!("\nTarget: {}", vf_core::dialog_field(t, 200)))
-            .unwrap_or_default();
-        self.dialog.confirm(
-            "Vibefork: confirm an action",
-            &format!("{origin} asks to:\n\n{action}{target}"),
-        )
+        let target_clean = target.map(|t| vf_core::dialog_field(t, 200));
+        let title = vf_core::catalog::confirm_action_title(lang);
+        let text =
+            vf_core::catalog::confirm_action_text(lang, origin, &action, target_clean.as_deref());
+        self.dialog.confirm(title, &text)
     }
 
     /// Asks the user for a secret in the native dialog with input masked. Blocks.
     pub fn ask_secret(&self, origin: &str, prompt: &str) -> Option<Secret<String>> {
+        let lang = self.dialog.language();
         let prompt = vf_core::dialog_field(prompt, 200);
-        self.dialog.ask_secret(
-            "Vibefork: enter secret",
-            &format!("{origin} asks for:\n\n{prompt}"),
-        )
+        let title = vf_core::catalog::ask_secret_title(lang);
+        let text = vf_core::catalog::ask_secret_text(lang, origin, &prompt);
+        self.dialog.ask_secret(title, &text)
     }
 
     /// The native confirm dialog.
@@ -297,14 +296,14 @@ impl Auth {
         let Some(pair) = self.store.get(key_id).filter(|p| p.origin == origin) else {
             return false;
         };
+        let lang = self.dialog.language();
         let project_shown = vf_core::dialog_field(project, 80);
-        let allowed = self.dialog.confirm(
-            "Vibefork: give access to a project?",
-            &format!(
-                "{origin} ({}) asks to work in the project:\n\n{project_shown}\n\nAllow only if you are doing this in your browser right now.",
-                pair.name
-            ),
-        );
+        let origin_clean = vf_core::dialog_field(origin, 80);
+        let name_clean = vf_core::dialog_field(&pair.name, 80);
+        let title = vf_core::catalog::project_access_title(lang);
+        let text =
+            vf_core::catalog::project_access_text(lang, &origin_clean, &name_clean, &project_shown);
+        let allowed = self.dialog.confirm(title, &text);
         allowed && self.store.add_project(key_id, project).is_ok()
     }
 
@@ -336,4 +335,92 @@ fn now_secs() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+    use vf_core::Language;
+
+    struct RecordingDialog {
+        lang: Language,
+        last_title: Mutex<Option<String>>,
+        last_text: Mutex<Option<String>>,
+    }
+
+    impl RecordingDialog {
+        fn new(lang: Language) -> Self {
+            Self {
+                lang,
+                last_title: Mutex::new(None),
+                last_text: Mutex::new(None),
+            }
+        }
+    }
+
+    impl ConfirmDialog for RecordingDialog {
+        fn language(&self) -> Language {
+            self.lang
+        }
+
+        fn confirm(&self, title: &str, text: &str) -> bool {
+            *self.last_title.lock().unwrap() = Some(title.to_owned());
+            *self.last_text.lock().unwrap() = Some(text.to_owned());
+            true
+        }
+
+        fn ask_secret(&self, title: &str, text: &str) -> Option<Secret<String>> {
+            *self.last_title.lock().unwrap() = Some(title.to_owned());
+            *self.last_text.lock().unwrap() = Some(text.to_owned());
+            Some(Secret::new("secret-value".to_owned()))
+        }
+    }
+
+    #[test]
+    fn confirm_action_localized_russian() {
+        let dialog = Arc::new(RecordingDialog::new(Language::Ru));
+        let temp_dir =
+            std::env::temp_dir().join(format!("vf_auth_test_{}", crypto::random_token()));
+        let auth = Auth::load(temp_dir, dialog.clone()).unwrap();
+
+        auth.confirm_action("http://localhost:5173", "собрать проект", Some("test-proj"));
+        let title = dialog.last_title.lock().unwrap().take().unwrap();
+        let text = dialog.last_text.lock().unwrap().take().unwrap();
+
+        assert_eq!(title, "Vibefork: подтверждение действия");
+        assert!(text.contains("запрашивает действие:\n\nсобрать проект\nЦель: test-proj"));
+    }
+
+    #[test]
+    fn confirm_action_localized_english() {
+        let dialog = Arc::new(RecordingDialog::new(Language::En));
+        let temp_dir =
+            std::env::temp_dir().join(format!("vf_auth_test_{}", crypto::random_token()));
+        let auth = Auth::load(temp_dir, dialog.clone()).unwrap();
+
+        auth.confirm_action("http://localhost:5173", "build project", Some("test-proj"));
+        let title = dialog.last_title.lock().unwrap().take().unwrap();
+        let text = dialog.last_text.lock().unwrap().take().unwrap();
+
+        assert_eq!(title, "Vibefork: confirm an action");
+        assert!(text.contains("asks to:\n\nbuild project\nTarget: test-proj"));
+    }
+
+    #[test]
+    fn ask_secret_localized_russian() {
+        let dialog = Arc::new(RecordingDialog::new(Language::Ru));
+        let temp_dir =
+            std::env::temp_dir().join(format!("vf_auth_test_{}", crypto::random_token()));
+        let auth = Auth::load(temp_dir, dialog.clone()).unwrap();
+
+        let res = auth.ask_secret("http://localhost:5173", "введите ключ");
+        assert!(res.is_some());
+        let title = dialog.last_title.lock().unwrap().take().unwrap();
+        let text = dialog.last_text.lock().unwrap().take().unwrap();
+
+        assert_eq!(title, "Vibefork: ввод ключа");
+        assert!(text.contains("запрашивает:\n\nвведите ключ"));
+    }
 }

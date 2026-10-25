@@ -9,8 +9,10 @@ pub mod projects;
 pub mod secrets;
 pub mod settings;
 pub mod storage;
+pub mod system_lang;
 
 pub use dialog::NativeConfirmDialog;
 pub use journal::JournalFiles;
 pub use projects::{ProjectError, Projects};
 pub use settings::Settings;
+pub use system_lang::system_language;

@@ -25,14 +25,19 @@ fn main() {
     let core = core_binary();
     run_core(&core, &["start"]);
 
+    let lang = vf_platform::system_language();
     let event_loop = EventLoopBuilder::new().build();
     let menu = Menu::new();
-    let status = MenuItem::new("Vibefork: checking…", false, None);
-    let install = MenuItem::new("Install update", false, None);
-    let automatic = MenuItem::new("Automatic updates", true, None);
-    let open = MenuItem::new("Open Vibefork", true, None);
-    let toggle = MenuItem::new("Stop the agent", true, None);
-    let quit = MenuItem::new("Quit tray", true, None);
+    let status = MenuItem::new(vf_core::catalog::tray_checking(lang), false, None);
+    let install = MenuItem::new(
+        vf_core::catalog::tray_install_update(lang, None),
+        false,
+        None,
+    );
+    let automatic = MenuItem::new(vf_core::catalog::tray_automatic_updates(lang), true, None);
+    let open = MenuItem::new(vf_core::catalog::tray_open_vibefork(lang), true, None);
+    let toggle = MenuItem::new(vf_core::catalog::tray_stop_agent(lang), true, None);
+    let quit = MenuItem::new(vf_core::catalog::tray_quit(lang), true, None);
     let added = menu.append_items(&[
         &status,
         &install,
@@ -87,32 +92,29 @@ fn main() {
             let notice = update_notice();
             running = version.is_some();
             status.set_text(match (&version, &notice) {
-                (Some(v), Some(u)) => {
-                    format!("Vibefork {v}: running on port {port} · update {u} available")
-                }
-                (Some(v), None) => format!("Vibefork {v}: running on port {port}"),
-                (None, Some(u)) => format!("Vibefork: stopped · update {u} available"),
-                (None, None) => "Vibefork: stopped".into(),
+                (Some(v), Some(u)) => vf_core::catalog::tray_status_running(lang, v, port, Some(u)),
+                (Some(v), None) => vf_core::catalog::tray_status_running(lang, v, port, None),
+                (None, Some(u)) => vf_core::catalog::tray_status_stopped(lang, Some(u)),
+                (None, None) => vf_core::catalog::tray_status_stopped(lang, None),
             });
             match &notice {
                 Some(u) => {
-                    install.set_text(format!("Install update {u}"));
+                    install.set_text(vf_core::catalog::tray_install_update(lang, Some(u)));
                     install.set_enabled(true);
                 }
                 None => {
-                    install.set_text("Install update");
+                    install.set_text(vf_core::catalog::tray_install_update(lang, None));
                     install.set_enabled(false);
                 }
             }
-            automatic.set_text(if auto_update_enabled() {
-                "Turn automatic updates off"
-            } else {
-                "Turn automatic updates on"
-            });
+            automatic.set_text(vf_core::catalog::tray_auto_updates_toggle(
+                lang,
+                auto_update_enabled(),
+            ));
             toggle.set_text(if running {
-                "Stop the agent"
+                vf_core::catalog::tray_stop_agent(lang)
             } else {
-                "Start the agent"
+                vf_core::catalog::tray_start_agent(lang)
             });
             open.set_enabled(true);
             if let Some(t) = &tray {

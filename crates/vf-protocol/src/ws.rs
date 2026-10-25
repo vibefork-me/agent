@@ -234,6 +234,9 @@ pub enum ServerMessage {
     Error {
         /// Reason.
         error: String,
+        /// Machine-readable error code.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        code: Option<String>,
     },
 }
 

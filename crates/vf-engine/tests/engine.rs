@@ -265,7 +265,7 @@ fn bad_requests_are_refused_before_running() {
     ] {
         let msgs = run(&engine, t);
         assert!(
-            matches!(&msgs[..], [ServerMessage::Error { error: e }] if e.starts_with(error)),
+            matches!(&msgs[..], [ServerMessage::Error { error: e, .. }] if e.starts_with(error)),
             "{msgs:?}"
         );
     }
@@ -426,7 +426,7 @@ fn build_runs_the_recipe_and_keeps_artifacts() {
     let mut msgs = vec![];
     engine.build("demo", &mut |m| msgs.push(m), &Cancel::new());
     assert!(
-        matches!(&msgs[..], [ServerMessage::Error { error }] if error.contains("no known way"))
+        matches!(&msgs[..], [ServerMessage::Error { error, .. }] if error.contains("no known way"))
     );
     let _ = std::fs::remove_dir_all(&base);
 }
