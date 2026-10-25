@@ -19,6 +19,7 @@ impl Backend for FakeBackend {
         Ok(ProjectsResponse {
             root: "/projects".into(),
             projects: vec!["demo".into()],
+            details: vec![],
         })
     }
     fn journal(&self, project: &str) -> Result<JournalResponse, BackendError> {

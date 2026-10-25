@@ -19,7 +19,7 @@ use vf_journal::JournalStore as _;
 use vf_platform::{JournalFiles, ProjectError, Projects, Settings};
 use vf_protocol::http::{
     GithubConnectResponse, GithubStatusResponse, ImportRequest, ImportResponse, JournalResponse,
-    ModelsResponse, ProjectsResponse, RollbackResponse, SaveRequest, SaveResponse,
+    ModelsResponse, ProjectInfo, ProjectsResponse, RollbackResponse, SaveRequest, SaveResponse,
 };
 use vf_protocol::ws::ServerMessage;
 use vf_protocol::{Backend, BackendError, Cancel, ModelInfo, TaskRequest};
@@ -212,9 +212,23 @@ impl Engine {
 
 impl Backend for Engine {
     fn projects(&self) -> Result<ProjectsResponse, BackendError> {
+        let projects = self.projects.list();
+        let details = projects
+            .iter()
+            .map(|name| {
+                let meta = self.load_meta(name).unwrap_or_default();
+                ProjectInfo {
+                    name: name.clone(),
+                    source: meta.upstream,
+                    original: meta.original,
+                    commit: (!meta.base_sha.is_empty()).then_some(meta.base_sha),
+                }
+            })
+            .collect();
         Ok(ProjectsResponse {
             root: self.projects.root().display().to_string(),
-            projects: self.projects.list(),
+            projects,
+            details,
         })
     }
 

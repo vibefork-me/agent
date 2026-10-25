@@ -909,9 +909,51 @@
       ],
       "type": "object"
     },
+    "ProjectInfo": {
+      "description": "A project and where its code comes from.",
+      "properties": {
+        "commit": {
+          "description": "Commit the code was taken at.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "description": "Project name (folder).",
+          "type": "string"
+        },
+        "original": {
+          "description": "The original when the code came from a fork or a pull request: `owner/name`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source": {
+          "description": "GitHub repository the code was taken from: `owner/name`; absent — not taken from GitHub.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
     "ProjectsResponse": {
       "description": "Response of `GET /v1/projects`.",
       "properties": {
+        "details": {
+          "default": [],
+          "description": "The same projects with where their code comes from.",
+          "items": {
+            "$ref": "#/components/schemas/ProjectInfo"
+          },
+          "type": "array"
+        },
         "projects": {
           "description": "Project names (folder names).",
           "items": {
