@@ -29,6 +29,7 @@ pub(crate) struct Task<'a> {
     pub(crate) repo: &'a Repo,
     pub(crate) prompt: &'a str,
     pub(crate) continue_: bool,
+    pub(crate) lang: &'a str,
 }
 
 impl Engine {
@@ -197,6 +198,7 @@ impl Engine {
                 title: s.title.clone(),
             };
             let prefix = plan_preamble(t.prompt, &steps, i);
+            let system_instruction = vf_core::catalog::system_instruction(t.lang);
             let req = StepRequest {
                 project: t.project,
                 dir: t.dir,
@@ -205,6 +207,7 @@ impl Engine {
                 model: &m.model,
                 continue_: t.continue_ || i > 0,
                 step: Some(&info),
+                system: Some(&system_instruction),
             };
             let r = self.step(t.repo, p.as_ref(), &req, out, cancel);
             out(ServerMessage::StepDone {

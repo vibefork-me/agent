@@ -47,6 +47,8 @@ pub struct RunRequest<'a> {
     pub resume: Option<&'a str>,
     /// Environment of child processes.
     pub env: &'a ChildEnv,
+    /// System instruction, if any.
+    pub system: Option<&'a str>,
 }
 
 /// How a run ended.

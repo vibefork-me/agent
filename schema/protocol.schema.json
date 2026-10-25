@@ -183,6 +183,14 @@
               "description": "Continue with the history of the project.",
               "type": "boolean"
             },
+            "lang": {
+              "default": null,
+              "description": "Language of the UI/response (`en`, `ru`, …); default is the OS language.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "model": {
               "default": null,
               "description": "Model of the provider; empty = its default.",

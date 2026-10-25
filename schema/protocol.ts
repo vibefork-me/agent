@@ -25,7 +25,7 @@ export type ChallengeRequest = { keyId: string };
 export type ChallengeResponse = { nonce: string };
 
 /** Messages from the browser. */
-export type ClientMessage = { token: string; type: "auth" } | { continue?: boolean; model?: string | null; project: string; prompt: string; provider?: string | null; type: "task" } | { project: string; type: "build" } | { type: "cancel" };
+export type ClientMessage = { token: string; type: "auth" } | { continue?: boolean; lang?: string | null; model?: string | null; project: string; prompt: string; provider?: string | null; type: "task" } | { project: string; type: "build" } | { type: "cancel" };
 
 /** Cost class of a model. */
 export type CostClass = "subscription" | "free" | "paid";

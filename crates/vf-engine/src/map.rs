@@ -219,20 +219,13 @@ fn readme(dir: &Path, files: &[String]) -> String {
         .unwrap_or_default()
 }
 
-/// A language code like `en` or `pt-BR`; anything else is `en`.
-fn lang_code(lang: &str) -> &str {
-    let ok =
-        (2..=10).contains(&lang.len()) && lang.chars().all(|c| c.is_ascii_alphabetic() || c == '-');
-    if ok { lang } else { "en" }
-}
-
 fn prompt(files: &[String], readme: &str, lang: &str) -> String {
     let mut list: Vec<&str> = files.iter().map(String::as_str).take(MAX_PATHS).collect();
     list.sort_unstable();
     let more = files.len().saturating_sub(MAX_PATHS);
     let mut p = format!(
         "Write the names and summaries in the language with code `{}`.\n\nPROJECT DATA\n\nFiles:\n{}",
-        lang_code(lang),
+        vf_core::catalog::lang_code(lang).unwrap_or("en"),
         list.join("\n")
     );
     if more > 0 {

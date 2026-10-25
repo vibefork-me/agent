@@ -104,6 +104,7 @@ async fn connection(mut socket: WebSocket, state: AppState, origin: String) {
                 provider,
                 model,
                 continue_,
+                lang,
             }) => {
                 if running.is_some() {
                     Some(ServerMessage::Error {
@@ -117,6 +118,7 @@ async fn connection(mut socket: WebSocket, state: AppState, origin: String) {
                         provider,
                         model,
                         continue_,
+                        lang,
                     };
                     let key = authed.clone().unwrap_or_default();
                     running = Some(start(&state, origin.clone(), key, task, tx.clone()));
