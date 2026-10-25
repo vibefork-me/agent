@@ -82,6 +82,14 @@ pub fn prepare(
             caches.join("npm").display().to_string(),
         ),
         (
+            "npm_config_logs_dir".into(),
+            caches.join("npm").join("_logs").display().to_string(),
+        ),
+        (
+            "npm_config_userconfig".into(),
+            caches.join("npm").join(".npmrc").display().to_string(),
+        ),
+        (
             "YARN_CACHE_FOLDER".into(),
             caches.join("yarn").display().to_string(),
         ),
