@@ -101,6 +101,14 @@ pub const ROUTES: &[Route] = &[
     },
     Route {
         method: "GET",
+        path: "/v1/ai",
+        summary: "Whether AI is connected, per way to connect it (subscription CLIs, free models)",
+        request: None,
+        response: Some("AiResponse"),
+        session: true,
+    },
+    Route {
+        method: "GET",
         path: "/v1/models",
         summary: "Models available now: logged-in CLIs and configured API keys",
         request: None,

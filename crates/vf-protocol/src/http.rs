@@ -502,3 +502,49 @@ pub struct DescribeRequest {
     #[serde(default)]
     pub lang: Option<String>,
 }
+
+/// `GET /v1/ai`: whether AI is connected — the editor is not usable without it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AiResponse {
+    /// At least one way is connected (or cannot be told apart from connected).
+    pub ready: bool,
+    /// Ways to connect AI, in the order to offer them.
+    pub providers: Vec<AiProvider>,
+}
+
+/// One way to connect AI.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AiProvider {
+    /// `claude`, `codex`, `openrouter`.
+    pub id: String,
+    /// Paid subscription or free.
+    pub kind: AiKind,
+    /// Its CLI is installed (always true for a provider that needs none).
+    pub installed: bool,
+    /// Signed in or a key is set.
+    pub connected: AiConnected,
+}
+
+/// What a way to connect AI costs the user.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum AiKind {
+    /// The user's own subscription (Claude, ChatGPT).
+    Subscription,
+    /// Free models.
+    Free,
+}
+
+/// Whether a way to connect AI is set up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum AiConnected {
+    /// Ready to use.
+    Yes,
+    /// Not signed in / no key.
+    No,
+    /// Installed; the agent cannot tell whether the user is signed in.
+    Unknown,
+}

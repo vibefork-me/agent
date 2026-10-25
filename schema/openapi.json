@@ -1,6 +1,100 @@
 {
   "components": {
     "schemas": {
+      "AiConnected": {
+        "description": "Whether a way to connect AI is set up.",
+        "oneOf": [
+          {
+            "description": "Ready to use.",
+            "enum": [
+              "yes"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "Not signed in / no key.",
+            "enum": [
+              "no"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "Installed; the agent cannot tell whether the user is signed in.",
+            "enum": [
+              "unknown"
+            ],
+            "type": "string"
+          }
+        ]
+      },
+      "AiKind": {
+        "description": "What a way to connect AI costs the user.",
+        "oneOf": [
+          {
+            "description": "The user's own subscription (Claude, ChatGPT).",
+            "enum": [
+              "subscription"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "Free models.",
+            "enum": [
+              "free"
+            ],
+            "type": "string"
+          }
+        ]
+      },
+      "AiProvider": {
+        "description": "One way to connect AI.",
+        "properties": {
+          "connected": {
+            "$ref": "#/components/schemas/AiConnected",
+            "description": "Signed in or a key is set."
+          },
+          "id": {
+            "description": "`claude`, `codex`, `openrouter`.",
+            "type": "string"
+          },
+          "installed": {
+            "description": "Its CLI is installed (always true for a provider that needs none).",
+            "type": "boolean"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/AiKind",
+            "description": "Paid subscription or free."
+          }
+        },
+        "required": [
+          "connected",
+          "id",
+          "installed",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "AiResponse": {
+        "description": "`GET /v1/ai`: whether AI is connected — the editor is not usable without it.",
+        "properties": {
+          "providers": {
+            "description": "Ways to connect AI, in the order to offer them.",
+            "items": {
+              "$ref": "#/components/schemas/AiProvider"
+            },
+            "type": "array"
+          },
+          "ready": {
+            "description": "At least one way is connected (or cannot be told apart from connected).",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "providers",
+          "ready"
+        ],
+        "type": "object"
+      },
       "ChallengeRequest": {
         "description": "`POST /v1/auth/challenge`.",
         "properties": {
@@ -2095,6 +2189,38 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/v1/ai": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Whether AI is connected, per way to connect it (subscription CLIs, free models)"
+      }
+    },
     "/v1/auth/challenge": {
       "post": {
         "requestBody": {

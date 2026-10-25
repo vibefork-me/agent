@@ -243,6 +243,15 @@ pub(crate) async fn journal(
     with_backend(state, &headers, &origin.0, move |b| b.journal(&project)).await
 }
 
+/// Whether AI is connected; the editor is not usable without it.
+pub(crate) async fn ai(
+    State(state): State<AppState>,
+    Extension(origin): Extension<EffectiveOrigin>,
+    headers: HeaderMap,
+) -> Response {
+    with_backend(state, &headers, &origin.0, |b| b.ai()).await
+}
+
 pub(crate) async fn models(
     State(state): State<AppState>,
     Extension(origin): Extension<EffectiveOrigin>,

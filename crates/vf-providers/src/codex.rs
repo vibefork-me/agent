@@ -222,6 +222,13 @@ impl Provider for Codex {
         "codex"
     }
 
+    fn status(&self) -> crate::Status {
+        crate::Status {
+            installed: self.bin.is_some(),
+            signed_in: Some(self.bin.is_some() && !self.models().is_empty()),
+        }
+    }
+
     fn models(&self) -> Vec<ModelInfo> {
         let Some(bin) = &self.bin else {
             return Vec::new();

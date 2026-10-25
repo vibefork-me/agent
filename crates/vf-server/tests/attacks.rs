@@ -882,3 +882,35 @@ async fn files_need_a_session_and_a_project_grant() {
         StatusCode::FORBIDDEN
     );
 }
+
+#[tokio::test]
+async fn ai_status_needs_a_session() {
+    let dir = temp_dir();
+    let browser = Browser::new();
+    let app = router(
+        Config {
+            port: PORT,
+            allowed_origins: vec![UI.into()],
+            extra_origins: vec![],
+        },
+        Auth::load(dir, Arc::new(Always(true))).unwrap(),
+        Arc::new(RwLock::new(None)),
+        common::backend(),
+    );
+    assert_eq!(
+        call(&app, Req::get("/v1/ai", Some(UI))).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    let key_id = pair(&app, &browser, UI).await;
+    let token = login(&app, &browser, &key_id, UI).await;
+    let (status, v, _) = call(
+        &app,
+        Req {
+            token: Some(&token),
+            ..Req::get("/v1/ai", Some(UI))
+        },
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(v["ready"], json!(false));
+}

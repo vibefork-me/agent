@@ -183,6 +183,14 @@ impl Provider for Claude {
         true
     }
 
+    fn status(&self) -> crate::Status {
+        // The CLI's sign-in is not checked yet: a found CLI counts as usable.
+        crate::Status {
+            installed: self.bin.is_some(),
+            signed_in: None,
+        }
+    }
+
     fn ask(&self, req: &AskRequest<'_>, cancel: &Cancel) -> Result<Answer, String> {
         let stdout = collect(
             self.bin.as_deref(),

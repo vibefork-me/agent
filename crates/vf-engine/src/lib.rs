@@ -21,9 +21,10 @@ use vf_git::Repo;
 use vf_journal::JournalStore as _;
 use vf_platform::{JournalFiles, ProjectError, Projects, Settings};
 use vf_protocol::http::{
-    DescribeRequest, FileDiffResponse, FileResponse, GithubConnectResponse, GithubStatusResponse,
-    GraphResponse, ImportRequest, ImportResponse, JournalResponse, ModelsResponse, ProjectInfo,
-    ProjectsResponse, RollbackResponse, SaveRequest, SaveResponse,
+    AiConnected, AiKind, AiProvider, AiResponse, DescribeRequest, FileDiffResponse, FileResponse,
+    GithubConnectResponse, GithubStatusResponse, GraphResponse, ImportRequest, ImportResponse,
+    JournalResponse, ModelsResponse, ProjectInfo, ProjectsResponse, RollbackResponse, SaveRequest,
+    SaveResponse,
 };
 use vf_protocol::ws::ServerMessage;
 use vf_protocol::{Backend, BackendError, Cancel, ModelInfo, TaskRequest};
@@ -243,6 +244,33 @@ impl Backend for Engine {
             .read(project)
             .map_err(|e| BackendError::Internal(e.0))?;
         Ok(JournalResponse { entries })
+    }
+
+    fn ai(&self) -> Result<AiResponse, BackendError> {
+        let order = ["claude", "codex", "openrouter"];
+        let mut providers: Vec<AiProvider> = Vec::new();
+        for id in order {
+            let Some(p) = self.provider(id) else {
+                continue;
+            };
+            let s = p.status();
+            providers.push(AiProvider {
+                id: id.into(),
+                kind: if id == "openrouter" {
+                    AiKind::Free
+                } else {
+                    AiKind::Subscription
+                },
+                installed: s.installed,
+                connected: match (s.installed, s.signed_in) {
+                    (false, _) | (_, Some(false)) => AiConnected::No,
+                    (true, Some(true)) => AiConnected::Yes,
+                    (true, None) => AiConnected::Unknown,
+                },
+            });
+        }
+        let ready = providers.iter().any(|p| p.connected != AiConnected::No);
+        Ok(AiResponse { ready, providers })
     }
 
     fn models(&self) -> Result<ModelsResponse, BackendError> {

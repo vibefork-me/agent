@@ -172,6 +172,13 @@ impl Provider for OpenAiCompatible {
         self.id
     }
 
+    fn status(&self) -> crate::Status {
+        crate::Status {
+            installed: true,
+            signed_in: Some(self.key.is_some()),
+        }
+    }
+
     fn models(&self) -> Vec<ModelInfo> {
         if self.key.is_none() {
             return Vec::new();

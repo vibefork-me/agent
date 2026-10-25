@@ -5,9 +5,9 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 use crate::http::{
-    DescribeRequest, FileDiffResponse, FileResponse, GithubConnectResponse, GithubStatusResponse,
-    GraphResponse, ImportRequest, ImportResponse, JournalResponse, ModelsResponse,
-    ProjectsResponse, RollbackResponse, SaveRequest, SaveResponse,
+    AiResponse, DescribeRequest, FileDiffResponse, FileResponse, GithubConnectResponse,
+    GithubStatusResponse, GraphResponse, ImportRequest, ImportResponse, JournalResponse,
+    ModelsResponse, ProjectsResponse, RollbackResponse, SaveRequest, SaveResponse,
 };
 use crate::ws::ServerMessage;
 
@@ -92,6 +92,8 @@ pub trait Backend: Send + Sync {
     fn journal(&self, project: &str) -> Result<JournalResponse, BackendError>;
     /// Models available now (installed and logged-in CLIs, configured API keys).
     fn models(&self) -> Result<ModelsResponse, BackendError>;
+    /// Whether AI is connected, per way to connect it.
+    fn ai(&self) -> Result<AiResponse, BackendError>;
     /// Runs a task to the end, reporting progress through `out`; the last message is
     /// [`ServerMessage::Done`], [`ServerMessage::Cancelled`] or [`ServerMessage::Error`].
     fn run_task(&self, task: TaskRequest, out: &mut dyn FnMut(ServerMessage), cancel: &Cancel);

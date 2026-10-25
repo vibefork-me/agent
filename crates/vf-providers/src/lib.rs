@@ -109,6 +109,24 @@ pub trait Provider: Send + Sync {
     fn run(&self, req: &RunRequest<'_>, out: &mut dyn FnMut(Output), cancel: &Cancel) -> RunResult;
     /// Asks a read-only question; the model may read the project but not change it.
     fn ask(&self, req: &AskRequest<'_>, cancel: &Cancel) -> Result<Answer, String>;
+    /// Whether the provider is set up: its CLI is installed (or it needs none) and the user is
+    /// signed in (`None` — the agent cannot tell).
+    fn status(&self) -> Status {
+        let ok = !self.models().is_empty();
+        Status {
+            installed: ok,
+            signed_in: Some(ok),
+        }
+    }
+}
+
+/// Whether a provider is set up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Status {
+    /// The CLI is installed, or the provider needs none.
+    pub installed: bool,
+    /// The user is signed in or a key is present; `None` — unknown.
+    pub signed_in: Option<bool>,
 }
 
 /// Collects what a run reports through its events.
