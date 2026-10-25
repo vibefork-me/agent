@@ -131,7 +131,14 @@ fn builds_leave_nothing_in_the_home_folder() {
         .nth(2)
         .unwrap()
         .to_path_buf();
-    let skip = vec![repo, base.clone(), std::env::temp_dir()];
+    let mut skip = vec![repo, base.clone(), std::env::temp_dir()];
+    // A CI runner writes its own logs and tool cache meanwhile.
+    skip.push(home.join("actions-runner"));
+    skip.extend(
+        ["RUNNER_TEMP", "RUNNER_TOOL_CACHE", "RUNNER_WORKSPACE"]
+            .iter()
+            .filter_map(|v| std::env::var_os(v).map(PathBuf::from)),
+    );
     let before = listing(&home, &skip);
 
     for project in ["rust", "go", "node"] {
