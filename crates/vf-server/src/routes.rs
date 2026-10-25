@@ -32,6 +32,7 @@ fn auth_error(e: &AuthError) -> Response {
     let status = match e {
         AuthError::BadKey => StatusCode::BAD_REQUEST,
         AuthError::Storage => StatusCode::INTERNAL_SERVER_ERROR,
+        AuthError::TooManyPairings => StatusCode::TOO_MANY_REQUESTS,
         AuthError::NotPaired | AuthError::BadChallenge | AuthError::BadSignature => {
             StatusCode::UNAUTHORIZED
         }

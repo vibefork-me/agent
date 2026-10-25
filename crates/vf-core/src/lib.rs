@@ -16,6 +16,6 @@ pub mod secret;
 pub mod task;
 
 pub use path::{PathError, ProjectPath};
-pub use ports::ConfirmDialog;
+pub use ports::{ConfirmDialog, dialog_field, dialog_text};
 pub use secret::Secret;
 pub use task::{TaskState, TransitionError};

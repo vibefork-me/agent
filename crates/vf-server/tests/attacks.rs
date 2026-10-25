@@ -772,3 +772,36 @@ async fn extra_origins_in_hello_and_guard_logs() {
     assert_eq!(v["extraOriginsActive"], json!(true));
     assert!(v.get("extraOrigins").is_none(), "the list is not exposed");
 }
+
+/// A dialog nobody answers: pairing requests stay waiting.
+struct Unanswered;
+impl ConfirmDialog for Unanswered {
+    fn confirm(&self, _title: &str, _text: &str) -> bool {
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        false
+    }
+}
+
+#[tokio::test]
+async fn a_page_cannot_flood_the_screen_with_pairing_dialogs() {
+    let app = router(
+        Config {
+            port: PORT,
+            allowed_origins: vec![UI.into(), OTHER.into()],
+            extra_origins: vec![],
+        },
+        Auth::load(temp_dir(), Arc::new(Unanswered)).unwrap(),
+        Arc::new(RwLock::new(None)),
+        common::backend(),
+    );
+    let start = |origin: &'static str| {
+        let jwk = Browser::new().jwk();
+        Req::post("/v1/pair/start", origin, json!({ "publicKeyJwk": jwk }))
+    };
+    for _ in 0..vf_auth::MAX_WAITING_PAIRINGS {
+        assert_eq!(call(&app, start(UI)).await.0, StatusCode::OK);
+    }
+    assert_eq!(call(&app, start(UI)).await.0, StatusCode::TOO_MANY_REQUESTS);
+    // Another origin is not affected.
+    assert_eq!(call(&app, start(OTHER)).await.0, StatusCode::OK);
+}
