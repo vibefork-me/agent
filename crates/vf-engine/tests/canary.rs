@@ -70,7 +70,21 @@ fn os_noise(home: &Path, path: &Path) -> bool {
     }
     if cfg!(target_os = "macos") && at(0) == "Library" {
         let tools_area = matches!(at(1), "Caches" | "Application Support");
-        let apple = at(2).starts_with("com.apple.") || at(2) == "CloudKit";
+        // Apple's own entries, including system apps without a `com.apple.` prefix.
+        let apple = at(2).starts_with("com.apple.")
+            || matches!(
+                at(2),
+                "CloudKit"
+                    | "AddressBook"
+                    | "CallHistoryDB"
+                    | "CallHistoryTransactions"
+                    | "Knowledge"
+                    | "FileProvider"
+                    | "CloudDocs"
+                    | "Dock"
+                    | "AppStore"
+                    | "iCloud"
+            );
         return !tools_area || apple;
     }
     false
