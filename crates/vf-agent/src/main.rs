@@ -49,8 +49,6 @@ impl vf_cli::App for Agent {
         let mut origins = vec![HOSTED_UI_ORIGIN.to_owned()];
         origins.extend(s.extra_origins.iter().cloned());
         if !s.extra_origins.is_empty() {
-            eprintln!("⚠️  SECURITY WARNING: extraOrigins enabled: {:?}", s.extra_origins);
-            eprintln!("    Web pages on these origins can access the local agent, projects, and API.");
             tracing::warn!(
                 origins = ?s.extra_origins,
                 "⚠️ SECURITY WARNING: extraOrigins enabled: arbitrary web pages from these origins have access to the agent"
