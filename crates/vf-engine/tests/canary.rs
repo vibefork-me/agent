@@ -76,6 +76,10 @@ const TOOL_DIRS: &[&str] = &[
     "bun",
 ];
 
+/// The OS's and the preinstalled browsers' own folders: their background services may even create
+/// them during the test (Firefox's background agent on a fresh CI runner).
+const OS_VENDORS: &[&str] = &["Microsoft", "Packages", "Mozilla", "Google", "Apple"];
+
 /// Background changes of other programs in the OS-managed profile areas: under `AppData` on
 /// Windows and `~/Library` on macOS, a change inside a vendor folder that existed before the builds
 /// (a browser profile, a system service) is noise; a new vendor folder, the temp folder or a tool's
@@ -94,8 +98,10 @@ fn os_noise(home: &Path, path: &Path, existed: &dyn Fn(&Path) -> bool) -> bool {
     };
     let background = |n: usize| {
         let name = at(n - 1);
+        let os_or_browser = OS_VENDORS.iter().any(|v| v.eq_ignore_ascii_case(name))
+            || name.starts_with("com.apple.");
         !TOOL_DIRS.iter().any(|t| t.eq_ignore_ascii_case(name))
-            && vendor(n).is_some_and(|v| existed(&v))
+            && (os_or_browser || vendor(n).is_some_and(|v| existed(&v)))
     };
     if cfg!(windows) {
         if at(0).to_ascii_lowercase().starts_with("ntuser.dat") {
