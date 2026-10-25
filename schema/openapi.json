@@ -159,6 +159,27 @@
           }
         ]
       },
+      "DescribeRequest": {
+        "description": "Request of `POST /v1/graph/describe`: have a model draw the project's map.",
+        "properties": {
+          "lang": {
+            "default": null,
+            "description": "Language of names and summaries (`en`, `ru`, …); default `en`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "project": {
+            "description": "Project.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project"
+        ],
+        "type": "object"
+      },
       "ErrorBody": {
         "description": "An error body: `{ \"error\": \"…\" }`.",
         "properties": {
@@ -574,7 +595,7 @@
         "type": "object"
       },
       "GraphEdge": {
-        "description": "`from` contains `to`.",
+        "description": "`from` contains `to` (folders) or uses `to` (model's map).",
         "properties": {
           "from": {
             "description": "Containing part.",
@@ -611,8 +632,15 @@
             "type": "string"
           },
           "label": {
-            "description": "Name to show.",
+            "description": "Name to show; empty for the files no part of a model's map covers (id `other`).",
             "type": "string"
+          },
+          "summary": {
+            "description": "What the part does, one sentence (model's map only).",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -624,7 +652,7 @@
         "type": "object"
       },
       "GraphResponse": {
-        "description": "`GET /v1/graph?project=…`: the map of a project — its parts by folder, and which of them changed since the project was taken.",
+        "description": "`GET /v1/graph?project=…[&view=folders]`: the map of a project — its parts by folder, and which of them changed since the project was taken.",
         "properties": {
           "edges": {
             "description": "A folder contains a part.",
@@ -646,13 +674,37 @@
               "string",
               "null"
             ]
+          },
+          "source": {
+            "$ref": "#/components/schemas/GraphSource",
+            "description": "Who drew the map."
           }
         },
         "required": [
           "edges",
-          "nodes"
+          "nodes",
+          "source"
         ],
         "type": "object"
+      },
+      "GraphSource": {
+        "description": "Who drew a project map.",
+        "oneOf": [
+          {
+            "description": "A model, in plain words: parts by what they do.",
+            "enum": [
+              "model"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "The agent, by folders: no model has described the project yet.",
+            "enum": [
+              "folders"
+            ],
+            "type": "string"
+          }
+        ]
       },
       "Hello": {
         "description": "`GET /v1/hello` — the only call that needs neither a session nor an allowed origin.",
@@ -2274,7 +2326,49 @@
             "session": []
           }
         ],
-        "summary": "The map of a project (?project=): parts by folder, which changed since it was taken"
+        "summary": "The map of a project (?project=, &view=folders): the model's parts, or folders; files changed since it was taken"
+      }
+    },
+    "/v1/graph/describe": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DescribeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "summary": "Have a model available now draw the project's map in plain words; slow"
       }
     },
     "/v1/hello": {

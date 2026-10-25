@@ -126,8 +126,16 @@ pub const ROUTES: &[Route] = &[
     Route {
         method: "GET",
         path: "/v1/graph",
-        summary: "The map of a project (?project=): parts by folder, which changed since it was taken",
+        summary: "The map of a project (?project=, &view=folders): the model's parts, or folders; files changed since it was taken",
         request: None,
+        response: Some("GraphResponse"),
+        session: true,
+    },
+    Route {
+        method: "POST",
+        path: "/v1/graph/describe",
+        summary: "Have a model available now draw the project's map in plain words; slow",
+        request: Some("DescribeRequest"),
         response: Some("GraphResponse"),
         session: true,
     },

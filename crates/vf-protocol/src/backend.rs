@@ -5,9 +5,9 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 use crate::http::{
-    FileDiffResponse, FileResponse, GithubConnectResponse, GithubStatusResponse, GraphResponse,
-    ImportRequest, ImportResponse, JournalResponse, ModelsResponse, ProjectsResponse,
-    RollbackResponse, SaveRequest, SaveResponse,
+    DescribeRequest, FileDiffResponse, FileResponse, GithubConnectResponse, GithubStatusResponse,
+    GraphResponse, ImportRequest, ImportResponse, JournalResponse, ModelsResponse,
+    ProjectsResponse, RollbackResponse, SaveRequest, SaveResponse,
 };
 use crate::ws::ServerMessage;
 
@@ -115,7 +115,10 @@ pub trait Backend: Send + Sync {
     /// A project file as it was taken and as it is now, for the viewer's diff.
     fn read_diff(&self, project: &str, path: &str) -> Result<FileDiffResponse, BackendError>;
     /// The map of a project: its parts by folder and what changed since it was taken.
-    fn graph(&self, project: &str) -> Result<GraphResponse, BackendError>;
+    /// `folders` — the folder map even when a model drew one.
+    fn graph(&self, project: &str, folders: bool) -> Result<GraphResponse, BackendError>;
+    /// Has a model available now draw the project's map in plain words; slow (up to minutes).
+    fn describe_graph(&self, req: &DescribeRequest) -> Result<GraphResponse, BackendError>;
 }
 
 #[cfg(test)]

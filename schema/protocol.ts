@@ -12,6 +12,9 @@ export type ClientMessage = { token: string; type: "auth" } | { continue?: boole
 /** Cost class of a model. */
 export type CostClass = "subscription" | "free" | "paid";
 
+/** Request of `POST /v1/graph/describe`: have a model draw the project's map. */
+export type DescribeRequest = { lang?: string | null; project: string };
+
 /** An error body: `{ "error": "…" }`. */
 export type ErrorBody = { error: string };
 
@@ -33,14 +36,17 @@ export type GithubConnectResponse = { expiresIn: number; userCode: string; verif
 /** Response of `GET /v1/github/status`. */
 export type GithubStatusResponse = { connected: boolean; error?: string | null; login?: string | null; pending: boolean };
 
-/** `from` contains `to`. */
+/** `from` contains `to` (folders) or uses `to` (model's map). */
 export type GraphEdge = { from: string; to: string };
 
 /** A part of a project: a folder (or the files at the root). */
-export type GraphNode = { changed: number; files: number; id: string; label: string };
+export type GraphNode = { changed: number; files: number; id: string; label: string; summary?: string | null };
 
-/** `GET /v1/graph?project=…`: the map of a project — its parts by folder, and which of them changed since the project was taken. */
-export type GraphResponse = { edges: (GraphEdge)[]; nodes: (GraphNode)[]; revision?: string | null };
+/** `GET /v1/graph?project=…[&view=folders]`: the map of a project — its parts by folder, and which of them changed since the project was taken. */
+export type GraphResponse = { edges: (GraphEdge)[]; nodes: (GraphNode)[]; revision?: string | null; source: GraphSource };
+
+/** Who drew a project map. */
+export type GraphSource = "model" | "folders";
 
 /** `GET /v1/hello` — the only call that needs neither a session nor an allowed origin. */
 export type Hello = { agent: string; extraOriginsActive?: boolean; platform: string; version: string };

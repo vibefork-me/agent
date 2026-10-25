@@ -440,11 +440,13 @@ pub struct FileDiffResponse {
     pub binary: bool,
 }
 
-/// `GET /v1/graph?project=…`: the map of a project — its parts by folder, and which of them
+/// `GET /v1/graph?project=…[&view=folders]`: the map of a project — its parts by folder, and which of them
 /// changed since the project was taken.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GraphResponse {
+    /// Who drew the map.
+    pub source: GraphSource,
     /// Newest commit of the project; the map changes only with it. Absent — no commits yet.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub revision: Option<String>,
@@ -460,15 +462,18 @@ pub struct GraphResponse {
 pub struct GraphNode {
     /// Folder path, `/`-separated; `.` — files at the root.
     pub id: String,
-    /// Name to show.
+    /// Name to show; empty for the files no part of a model's map covers (id `other`).
     pub label: String,
+    /// What the part does, one sentence (model's map only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
     /// Number of files in it (including deeper folders shown as their own parts).
     pub files: u32,
     /// Files in it added, changed or deleted since the project was taken.
     pub changed: u32,
 }
 
-/// `from` contains `to`.
+/// `from` contains `to` (folders) or uses `to` (model's map).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct GraphEdge {
@@ -476,4 +481,24 @@ pub struct GraphEdge {
     pub from: String,
     /// Contained part.
     pub to: String,
+}
+
+/// Who drew a project map.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum GraphSource {
+    /// A model, in plain words: parts by what they do.
+    Model,
+    /// The agent, by folders: no model has described the project yet.
+    Folders,
+}
+
+/// Request of `POST /v1/graph/describe`: have a model draw the project's map.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct DescribeRequest {
+    /// Project.
+    pub project: String,
+    /// Language of names and summaries (`en`, `ru`, …); default `en`.
+    #[serde(default)]
+    pub lang: Option<String>,
 }

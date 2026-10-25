@@ -5,9 +5,9 @@
 use std::sync::Arc;
 
 use vf_protocol::http::{
-    FileDiffResponse, FileResponse, GithubConnectResponse, GithubStatusResponse, GraphResponse,
-    ImportRequest, ImportResponse, JournalResponse, ModelsResponse, ProjectsResponse,
-    RollbackResponse, SaveRequest, SaveResponse, SaveStep,
+    DescribeRequest, FileDiffResponse, FileResponse, GithubConnectResponse, GithubStatusResponse,
+    GraphResponse, GraphSource, ImportRequest, ImportResponse, JournalResponse, ModelsResponse,
+    ProjectsResponse, RollbackResponse, SaveRequest, SaveResponse, SaveStep,
 };
 use vf_protocol::ws::ServerMessage;
 use vf_protocol::{Backend, BackendError, Cancel, TaskRequest};
@@ -86,12 +86,16 @@ impl Backend for FakeBackend {
             binary: false,
         })
     }
-    fn graph(&self, _: &str) -> Result<GraphResponse, BackendError> {
+    fn graph(&self, _: &str, _: bool) -> Result<GraphResponse, BackendError> {
         Ok(GraphResponse {
+            source: GraphSource::Folders,
             revision: None,
             nodes: Vec::new(),
             edges: Vec::new(),
         })
+    }
+    fn describe_graph(&self, _: &DescribeRequest) -> Result<GraphResponse, BackendError> {
+        Err(BackendError::BadRequest("no model available".into()))
     }
     fn save(&self, _: &SaveRequest) -> Result<SaveResponse, BackendError> {
         Ok(SaveResponse {
