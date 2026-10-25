@@ -293,8 +293,8 @@ impl Backend for Engine {
         self.read_project_diff(project, path)
     }
 
-    fn graph(&self, project: &str) -> Result<GraphResponse, BackendError> {
-        self.project_graph(project)
+    fn graph(&self, project: &str, folders: bool) -> Result<GraphResponse, BackendError> {
+        self.project_graph(project, folders)
     }
 
     fn describe_graph(&self, req: &DescribeRequest) -> Result<GraphResponse, BackendError> {

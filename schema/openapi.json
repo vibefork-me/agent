@@ -652,7 +652,7 @@
         "type": "object"
       },
       "GraphResponse": {
-        "description": "`GET /v1/graph?project=…`: the map of a project — its parts by folder, and which of them changed since the project was taken.",
+        "description": "`GET /v1/graph?project=…[&view=folders]`: the map of a project — its parts by folder, and which of them changed since the project was taken.",
         "properties": {
           "edges": {
             "description": "A folder contains a part.",
@@ -2326,7 +2326,7 @@
             "session": []
           }
         ],
-        "summary": "The map of a project (?project=): parts by folder, which changed since it was taken"
+        "summary": "The map of a project (?project=, &view=folders): the model's parts, or folders; files changed since it was taken"
       }
     },
     "/v1/graph/describe": {

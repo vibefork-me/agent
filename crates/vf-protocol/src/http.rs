@@ -440,7 +440,7 @@ pub struct FileDiffResponse {
     pub binary: bool,
 }
 
-/// `GET /v1/graph?project=…`: the map of a project — its parts by folder, and which of them
+/// `GET /v1/graph?project=…[&view=folders]`: the map of a project — its parts by folder, and which of them
 /// changed since the project was taken.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]

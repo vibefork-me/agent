@@ -120,7 +120,11 @@ impl Engine {
     }
 
     /// The model's map when there is one, the folders otherwise.
-    pub(crate) fn project_graph(&self, project: &str) -> Result<GraphResponse, BackendError> {
+    pub(crate) fn project_graph(
+        &self,
+        project: &str,
+        folders: bool,
+    ) -> Result<GraphResponse, BackendError> {
         let Some((_, head, files, changed)) = self.graph_input(project)? else {
             return Ok(GraphResponse {
                 source: GraphSource::Folders,
@@ -129,7 +133,7 @@ impl Engine {
                 edges: Vec::new(),
             });
         };
-        let (source, (nodes, edges)) = match self.load_map(project) {
+        let (source, (nodes, edges)) = match self.load_map(project).filter(|_| !folders) {
             Some(m) => (GraphSource::Model, crate::map::build(&m, &files, &changed)),
             None => (GraphSource::Folders, build(&files, &changed)),
         };
@@ -156,7 +160,7 @@ impl Engine {
                 tracing::info!(project = %req.project, error = %e, "map not described");
                 BackendError::BadRequest(format!("no model could describe the project: {e}"))
             })?;
-        self.project_graph(&req.project)
+        self.project_graph(&req.project, false)
     }
 }
 

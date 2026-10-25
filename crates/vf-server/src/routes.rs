@@ -307,7 +307,11 @@ pub(crate) async fn graph(
     if !project_allowed(&state, &headers, &origin.0, &project).await {
         return error(StatusCode::FORBIDDEN, "no access to this project");
     }
-    with_backend(state, &headers, &origin.0, move |b| b.graph(&project)).await
+    let folders = q.get("view").is_some_and(|v| v == "folders");
+    with_backend(state, &headers, &origin.0, move |b| {
+        b.graph(&project, folders)
+    })
+    .await
 }
 
 /// Has a model draw the project's map; the browser needs access to the project.

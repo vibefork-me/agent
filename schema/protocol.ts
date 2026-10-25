@@ -42,7 +42,7 @@ export type GraphEdge = { from: string; to: string };
 /** A part of a project: a folder (or the files at the root). */
 export type GraphNode = { changed: number; files: number; id: string; label: string; summary?: string | null };
 
-/** `GET /v1/graph?project=…`: the map of a project — its parts by folder, and which of them changed since the project was taken. */
+/** `GET /v1/graph?project=…[&view=folders]`: the map of a project — its parts by folder, and which of them changed since the project was taken. */
 export type GraphResponse = { edges: (GraphEdge)[]; nodes: (GraphNode)[]; revision?: string | null; source: GraphSource };
 
 /** Who drew a project map. */

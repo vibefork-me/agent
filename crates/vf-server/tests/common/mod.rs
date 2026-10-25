@@ -86,7 +86,7 @@ impl Backend for FakeBackend {
             binary: false,
         })
     }
-    fn graph(&self, _: &str) -> Result<GraphResponse, BackendError> {
+    fn graph(&self, _: &str, _: bool) -> Result<GraphResponse, BackendError> {
         Ok(GraphResponse {
             source: GraphSource::Folders,
             revision: None,

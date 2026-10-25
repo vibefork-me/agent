@@ -512,14 +512,14 @@ fn map_shows_parts_and_what_changed_since_the_start() {
         serde_json::json!({ "localBase": start }).to_string(),
     )
     .unwrap();
-    let g = engine.graph("demo").unwrap();
+    let g = engine.graph("demo", false).unwrap();
     assert_eq!(g.revision.as_deref(), Some(start.as_str()));
     assert!(g.nodes.iter().all(|n| n.changed == 0));
     std::fs::write(demo.join("src/main.rs"), "fn main() { todo!() }").unwrap();
     vf_journal::Vcs::commit_all(&repo, "step", &[])
         .unwrap()
         .unwrap();
-    let g = engine.graph("demo").unwrap();
+    let g = engine.graph("demo", false).unwrap();
     assert_ne!(g.revision.as_deref(), Some(start.as_str()));
     let src = g.nodes.iter().find(|n| n.id == "src").unwrap();
     assert_eq!((src.files, src.changed), (1, 1));
@@ -533,7 +533,7 @@ fn a_model_draws_the_map_in_plain_words() {
     std::fs::write(demo.join("src/main.rs"), "fn main() {}").unwrap();
     vf_git::Repo::init_with(demo.clone(), "start").unwrap();
     assert_eq!(
-        engine.graph("demo").unwrap().source,
+        engine.graph("demo", false).unwrap().source,
         vf_protocol::http::GraphSource::Folders
     );
     let req = vf_protocol::http::DescribeRequest {
@@ -550,9 +550,13 @@ fn a_model_draws_the_map_in_plain_words() {
     assert_eq!(got, vec![("p1", "Guide", 1), ("p2", "Program", 1)]);
     assert_eq!(g.nodes[0].summary.as_deref(), Some("Explains the project."));
     assert_eq!(g.edges.len(), 1);
+    assert_eq!(
+        engine.graph("demo", true).unwrap().source,
+        vf_protocol::http::GraphSource::Folders
+    );
     // Kept: the next read is the model's map without asking again.
     assert_eq!(
-        engine.graph("demo").unwrap().source,
+        engine.graph("demo", false).unwrap().source,
         vf_protocol::http::GraphSource::Model
     );
 }
