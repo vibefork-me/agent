@@ -111,6 +111,10 @@ fn os_noise(home: &Path, path: &Path, existed: &dyn Fn(&Path) -> bool) -> bool {
             && matches!(at(1), "Local" | "Roaming" | "LocalLow")
             && background(3);
     }
+    // macOS media libraries (the TV and Music apps update them on their own).
+    if cfg!(target_os = "macos") && matches!(at(0), "Movies" | "Music" | "Pictures") {
+        return true;
+    }
     if cfg!(target_os = "macos") && at(0) == "Library" {
         if !matches!(at(1), "Caches" | "Application Support") {
             return true;
