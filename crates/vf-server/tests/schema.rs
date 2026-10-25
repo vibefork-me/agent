@@ -36,6 +36,7 @@ fn definitions() -> Map<String, Value> {
         RevokeRequest,
         RevokeResponse,
         ProjectsResponse,
+        ProjectInfo,
         ModelsResponse,
         JournalResponse,
         RollbackRequest,

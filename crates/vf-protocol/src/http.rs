@@ -308,6 +308,25 @@ pub struct ProjectsResponse {
     pub root: String,
     /// Project names (folder names).
     pub projects: Vec<String>,
+    /// The same projects with where their code comes from.
+    #[serde(default)]
+    pub details: Vec<ProjectInfo>,
+}
+
+/// A project and where its code comes from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ProjectInfo {
+    /// Project name (folder).
+    pub name: String,
+    /// GitHub repository the code was taken from: `owner/name`; absent — not taken from GitHub.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    /// The original when the code came from a fork or a pull request: `owner/name`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original: Option<String>,
+    /// Commit the code was taken at.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
 }
 
 /// Response of `GET /v1/models`.

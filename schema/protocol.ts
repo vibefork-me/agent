@@ -69,8 +69,11 @@ export type PairStatusResponse = { keyId?: string | null; status: PairState };
 /** A plan step as shown to the user. */
 export type PlanStepInfo = { complexity: string; label: string; title: string };
 
+/** A project and where its code comes from. */
+export type ProjectInfo = { commit?: string | null; name: string; original?: string | null; source?: string | null };
+
 /** Response of `GET /v1/projects`. */
-export type ProjectsResponse = { projects: (string)[]; root: string };
+export type ProjectsResponse = { details?: (ProjectInfo)[]; projects: (string)[]; root: string };
 
 /** A browser's public key (JWK, EC P-256). A private part (`d`) is rejected. */
 export type PublicJwk = { crv: string; d?: string | null; kty: string; x: string; y: string };
