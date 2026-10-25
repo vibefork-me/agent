@@ -1,11 +1,20 @@
 //! Ports: traits that logic and adapters depend on; implementations live in adapter crates and are
 //! connected in `vf-agent`.
 
+use crate::Secret;
+
 /// A native OS dialog — the one UI a web page cannot click. Used for pairing and dangerous actions.
 pub trait ConfirmDialog: Send + Sync {
     /// Shows `text` with an Allow / Block choice. Blocks the calling thread; returns `false` on
     /// Block, on timeout and when no dialog can be shown.
     fn confirm(&self, title: &str, text: &str) -> bool;
+
+    /// Prompts the user for a secret (e.g. an API key) with input masked.
+    /// Returns `None` on cancel, empty input, timeout or when no dialog can be shown.
+    fn ask_secret(&self, title: &str, text: &str) -> Option<Secret<String>> {
+        let _ = (title, text);
+        None
+    }
 }
 
 /// Characters that change how text is laid out or hide text: bidi controls, zero-width characters,

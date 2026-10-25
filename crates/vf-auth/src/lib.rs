@@ -274,6 +274,20 @@ impl Auth {
         )
     }
 
+    /// Asks the user for a secret in the native dialog with input masked. Blocks.
+    pub fn ask_secret(&self, origin: &str, prompt: &str) -> Option<Secret<String>> {
+        let prompt = vf_core::dialog_field(prompt, 200);
+        self.dialog.ask_secret(
+            "Vibefork: enter secret",
+            &format!("{origin} asks for:\n\n{prompt}"),
+        )
+    }
+
+    /// The native confirm dialog.
+    pub fn dialog(&self) -> &Arc<dyn ConfirmDialog> {
+        &self.dialog
+    }
+
     /// Whether a paired browser may work in `project`. The first time, the user is asked in the
     /// native dialog; a yes is remembered for that browser. Blocks.
     pub fn project_allowed(&self, key_id: &str, origin: &str, project: &str) -> bool {

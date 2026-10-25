@@ -97,6 +97,13 @@ pub trait Backend: Send + Sync {
     /// Runs the sign-in of a subscription's official CLI to the end (minutes; the user finishes
     /// it in the browser). The caller has confirmed it with the user.
     fn connect_ai(&self, provider: &str) -> Result<(), BackendError>;
+    /// Connects a provider using an API key (e.g. OpenRouter).
+    fn connect_ai_key(&self, provider: &str, key: &str) -> Result<(), BackendError> {
+        let _ = (provider, key);
+        Err(BackendError::BadRequest(
+            "this provider does not use an API key".into(),
+        ))
+    }
     /// Runs a task to the end, reporting progress through `out`; the last message is
     /// [`ServerMessage::Done`], [`ServerMessage::Cancelled`] or [`ServerMessage::Error`].
     fn run_task(&self, task: TaskRequest, out: &mut dyn FnMut(ServerMessage), cancel: &Cancel);
