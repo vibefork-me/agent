@@ -103,7 +103,12 @@ fn canary_package_managers_in_home_are_closed() {
 
     let policy = SandboxPolicy {
         read: system,
-        write: vec![project.clone(), tools.clone(), caches.clone(), "/dev".into()],
+        write: vec![
+            project.clone(),
+            tools.clone(),
+            caches.clone(),
+            "/dev".into(),
+        ],
         temp: None,
     };
 

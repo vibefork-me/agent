@@ -113,11 +113,19 @@ impl Engine {
             );
             env.set(
                 "XDG_DATA_HOME",
-                sandbox_home.join(".local").join("share").display().to_string(),
+                sandbox_home
+                    .join(".local")
+                    .join("share")
+                    .display()
+                    .to_string(),
             );
             env.set(
                 "XDG_STATE_HOME",
-                sandbox_home.join(".local").join("state").display().to_string(),
+                sandbox_home
+                    .join(".local")
+                    .join("state")
+                    .display()
+                    .to_string(),
             );
             env.set("TEMP", &tmp_str);
             env.set("TMP", &tmp_str);
@@ -393,11 +401,13 @@ pub(crate) fn clean_stale_tmp(tmp_dir: &Path, max_age: std::time::Duration) {
 
 /// Generates a unique run ID for a task or build.
 pub(crate) fn new_run_id(prefix: &str) -> String {
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    format!("{prefix}-{ts}-{}", std::process::id())
+    let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    format!("{prefix}-{ts}-{}-{seq}", std::process::id())
 }
 
 fn install_git_shim(tools: &Path, agent: &Path) -> Option<std::path::PathBuf> {
@@ -587,8 +597,7 @@ mod tests {
 
     #[test]
     fn internal_processes_get_fake_home_and_clis_keep_real_home() {
-        let base =
-            std::env::temp_dir().join(format!("vf-engine-step-test-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("vf-engine-step-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let settings = vf_platform::Settings {
             state_dir: base.join("state"),
@@ -612,8 +621,14 @@ mod tests {
 
         // 1. Internal processes / builds (is_cli = false): fake home and tmp in caches/<run_id>
         let run_id = "test-run-123";
-        let (env_internal, _, _) =
-            engine.child_env(&project_dir, false, false, Some(run_id), &mut |_| {}, &cancel);
+        let (env_internal, _, _) = engine.child_env(
+            &project_dir,
+            false,
+            false,
+            Some(run_id),
+            &mut |_| {},
+            &cancel,
+        );
         let home = env_internal
             .get("HOME")
             .map(|s| s.to_string_lossy().to_string());
@@ -632,11 +647,15 @@ mod tests {
         assert_eq!(tmp.as_deref(), Some(expected_tmp.as_str()));
 
         // 2. CLI providers (is_cli = true): real home is preserved
-        let (env_cli, _, _) =
-            engine.child_env(&project_dir, false, true, Some(run_id), &mut |_| {}, &cancel);
-        let cli_home = env_cli
-            .get("HOME")
-            .map(|s| s.to_string_lossy().to_string());
+        let (env_cli, _, _) = engine.child_env(
+            &project_dir,
+            false,
+            true,
+            Some(run_id),
+            &mut |_| {},
+            &cancel,
+        );
+        let cli_home = env_cli.get("HOME").map(|s| s.to_string_lossy().to_string());
         assert_ne!(cli_home.as_deref(), Some(expected_home.as_str()));
 
         let _ = std::fs::remove_dir_all(&base);

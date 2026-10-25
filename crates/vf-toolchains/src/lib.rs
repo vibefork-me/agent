@@ -109,10 +109,7 @@ pub fn prepare(
             "POETRY_CACHE_DIR".into(),
             caches.join("poetry").display().to_string(),
         ),
-        (
-            "GOPATH".into(),
-            caches.join("go").display().to_string(),
-        ),
+        ("GOPATH".into(), caches.join("go").display().to_string()),
         (
             "GOCACHE".into(),
             caches.join("go-build").display().to_string(),
