@@ -14,6 +14,8 @@ Report vulnerabilities privately through GitHub: **Security → Report a vulnera
 | A website or another program reaches the agent | Loopback only; `Host` check (DNS rebinding); `Origin` allowlist; JSON + `x-vibefork` header (forces a CORS preflight); body limit | `vf-server/tests/attacks.rs` |
 | A website pretends to be your browser | Pairing only through the agent's own dialog with a code; non-extractable browser key; signed one-time challenge → 15-minute session bound to the origin; revocation | `attacks.rs` |
 | A paired page (or a hacked site) does more than you want | Native dialog for building, rolling back, and for each project the browser may use | `attacks.rs` |
+| A page makes a native dialog say something else | Text from a page (browser name, project) is shown as one plain line: no line breaks, control or bidi characters, no markup; one site keeps at most three pairing dialogs waiting | `vf-core` tests, `attacks.rs` |
+| A release build accepts other websites | Extra allowed origins work only in development builds; CI fails if a release build enables a development-only feature | `ci.yml` |
 | A tampered interface | The fallback interface is served only from a bundle signed with a key built into the agent; redirects are not followed; CSP, `frame-ancestors 'none'` | `vf-server/tests/ui.rs` |
 | A tampered update | Releases are signed with a separate key built into the agent; every binary is checked against the signed manifest; the new binary must start before it replaces the old one; `vibefork update --rollback` | `vf-updater/tests/release.rs` |
 | A tampered toolchain download | `mise` is pinned to a version and SHA-256 per platform | `vf-toolchains` |
