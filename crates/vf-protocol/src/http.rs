@@ -137,25 +137,6 @@ pub struct Me {
     pub name: String,
 }
 
-/// `POST /v1/action` — an action that needs the native confirm dialog.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-pub struct ActionRequest {
-    /// What to do (shown in the dialog).
-    pub action: String,
-    /// What it applies to (shown in the dialog).
-    #[serde(default)]
-    pub target: Option<String>,
-}
-
-/// Response of `POST /v1/action`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-pub struct ActionResponse {
-    /// The action.
-    pub action: String,
-    /// Whether the user allowed it.
-    pub approved: bool,
-}
-
 /// One paired browser in `GET /v1/pairs`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -186,13 +167,6 @@ pub struct RevokeRequest {
 pub struct RevokeResponse {
     /// Revoked key id.
     pub revoked: String,
-}
-
-/// Response of `POST /v1/echo` (connectivity check).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-pub struct EchoResponse {
-    /// The request body as received.
-    pub echo: String,
 }
 
 /// Response of `POST /v1/github/connect`: the code the user enters on GitHub.

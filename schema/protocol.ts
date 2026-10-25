@@ -1,11 +1,5 @@
 // Generated from protocol.schema.json by vf-server/tests/schema.rs. Do not edit.
 
-/** `POST /v1/action` — an action that needs the native confirm dialog. */
-export type ActionRequest = { action: string; target?: string | null };
-
-/** Response of `POST /v1/action`. */
-export type ActionResponse = { action: string; approved: boolean };
-
 /** `POST /v1/auth/challenge`. */
 export type ChallengeRequest = { keyId: string };
 
@@ -17,9 +11,6 @@ export type ClientMessage = { token: string; type: "auth" } | { continue?: boole
 
 /** Cost class of a model. */
 export type CostClass = "subscription" | "free" | "paid";
-
-/** Response of `POST /v1/echo` (connectivity check). */
-export type EchoResponse = { echo: string };
 
 /** An error body: `{ "error": "…" }`. */
 export type ErrorBody = { error: string };

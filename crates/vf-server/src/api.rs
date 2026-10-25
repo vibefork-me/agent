@@ -29,14 +29,6 @@ pub const ROUTES: &[Route] = &[
     },
     Route {
         method: "POST",
-        path: "/v1/echo",
-        summary: "Connectivity check",
-        request: None,
-        response: Some("EchoResponse"),
-        session: false,
-    },
-    Route {
-        method: "POST",
         path: "/v1/pair/start",
         summary: "Start pairing; the agent shows a native dialog with the code",
         request: Some("PairStartRequest"),
@@ -73,14 +65,6 @@ pub const ROUTES: &[Route] = &[
         summary: "The current session",
         request: None,
         response: Some("Me"),
-        session: true,
-    },
-    Route {
-        method: "POST",
-        path: "/v1/action",
-        summary: "An action confirmed in the native dialog",
-        request: Some("ActionRequest"),
-        response: Some("ActionResponse"),
         session: true,
     },
     Route {
