@@ -23,9 +23,16 @@ pub struct Hello {
 
 /// An error body: `{ "error": "…" }`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ErrorBody {
     /// Human-readable reason.
     pub error: String,
+    /// Machine-readable code (e.g. `rate_limit`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    /// Reset time in minutes (when rate limited).
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "reset_minutes")]
+    pub reset_minutes: Option<u64>,
 }
 
 /// A browser's public key (JWK, EC P-256). A private part (`d`) is rejected.

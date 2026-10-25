@@ -23,6 +23,8 @@ pub(crate) fn error(status: StatusCode, message: &str) -> Response {
         status,
         Json(ErrorBody {
             error: message.to_owned(),
+            code: None,
+            reset_minutes: None,
         }),
     )
         .into_response()
@@ -195,6 +197,17 @@ fn backend_error(e: &BackendError) -> Response {
         BackendError::BadRequest(m) => error(StatusCode::BAD_REQUEST, m),
         BackendError::NotFound(m) => error(StatusCode::NOT_FOUND, m),
         BackendError::Forbidden(m) => error(StatusCode::FORBIDDEN, m),
+        BackendError::RateLimited { reset_minutes } => (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(ErrorBody {
+                error: format!(
+                    "GitHub's limit of requests is reached; connect GitHub or try again in {reset_minutes} min"
+                ),
+                code: Some("rate_limit".to_owned()),
+                reset_minutes: Some(*reset_minutes),
+            }),
+        )
+            .into_response(),
         BackendError::Internal(m) => {
             tracing::warn!(error = %m, "backend call failed");
             error(StatusCode::INTERNAL_SERVER_ERROR, m)

@@ -34,7 +34,7 @@ export type CostClass = "subscription" | "free" | "paid";
 export type DescribeRequest = { lang?: string | null; project: string };
 
 /** An error body: `{ "error": "…" }`. */
-export type ErrorBody = { error: string };
+export type ErrorBody = { code?: string | null; error: string; resetMinutes?: number | null };
 
 /** A normalized event, tagged by `kind`. */
 export type Event = { cli: string; kind: "init"; mcp?: number | null; model?: string | null; session?: string | null; skills?: number | null } | { kind: "text"; text: string } | { detail: string; kind: "tool"; tool: string } | { error: boolean; kind: "tool_result"; text: string } | { costUsd?: number | null; kind: "result"; ms?: number | null; ok: boolean; text: string; turns?: number | null; usage?: Usage | null } | { kind: "error"; text: string };

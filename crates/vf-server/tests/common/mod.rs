@@ -60,6 +60,9 @@ impl Backend for FakeBackend {
         })
     }
     fn import(&self, req: &ImportRequest) -> Result<ImportResponse, BackendError> {
+        if req.repo == "rate/limit" {
+            return Err(BackendError::RateLimited { reset_minutes: 42 });
+        }
         Err(BackendError::BadRequest(req.repo.clone()))
     }
     fn save_needs_confirm(&self, _: &str) -> bool {
