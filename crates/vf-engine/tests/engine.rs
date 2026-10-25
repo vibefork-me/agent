@@ -560,3 +560,17 @@ fn a_model_draws_the_map_in_plain_words() {
         vf_protocol::http::GraphSource::Model
     );
 }
+
+#[test]
+fn ai_is_ready_when_a_provider_is_signed_in() {
+    let (_, engine, _) = setup();
+    let ai = engine.ai().unwrap();
+    assert!(ai.ready);
+    let ids: Vec<&str> = ai.providers.iter().map(|p| p.id.as_str()).collect();
+    assert_eq!(ids, vec!["claude", "codex"]);
+    assert!(
+        ai.providers
+            .iter()
+            .all(|p| p.connected == vf_protocol::http::AiConnected::Yes)
+    );
+}

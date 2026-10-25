@@ -21,9 +21,10 @@ use vf_git::Repo;
 use vf_journal::JournalStore as _;
 use vf_platform::{JournalFiles, ProjectError, Projects, Settings};
 use vf_protocol::http::{
-    DescribeRequest, FileDiffResponse, FileResponse, GithubConnectResponse, GithubStatusResponse,
-    GraphResponse, ImportRequest, ImportResponse, JournalResponse, ModelsResponse, ProjectInfo,
-    ProjectsResponse, RollbackResponse, SaveRequest, SaveResponse,
+    AiConnected, AiKind, AiProvider, AiResponse, DescribeRequest, FileDiffResponse, FileResponse,
+    GithubConnectResponse, GithubStatusResponse, GraphResponse, ImportRequest, ImportResponse,
+    JournalResponse, ModelsResponse, ProjectInfo, ProjectsResponse, RollbackResponse, SaveRequest,
+    SaveResponse,
 };
 use vf_protocol::ws::ServerMessage;
 use vf_protocol::{Backend, BackendError, Cancel, ModelInfo, TaskRequest};
@@ -31,6 +32,9 @@ use vf_providers::Provider;
 
 use orchestrate::Task;
 pub use step::{StepRequest, StepResult};
+
+/// How long a subscription sign-in may take (the user finishes it in the browser).
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
 
 /// Longest accepted prompt, characters.
 pub const MAX_PROMPT: usize = 8000;
@@ -243,6 +247,43 @@ impl Backend for Engine {
             .read(project)
             .map_err(|e| BackendError::Internal(e.0))?;
         Ok(JournalResponse { entries })
+    }
+
+    fn ai(&self) -> Result<AiResponse, BackendError> {
+        let order = ["claude", "codex", "openrouter"];
+        let mut providers: Vec<AiProvider> = Vec::new();
+        for id in order {
+            let Some(p) = self.provider(id) else {
+                continue;
+            };
+            let s = p.status();
+            providers.push(AiProvider {
+                id: id.into(),
+                kind: if id == "openrouter" {
+                    AiKind::Free
+                } else {
+                    AiKind::Subscription
+                },
+                installed: s.installed,
+                connected: match (s.installed, s.signed_in) {
+                    (false, _) | (_, Some(false)) => AiConnected::No,
+                    (true, Some(true)) => AiConnected::Yes,
+                    (true, None) => AiConnected::Unknown,
+                },
+            });
+        }
+        let ready = providers.iter().any(|p| p.connected != AiConnected::No);
+        Ok(AiResponse { ready, providers })
+    }
+
+    fn connect_ai(&self, provider: &str) -> Result<(), BackendError> {
+        if provider != "claude" && provider != "codex" {
+            return Err(BackendError::BadRequest("unknown subscription".into()));
+        }
+        let p = self
+            .provider(provider)
+            .ok_or_else(|| BackendError::NotFound("no such provider".into()))?;
+        p.connect(CONNECT_TIMEOUT).map_err(BackendError::BadRequest)
     }
 
     fn models(&self) -> Result<ModelsResponse, BackendError> {

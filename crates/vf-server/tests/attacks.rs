@@ -882,3 +882,82 @@ async fn files_need_a_session_and_a_project_grant() {
         StatusCode::FORBIDDEN
     );
 }
+
+#[tokio::test]
+async fn ai_status_needs_a_session() {
+    let dir = temp_dir();
+    let browser = Browser::new();
+    let app = router(
+        Config {
+            port: PORT,
+            allowed_origins: vec![UI.into()],
+            extra_origins: vec![],
+        },
+        Auth::load(dir, Arc::new(Always(true))).unwrap(),
+        Arc::new(RwLock::new(None)),
+        common::backend(),
+    );
+    assert_eq!(
+        call(&app, Req::get("/v1/ai", Some(UI))).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    let key_id = pair(&app, &browser, UI).await;
+    let token = login(&app, &browser, &key_id, UI).await;
+    let (status, v, _) = call(
+        &app,
+        Req {
+            token: Some(&token),
+            ..Req::get("/v1/ai", Some(UI))
+        },
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(v["ready"], json!(false));
+}
+
+#[tokio::test]
+async fn ai_sign_in_needs_a_session_and_the_dialog() {
+    let dir = temp_dir();
+    let browser = Browser::new();
+    let make = |allows: bool| {
+        router(
+            Config {
+                port: PORT,
+                allowed_origins: vec![UI.into()],
+                extra_origins: vec![],
+            },
+            Auth::load(dir.clone(), Arc::new(Always(allows))).unwrap(),
+            Arc::new(RwLock::new(None)),
+            common::backend(),
+        )
+    };
+    let key_id = pair(&make(true), &browser, UI).await;
+    let body = json!({ "provider": "claude" });
+    let denying = make(false);
+    assert_eq!(
+        call(&denying, Req::post("/v1/ai/connect", UI, body.clone()))
+            .await
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+    let token = login(&denying, &browser, &key_id, UI).await;
+    let r = Req {
+        token: Some(&token),
+        ..Req::post("/v1/ai/connect", UI, body.clone())
+    };
+    assert_eq!(call(&denying, r).await.0, StatusCode::FORBIDDEN);
+    let r = Req {
+        token: Some(&token),
+        ..Req::post("/v1/ai/connect", UI, json!({ "provider": "openrouter" }))
+    };
+    assert_eq!(call(&denying, r).await.0, StatusCode::BAD_REQUEST);
+    let allowing = make(true);
+    let token = login(&allowing, &browser, &key_id, UI).await;
+    let r = Req {
+        token: Some(&token),
+        ..Req::post("/v1/ai/connect", UI, body)
+    };
+    let (status, v, _) = call(&allowing, r).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(v["started"], json!(true));
+}

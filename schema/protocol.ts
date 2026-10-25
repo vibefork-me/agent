@@ -1,5 +1,23 @@
 // Generated from protocol.schema.json by vf-server/tests/schema.rs. Do not edit.
 
+/** Request of `POST /v1/ai/connect`: sign in to a subscription through its official CLI. */
+export type AiConnectRequest = { provider: string };
+
+/** Response of `POST /v1/ai/connect`: the sign-in opened in the browser; `GET /v1/ai` tells when it is done. */
+export type AiConnectResponse = { started: boolean };
+
+/** Whether a way to connect AI is set up. */
+export type AiConnected = "yes" | "no" | "unknown";
+
+/** What a way to connect AI costs the user. */
+export type AiKind = "subscription" | "free";
+
+/** One way to connect AI. */
+export type AiProvider = { connected: AiConnected; id: string; installed: boolean; kind: AiKind };
+
+/** `GET /v1/ai`: whether AI is connected — the editor is not usable without it. */
+export type AiResponse = { providers: (AiProvider)[]; ready: boolean };
+
 /** `POST /v1/auth/challenge`. */
 export type ChallengeRequest = { keyId: string };
 

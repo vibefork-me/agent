@@ -9,9 +9,9 @@ use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use vf_auth::{AuthError, SessionInfo};
 use vf_protocol::http::{
-    ChallengeRequest, ChallengeResponse, DescribeRequest, ErrorBody, Hello, ImportRequest, Me,
-    PairStartRequest, PairStartResponse, PairStatusResponse, RevokeRequest, RevokeResponse,
-    RollbackRequest, SaveRequest, SessionRequest, SessionResponse,
+    AiConnectRequest, AiConnectResponse, ChallengeRequest, ChallengeResponse, DescribeRequest,
+    ErrorBody, Hello, ImportRequest, Me, PairStartRequest, PairStartResponse, PairStatusResponse,
+    RevokeRequest, RevokeResponse, RollbackRequest, SaveRequest, SessionRequest, SessionResponse,
 };
 use vf_protocol::{Backend, BackendError};
 
@@ -241,6 +241,69 @@ pub(crate) async fn journal(
         return error(StatusCode::FORBIDDEN, "no access to this project");
     }
     with_backend(state, &headers, &origin.0, move |b| b.journal(&project)).await
+}
+
+/// Whether AI is connected; the editor is not usable without it.
+pub(crate) async fn ai(
+    State(state): State<AppState>,
+    Extension(origin): Extension<EffectiveOrigin>,
+    headers: HeaderMap,
+) -> Response {
+    with_backend(state, &headers, &origin.0, |b| b.ai()).await
+}
+
+/// Starts a subscription sign-in after the user confirms it in the native dialog; it runs on
+/// (the browser shows the provider's page) and `GET /v1/ai` tells when it is done.
+pub(crate) async fn ai_connect(
+    State(state): State<AppState>,
+    Extension(origin): Extension<EffectiveOrigin>,
+    headers: HeaderMap,
+    Json(req): Json<AiConnectRequest>,
+) -> Response {
+    if session_from(&state, &headers, &origin.0).is_none() {
+        return no_session();
+    }
+    let name = match req.provider.as_str() {
+        "claude" => "Claude",
+        "codex" => "ChatGPT (Codex)",
+        _ => return error(StatusCode::BAD_REQUEST, "unknown subscription"),
+    };
+    {
+        let mut running = state.connecting.lock().unwrap_or_else(|p| p.into_inner());
+        if !running.insert(req.provider.clone()) {
+            return Json(AiConnectResponse { started: false }).into_response();
+        }
+    }
+    let auth = state.auth.clone();
+    let o = origin.0.clone();
+    let approved = tokio::task::spawn_blocking(move || {
+        auth.confirm_action(&o, &format!("sign in to {name} in your browser"), None)
+    })
+    .await
+    .unwrap_or(false);
+    if !approved {
+        state
+            .connecting
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&req.provider);
+        return error(StatusCode::FORBIDDEN, "not confirmed");
+    }
+    let (backend, connecting, provider) = (
+        state.backend.clone(),
+        state.connecting.clone(),
+        req.provider,
+    );
+    tokio::task::spawn_blocking(move || {
+        if let Err(e) = backend.connect_ai(&provider) {
+            tracing::info!(%provider, error = %e, "sign-in did not finish");
+        }
+        connecting
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&provider);
+    });
+    Json(AiConnectResponse { started: true }).into_response()
 }
 
 pub(crate) async fn models(

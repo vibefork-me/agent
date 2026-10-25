@@ -14,9 +14,11 @@ use crate::process;
 use crate::{Answer, AskRequest, Output, Provider, RunRequest, RunResult, clip};
 
 /// The Claude Code CLI.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Claude {
     bin: Option<PathBuf>,
+    /// When the sign-in was last checked, and its result.
+    signed_in: std::sync::Mutex<Option<(std::time::Instant, bool)>>,
 }
 
 impl Claude {
@@ -26,8 +28,49 @@ impl Claude {
             .filter(|v| !v.is_empty())
             .map(PathBuf::from)
             .or_else(|| process::find_program("claude"));
-        Self { bin }
+        Self {
+            bin,
+            signed_in: std::sync::Mutex::new(None),
+        }
     }
+
+    /// Whether the user is signed in (`claude auth status`), cached for a minute.
+    fn is_signed_in(&self) -> bool {
+        let Some(bin) = &self.bin else {
+            return false;
+        };
+        let mut cache = self.signed_in.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some((at, ok)) = *cache
+            && at.elapsed() < std::time::Duration::from_secs(60)
+        {
+            return ok;
+        }
+        let mut out = String::new();
+        let mut cmd = process::command(bin);
+        cmd.args(["auth", "status", "--json"]);
+        let exit = process::run_streaming(
+            cmd,
+            None,
+            &Cancel::new(),
+            Some(std::time::Duration::from_secs(20)),
+            &mut |stream, l| {
+                if matches!(stream, process::Stream::Stdout) {
+                    out.push_str(&l);
+                }
+            },
+        );
+        let ok = exit.is_ok_and(|e| e.code == 0) && signed_in_from_status(&out);
+        *cache = Some((std::time::Instant::now(), ok));
+        ok
+    }
+}
+
+/// `loggedIn` of `claude auth status --json`.
+pub fn signed_in_from_status(json: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(json)
+        .ok()
+        .and_then(|v| v["loggedIn"].as_bool())
+        .unwrap_or(false)
 }
 
 /// Command-line arguments (the prompt goes through stdin).
@@ -165,7 +208,7 @@ impl Provider for Claude {
     }
 
     fn models(&self) -> Vec<ModelInfo> {
-        if self.bin.is_none() {
+        if !self.is_signed_in() {
             return Vec::new();
         }
         [("haiku", 1), ("sonnet", 2), ("opus", 3)]
@@ -181,6 +224,27 @@ impl Provider for Claude {
 
     fn can_resume(&self) -> bool {
         true
+    }
+
+    fn status(&self) -> crate::Status {
+        crate::Status {
+            installed: self.bin.is_some(),
+            signed_in: Some(self.is_signed_in()),
+        }
+    }
+
+    fn connect(&self, timeout: std::time::Duration) -> Result<(), String> {
+        let bin = self.bin.as_ref().ok_or("Claude Code is not installed")?;
+        let mut cmd = process::command(bin);
+        cmd.args(["auth", "login"]);
+        let exit = process::run_streaming(cmd, None, &Cancel::new(), Some(timeout), &mut |_, _| {})
+            .map_err(|e| e.to_string())?;
+        *self.signed_in.lock().unwrap_or_else(|p| p.into_inner()) = None;
+        if exit.code == 0 && self.is_signed_in() {
+            Ok(())
+        } else {
+            Err(format!("sign-in did not finish (code {})", exit.code))
+        }
     }
 
     fn ask(&self, req: &AskRequest<'_>, cancel: &Cancel) -> Result<Answer, String> {
@@ -214,5 +278,22 @@ impl Provider for Claude {
             cancel,
             normalize,
         )
+    }
+}
+
+#[cfg(test)]
+mod status_tests {
+    use super::signed_in_from_status;
+
+    #[test]
+    fn auth_status_json_says_whether_signed_in() {
+        assert!(signed_in_from_status(
+            r#"{"loggedIn": true, "authMethod": "claude.ai"}"#
+        ));
+        assert!(!signed_in_from_status(
+            r#"{"loggedIn": false, "authMethod": "none"}"#
+        ));
+        assert!(!signed_in_from_status("not json"));
+        assert!(!signed_in_from_status(r#"{"loggedIn": "yes"}"#));
     }
 }
