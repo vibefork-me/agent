@@ -376,6 +376,34 @@ impl Repo {
         Ok(out)
     }
 
+    /// Content of the file `path` (`/`-separated) at `commit` with its size; `None` when it is not a
+    /// file there. A blob larger than `max` bytes comes back empty with its real size.
+    pub fn file_at(
+        &self,
+        commit: &str,
+        path: &str,
+        max: u64,
+    ) -> Result<Option<(Vec<u8>, u64)>, JournalError> {
+        let repo = self.repo()?;
+        let tree = tree_of(&repo, commit)?;
+        let Ok(entry) = tree.get_path(Path::new(path)) else {
+            return Ok(None);
+        };
+        if entry.kind() != Some(git2::ObjectType::Blob) {
+            return Ok(None);
+        }
+        let blob = repo.find_blob(entry.id()).map_err(err)?;
+        let size = blob.size() as u64;
+        Ok(Some((
+            if size > max {
+                Vec::new()
+            } else {
+                blob.content().to_vec()
+            },
+            size,
+        )))
+    }
+
     /// Git blob ids of `paths` at `commit` (a path that is not a file there is absent; `commit`
     /// empty — none).
     pub fn blob_ids(

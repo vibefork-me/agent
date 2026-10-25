@@ -805,3 +805,60 @@ async fn a_page_cannot_flood_the_screen_with_pairing_dialogs() {
     // Another origin is not affected.
     assert_eq!(call(&app, start(OTHER)).await.0, StatusCode::OK);
 }
+
+#[tokio::test]
+async fn files_need_a_session_and_a_project_grant() {
+    let dir = temp_dir();
+    let browser = Browser::new();
+    let make = |allows: bool| {
+        router(
+            Config {
+                port: PORT,
+                allowed_origins: vec![UI.into()],
+                extra_origins: vec![],
+            },
+            Auth::load(dir.clone(), Arc::new(Always(allows))).unwrap(),
+            Arc::new(RwLock::new(None)),
+            common::backend(),
+        )
+    };
+    let key_id = pair(&make(true), &browser, UI).await;
+    let denying = make(false);
+    for path in [
+        "/v1/file?project=demo&path=a.txt",
+        "/v1/diff?project=demo&path=a.txt",
+    ] {
+        assert_eq!(
+            call(&denying, Req::get(path, Some(UI))).await.0,
+            StatusCode::UNAUTHORIZED
+        );
+        let token = login(&denying, &browser, &key_id, UI).await;
+        let r = Req {
+            token: Some(&token),
+            ..Req::get(path, Some(UI))
+        };
+        assert_eq!(call(&denying, r).await.0, StatusCode::FORBIDDEN);
+    }
+    let allowing = make(true);
+    let token = login(&allowing, &browser, &key_id, UI).await;
+    let get = |path: &'static str| Req {
+        token: Some(&token),
+        ..Req::get(path, Some(UI))
+    };
+    let (status, v, _) = call(&allowing, get("/v1/file?project=demo&path=a.txt")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(v["content"], json!("text"));
+    assert_eq!(
+        call(&allowing, get("/v1/diff?project=demo&path=a.txt"))
+            .await
+            .0,
+        StatusCode::OK
+    );
+    // A file the engine refuses comes back as 403, not as content.
+    assert_eq!(
+        call(&allowing, get("/v1/file?project=demo&path=.env"))
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+}

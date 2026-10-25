@@ -423,3 +423,71 @@ fn build_runs_the_recipe_and_keeps_artifacts() {
     );
     let _ = std::fs::remove_dir_all(&base);
 }
+
+#[test]
+fn viewer_reads_project_files_only() {
+    let (base, engine, _) = setup();
+    let demo = base.join("projects/demo");
+    let f = engine.read_file("demo", "README.md").unwrap();
+    assert_eq!(f.content.as_deref(), Some("user file"));
+    assert!(!f.too_large && !f.binary);
+    // Out of the project, git data and secret files: refused before any read.
+    std::fs::write(base.join("projects/outside.txt"), "x").unwrap();
+    assert!(engine.read_file("demo", "../outside.txt").is_err());
+    assert!(engine.read_file("demo", "/etc/passwd").is_err());
+    std::fs::create_dir_all(demo.join(".git")).unwrap();
+    std::fs::write(demo.join(".git/config"), "x").unwrap();
+    std::fs::write(demo.join(".env"), "TOKEN=x").unwrap();
+    for p in [".git/config", ".env"] {
+        assert!(matches!(
+            engine.read_file("demo", p),
+            Err(vf_protocol::BackendError::Forbidden(_))
+        ));
+    }
+    // Large and binary files are described, not sent.
+    std::fs::write(demo.join("big.txt"), vec![b'a'; 2 * 1024 * 1024 + 1]).unwrap();
+    let big = engine.read_file("demo", "big.txt").unwrap();
+    assert!(big.too_large && big.content.is_none());
+    std::fs::write(demo.join("bin.dat"), [0xff, 0xfe, 0x00]).unwrap();
+    assert!(engine.read_file("demo", "bin.dat").unwrap().binary);
+    assert!(matches!(
+        engine.read_file("demo", "missing.txt"),
+        Err(vf_protocol::BackendError::NotFound(_))
+    ));
+}
+
+#[cfg(unix)]
+#[test]
+fn viewer_does_not_follow_links_out_of_the_project() {
+    let (base, engine, _) = setup();
+    std::fs::write(base.join("secret.txt"), "x").unwrap();
+    std::os::unix::fs::symlink(base.join("secret.txt"), base.join("projects/demo/link.txt"))
+        .unwrap();
+    assert!(matches!(
+        engine.read_file("demo", "link.txt"),
+        Err(vf_protocol::BackendError::Forbidden(_))
+    ));
+}
+
+#[test]
+fn viewer_diff_is_against_the_start_of_the_project() {
+    let (base, engine, _) = setup();
+    let demo = base.join("projects/demo");
+    let repo = vf_git::Repo::init_with(demo.clone(), "start").unwrap();
+    let start = vf_journal::Vcs::head(&repo).unwrap();
+    std::fs::create_dir_all(base.join("state/projects")).unwrap();
+    std::fs::write(
+        base.join("state/projects/demo.json"),
+        serde_json::json!({ "localBase": start }).to_string(),
+    )
+    .unwrap();
+    std::fs::write(demo.join("README.md"), "changed").unwrap();
+    std::fs::write(demo.join("new.txt"), "new").unwrap();
+    let d = engine.read_diff("demo", "README.md").unwrap();
+    assert_eq!(d.base.as_deref(), Some(start.as_str()));
+    assert_eq!(d.original.as_deref(), Some("user file"));
+    assert_eq!(d.modified.as_deref(), Some("changed"));
+    let n = engine.read_diff("demo", "new.txt").unwrap();
+    assert_eq!((n.original, n.modified.as_deref()), (None, Some("new")));
+    assert!(engine.read_diff("demo", ".git/HEAD").is_err());
+}

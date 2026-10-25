@@ -194,6 +194,7 @@ fn backend_error(e: &BackendError) -> Response {
     match e {
         BackendError::BadRequest(m) => error(StatusCode::BAD_REQUEST, m),
         BackendError::NotFound(m) => error(StatusCode::NOT_FOUND, m),
+        BackendError::Forbidden(m) => error(StatusCode::FORBIDDEN, m),
         BackendError::Internal(m) => {
             tracing::warn!(error = %m, "backend call failed");
             error(StatusCode::INTERNAL_SERVER_ERROR, m)
@@ -248,6 +249,48 @@ pub(crate) async fn models(
     headers: HeaderMap,
 ) -> Response {
     with_backend(state, &headers, &origin.0, |b| b.models()).await
+}
+
+/// A project file for the code viewer; the browser needs access to the project (native dialog).
+pub(crate) async fn file(
+    State(state): State<AppState>,
+    Extension(origin): Extension<EffectiveOrigin>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let project = q.get("project").cloned().unwrap_or_default();
+    if session_from(&state, &headers, &origin.0).is_none() {
+        return no_session();
+    }
+    if !project_allowed(&state, &headers, &origin.0, &project).await {
+        return error(StatusCode::FORBIDDEN, "no access to this project");
+    }
+    let path = q.get("path").cloned().unwrap_or_default();
+    with_backend(state, &headers, &origin.0, move |b| {
+        b.read_file(&project, &path)
+    })
+    .await
+}
+
+/// A project file as taken and as it is now; the browser needs access to the project.
+pub(crate) async fn diff(
+    State(state): State<AppState>,
+    Extension(origin): Extension<EffectiveOrigin>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let project = q.get("project").cloned().unwrap_or_default();
+    if session_from(&state, &headers, &origin.0).is_none() {
+        return no_session();
+    }
+    if !project_allowed(&state, &headers, &origin.0, &project).await {
+        return error(StatusCode::FORBIDDEN, "no access to this project");
+    }
+    let path = q.get("path").cloned().unwrap_or_default();
+    with_backend(state, &headers, &origin.0, move |b| {
+        b.read_diff(&project, &path)
+    })
+    .await
 }
 
 /// Resets a project to a journal checkpoint after the native dialog confirms it (invariant 3).

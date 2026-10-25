@@ -48,6 +48,8 @@ fn definitions() -> Map<String, Value> {
         ForeignChanges,
         SaveRequest,
         SaveResponse,
+        FileResponse,
+        FileDiffResponse,
         ClientMessage,
         ServerMessage,
     );

@@ -108,6 +108,22 @@ pub const ROUTES: &[Route] = &[
         session: true,
     },
     Route {
+        method: "GET",
+        path: "/v1/file",
+        summary: "A project file for the code viewer (?project=&path=); read-only, at most 2 MiB, no git data or secret files",
+        request: None,
+        response: Some("FileResponse"),
+        session: true,
+    },
+    Route {
+        method: "GET",
+        path: "/v1/diff",
+        summary: "A project file as taken and as it is now (?project=&path=), for the viewer's diff",
+        request: None,
+        response: Some("FileDiffResponse"),
+        session: true,
+    },
+    Route {
         method: "POST",
         path: "/v1/rollback",
         summary: "Reset a project to a journal checkpoint; confirmed in the native dialog",
