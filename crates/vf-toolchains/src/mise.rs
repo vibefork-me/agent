@@ -46,6 +46,15 @@ fn asset() -> Option<(&'static str, &'static str)> {
     })
 }
 
+/// `RUSTUP_HOME` and `CARGO_HOME` in `tools`: toolchains, the `cargo` / `rustc` proxies and the
+/// crate registry. Without them rustup and cargo write to `~/.rustup` and `~/.cargo`.
+pub fn rust_homes(tools: &Path) -> [(&'static str, PathBuf); 2] {
+    [
+        ("RUSTUP_HOME", tools.join("rustup")),
+        ("CARGO_HOME", tools.join("cargo")),
+    ]
+}
+
 /// `mise` in a tools folder.
 #[derive(Debug, Clone)]
 pub struct Mise {
@@ -94,6 +103,8 @@ impl Mise {
             cmd.env(k, self.tools.join(dir));
         }
         cmd.env("MISE_YES", "1").env("MISE_QUIET", "1");
+        // Rust is installed through rustup: its homes too stay in the agent's folder.
+        cmd.envs(rust_homes(&self.tools));
         cmd
     }
 

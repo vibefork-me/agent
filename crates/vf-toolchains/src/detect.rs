@@ -1,6 +1,6 @@
 //! Detection by layers, from exact to rough: hints in `AGENTS.md` → version files
 //! (`.java-version`, `.tool-versions`, `.nvmrc`, `.node-version`, `.python-version`) → heuristics by
-//! build files (`package.json` → Node LTS, Python and Go projects, JVM builds). A later layer only
+//! build files (`package.json` → Node LTS, Python, Go and Rust projects, JVM builds). A later layer only
 //! fills in tools an earlier one did not name. Nothing on the machine is assumed. Asking a model is
 //! the next layer (not yet).
 
@@ -9,7 +9,7 @@ use std::path::Path;
 /// A tool a project needs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Need {
-    /// Tool: `java`, `gradle`, `maven`, `node`, `python`.
+    /// Tool: `java`, `gradle`, `maven`, `node`, `python`, `go`, `rust`.
     pub name: String,
     /// `mise` spec, e.g. `java@temurin-21`.
     pub spec: String,
@@ -115,6 +115,10 @@ pub fn detect(dir: &Path) -> Vec<Need> {
             .unwrap_or_else(|| "latest".into());
         add(need("go", &version), &mut out);
     }
+    // Stable rustup; a version pinned in `rust-toolchain.toml` is installed by rustup on first use.
+    if has("Cargo.toml") {
+        add(need("rust", "stable"), &mut out);
+    }
     out
 }
 
@@ -183,6 +187,7 @@ mod tests {
         );
         assert_eq!(specs(&[("requirements.txt", "")]), ["python@3.12"]);
         assert_eq!(specs(&[("go.mod", "module x\n\ngo 1.23\n")]), ["go@1.23"]);
+        assert_eq!(specs(&[("Cargo.toml", "")]), ["rust@stable"]);
         assert_eq!(
             specs(&[("gradlew", ""), ("build.gradle", "")]),
             ["java@temurin-21"]

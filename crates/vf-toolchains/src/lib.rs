@@ -119,11 +119,14 @@ pub fn prepare(
             caches.join("go-mod").display().to_string(),
         ),
         ("GOTOOLCHAIN".into(), "local".into()),
-        (
-            "CARGO_HOME".into(),
-            caches.join("cargo").display().to_string(),
-        ),
     ]);
+    // Rust: the same homes `mise` installs into, so `cargo` finds its toolchain and a project's
+    // `rust-toolchain.toml` is installed there too, never into `~/.rustup`.
+    out.env.extend(
+        mise::rust_homes(tools)
+            .into_iter()
+            .map(|(k, v)| (k.to_owned(), v.display().to_string())),
+    );
 
     let needs = detect(dir);
     if needs.is_empty() {
@@ -160,7 +163,10 @@ pub fn prepare(
         });
         match mise.install(&need.spec, cancel) {
             Ok(home) => {
-                out.paths.push(home.join("bin"));
+                // `mise where rust` is the proxies folder itself (`CARGO_HOME/bin`).
+                let bin = home.join("bin");
+                out.paths
+                    .push(if bin.is_dir() { bin } else { home.clone() });
                 if need.name == "java" {
                     out.env
                         .push(("JAVA_HOME".into(), home.display().to_string()));
@@ -259,7 +265,11 @@ mod tests {
         assert_eq!(get("GOTOOLCHAIN"), Some("local"));
         assert_eq!(
             get("CARGO_HOME"),
-            Some(caches.join("cargo").display().to_string().as_str())
+            Some(tools.join("cargo").display().to_string().as_str())
+        );
+        assert_eq!(
+            get("RUSTUP_HOME"),
+            Some(tools.join("rustup").display().to_string().as_str())
         );
 
         let _ = std::fs::remove_dir_all(&temp);
