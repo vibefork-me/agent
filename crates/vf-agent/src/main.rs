@@ -141,7 +141,7 @@ fn auto_update() {
 
 /// The engine; the model's processes run in the sandbox through this binary (`sandbox-exec`).
 fn engine(s: &Settings) -> Engine {
-    let engine = Engine::new(s, providers());
+    let engine = Engine::new(s, providers(s));
     match std::env::current_exe() {
         Ok(exe) => engine.with_sandbox(exe),
         Err(e) => {
@@ -151,11 +151,12 @@ fn engine(s: &Settings) -> Engine {
     }
 }
 
-/// Providers found on this machine: CLIs on PATH and API keys in the secret store.
-fn providers() -> Vec<Arc<dyn Provider>> {
+/// Providers found on this machine: CLIs on PATH and API keys in the secret store. The CLIs keep
+/// their sign-in and settings in the agent's tools folder, not in the user's home.
+fn providers(s: &Settings) -> Vec<Arc<dyn Provider>> {
     vec![
-        Arc::new(Claude::detect()),
-        Arc::new(Codex::detect()),
+        Arc::new(Claude::detect().with_home(s.storage.tools.join("cli-home").join("claude"))),
+        Arc::new(Codex::detect().with_home(s.storage.tools.join("cli-home").join("codex"))),
         Arc::new(OpenAiCompatible::openrouter_dynamic(|| {
             vf_platform::secrets::openrouter_key()
         })),

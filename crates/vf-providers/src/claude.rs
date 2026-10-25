@@ -4,14 +4,17 @@
 //! project, but none of the user's personal environment: only project / local settings, no MCP
 //! servers, no slash commands (invariant 7).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 use vf_protocol::{Cancel, CostClass, Event, ModelInfo, Usage};
 
 use crate::cli::{collect, run_cli};
 use crate::process;
-use crate::{Answer, AskRequest, Output, Provider, RunRequest, RunResult, clip};
+use crate::{Answer, AskRequest, ChildEnv, Output, Provider, RunRequest, RunResult, clip};
+
+/// Where Claude Code keeps its sign-in, settings and sessions.
+const HOME_VAR: &str = "CLAUDE_CONFIG_DIR";
 
 /// The Claude Code CLI.
 #[derive(Debug)]
@@ -19,6 +22,8 @@ pub struct Claude {
     bin: std::sync::RwLock<Option<PathBuf>>,
     /// When the sign-in was last checked, and its result.
     signed_in: std::sync::Mutex<Option<(std::time::Instant, bool)>>,
+    /// `CLAUDE_CONFIG_DIR`: sign-in, settings and sessions; `None` — the user's `~/.claude`.
+    home: Option<PathBuf>,
 }
 
 impl Claude {
@@ -35,7 +40,32 @@ impl Claude {
         Self {
             bin: std::sync::RwLock::new(bin),
             signed_in: std::sync::Mutex::new(None),
+            home: None,
         }
+    }
+
+    /// Keeps the CLI's sign-in, settings and sessions in `home` instead of `~/.claude`.
+    pub fn with_home(mut self, home: PathBuf) -> Self {
+        self.home = Some(home);
+        self
+    }
+
+    fn command(&self, bin: &Path) -> std::process::Command {
+        let mut cmd = process::command(bin);
+        if let Some(home) = &self.home {
+            let _ = std::fs::create_dir_all(home);
+            cmd.env(HOME_VAR, home);
+        }
+        cmd
+    }
+
+    fn env(&self, env: &ChildEnv) -> ChildEnv {
+        let mut env = env.clone();
+        if let Some(home) = &self.home {
+            let _ = std::fs::create_dir_all(home);
+            env.set(HOME_VAR, home.as_os_str());
+        }
+        env
     }
 
     /// Whether the user is signed in (`claude auth status`), cached for a minute.
@@ -50,7 +80,7 @@ impl Claude {
             return ok;
         }
         let mut out = String::new();
-        let mut cmd = process::command(&bin);
+        let mut cmd = self.command(&bin);
         cmd.args(["auth", "status", "--json"]);
         let exit = process::run_streaming(
             cmd,
@@ -243,7 +273,7 @@ impl Provider for Claude {
 
     fn connect(&self, timeout: std::time::Duration) -> Result<(), String> {
         let bin = self.bin().ok_or("Claude Code is not installed")?;
-        let mut cmd = process::command(&bin);
+        let mut cmd = self.command(&bin);
         cmd.args(["auth", "login"]);
         let exit = process::run_streaming(cmd, None, &Cancel::new(), Some(timeout), &mut |_, _| {})
             .map_err(|e| e.to_string())?;
@@ -256,6 +286,8 @@ impl Provider for Claude {
     }
 
     fn ask(&self, req: &AskRequest<'_>, cancel: &Cancel) -> Result<Answer, String> {
+        let env = self.env(req.env);
+        let req = &AskRequest { env: &env, ..*req };
         let stdout = collect(
             self.bin().as_deref(),
             "claude",
@@ -277,6 +309,8 @@ impl Provider for Claude {
     }
 
     fn run(&self, req: &RunRequest<'_>, out: &mut dyn FnMut(Output), cancel: &Cancel) -> RunResult {
+        let env = self.env(req.env);
+        let req = &RunRequest { env: &env, ..*req };
         run_cli(
             self.bin().as_deref(),
             "claude",
@@ -303,5 +337,30 @@ mod status_tests {
         ));
         assert!(!signed_in_from_status("not json"));
         assert!(!signed_in_from_status(r#"{"loggedIn": "yes"}"#));
+    }
+}
+
+#[cfg(test)]
+mod home_tests {
+    use super::*;
+
+    #[test]
+    fn the_cli_home_reaches_every_process() {
+        let home = std::env::temp_dir().join(format!("vf-claude-home-{}", std::process::id()));
+        let claude = Claude::detect().with_home(home.clone());
+        let env = claude.env(&ChildEnv::from_vars([]));
+        assert_eq!(env.get(HOME_VAR), Some(home.as_os_str()));
+        let cmd = claude.command(Path::new("claude"));
+        assert!(
+            cmd.get_envs()
+                .any(|(k, v)| k == HOME_VAR && v == Some(home.as_os_str()))
+        );
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn without_a_home_the_environment_is_unchanged() {
+        let env = Claude::detect().env(&ChildEnv::from_vars([]));
+        assert_eq!(env.get(HOME_VAR), None);
     }
 }

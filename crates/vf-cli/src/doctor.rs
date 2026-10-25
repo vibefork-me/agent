@@ -46,7 +46,9 @@ pub(crate) fn run(json: bool) -> ExitCode {
             .unwrap_or_else(|| "not running — `vibefork start`".into()),
         false,
     );
-    let claude = Claude::detect().models();
+    let claude = Claude::detect()
+        .with_home(s.storage.tools.join("cli-home").join("claude"))
+        .models();
     add(
         "claude",
         !claude.is_empty(),
@@ -57,7 +59,9 @@ pub(crate) fn run(json: bool) -> ExitCode {
         },
         false,
     );
-    let codex = Codex::detect().models();
+    let codex = Codex::detect()
+        .with_home(s.storage.tools.join("cli-home").join("codex"))
+        .models();
     add(
         "codex",
         !codex.is_empty(),

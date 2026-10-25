@@ -13,7 +13,10 @@ use vf_protocol::{Cancel, CostClass, Event, ModelInfo, Usage};
 
 use crate::cli::{collect, run_cli};
 use crate::process;
-use crate::{Answer, AskRequest, Output, Provider, RunRequest, RunResult, clip};
+use crate::{Answer, AskRequest, ChildEnv, Output, Provider, RunRequest, RunResult, clip};
+
+/// Where Codex keeps its sign-in, settings, sessions and the models cache.
+const HOME_VAR: &str = "CODEX_HOME";
 
 /// How long the sign-in status and model list are cached.
 const CACHE_TTL: Duration = Duration::from_secs(60);
@@ -23,6 +26,8 @@ const CACHE_TTL: Duration = Duration::from_secs(60);
 pub struct Codex {
     bin: std::sync::RwLock<Option<PathBuf>>,
     cache: Mutex<Option<(Instant, Vec<ModelInfo>)>>,
+    /// `CODEX_HOME`: sign-in, settings, sessions and the models cache; `None` — `~/.codex`.
+    home: Option<PathBuf>,
 }
 
 impl Codex {
@@ -41,12 +46,48 @@ impl Codex {
         Self {
             bin: std::sync::RwLock::new(bin),
             cache: Mutex::new(None),
+            home: None,
         }
     }
 
-    fn logged_in(bin: &Path) -> bool {
-        let mut lines = String::new();
+    /// Keeps the CLI's sign-in, settings and sessions in `home` instead of `~/.codex`.
+    pub fn with_home(mut self, home: PathBuf) -> Self {
+        self.home = Some(home);
+        self
+    }
+
+    /// The folder the CLI keeps its data in.
+    fn data_dir(&self) -> PathBuf {
+        self.home.clone().unwrap_or_else(|| {
+            std::env::var_os("USERPROFILE")
+                .or_else(|| std::env::var_os("HOME"))
+                .map(PathBuf::from)
+                .unwrap_or_default()
+                .join(".codex")
+        })
+    }
+
+    fn command(&self, bin: &Path) -> std::process::Command {
         let mut cmd = process::command(bin);
+        if let Some(home) = &self.home {
+            let _ = std::fs::create_dir_all(home);
+            cmd.env(HOME_VAR, home);
+        }
+        cmd
+    }
+
+    fn env(&self, env: &ChildEnv) -> ChildEnv {
+        let mut env = env.clone();
+        if let Some(home) = &self.home {
+            let _ = std::fs::create_dir_all(home);
+            env.set(HOME_VAR, home.as_os_str());
+        }
+        env
+    }
+
+    fn logged_in(&self, bin: &Path) -> bool {
+        let mut lines = String::new();
+        let mut cmd = self.command(bin);
         cmd.args(["login", "status"]);
         // Codex prints the status to stderr.
         let exit = process::run_streaming(
@@ -228,12 +269,12 @@ impl Provider for Codex {
 
     fn connect(&self, timeout: Duration) -> Result<(), String> {
         let bin = self.bin().ok_or("Codex is not installed")?;
-        let mut cmd = process::command(&bin);
+        let mut cmd = self.command(&bin);
         cmd.arg("login");
         let exit = process::run_streaming(cmd, None, &Cancel::new(), Some(timeout), &mut |_, _| {})
             .map_err(|e| e.to_string())?;
         *self.cache.lock().unwrap_or_else(|p| p.into_inner()) = None;
-        if exit.code == 0 && Self::logged_in(&bin) {
+        if exit.code == 0 && self.logged_in(&bin) {
             Ok(())
         } else {
             Err(format!("sign-in did not finish (code {})", exit.code))
@@ -261,12 +302,8 @@ impl Provider for Codex {
         {
             return models.clone();
         }
-        let models = if Self::logged_in(&bin) {
-            let home = std::env::var_os("USERPROFILE")
-                .or_else(|| std::env::var_os("HOME"))
-                .map(PathBuf::from)
-                .unwrap_or_default();
-            let json = std::fs::read_to_string(home.join(".codex").join("models_cache.json"))
+        let models = if self.logged_in(&bin) {
+            let json = std::fs::read_to_string(self.data_dir().join("models_cache.json"))
                 .unwrap_or_default();
             models_from_cache(&json)
         } else {
@@ -281,6 +318,8 @@ impl Provider for Codex {
     }
 
     fn ask(&self, req: &AskRequest<'_>, cancel: &Cancel) -> Result<Answer, String> {
+        let env = self.env(req.env);
+        let req = &AskRequest { env: &env, ..*req };
         let mut args: Vec<String> = [
             "exec",
             "--json",
@@ -313,6 +352,8 @@ impl Provider for Codex {
     }
 
     fn run(&self, req: &RunRequest<'_>, out: &mut dyn FnMut(Output), cancel: &Cancel) -> RunResult {
+        let env = self.env(req.env);
+        let req = &RunRequest { env: &env, ..*req };
         run_cli(
             self.bin().as_deref(),
             "codex",
@@ -322,5 +363,20 @@ impl Provider for Codex {
             cancel,
             normalize,
         )
+    }
+}
+
+#[cfg(test)]
+mod home_tests {
+    use super::*;
+
+    #[test]
+    fn the_cli_home_holds_the_models_cache_and_reaches_every_process() {
+        let home = std::env::temp_dir().join(format!("vf-codex-home-{}", std::process::id()));
+        let codex = Codex::detect().with_home(home.clone());
+        assert_eq!(codex.data_dir(), home);
+        let env = codex.env(&ChildEnv::from_vars([]));
+        assert_eq!(env.get(HOME_VAR), Some(home.as_os_str()));
+        let _ = std::fs::remove_dir_all(&home);
     }
 }
