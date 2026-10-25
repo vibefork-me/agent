@@ -308,9 +308,25 @@
     "ErrorBody": {
       "description": "An error body: `{ \"error\": \"…\" }`.",
       "properties": {
+        "code": {
+          "description": "Machine-readable code (e.g. `rate_limit`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "error": {
           "description": "Human-readable reason.",
           "type": "string"
+        },
+        "resetMinutes": {
+          "description": "Reset time in minutes (when rate limited).",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [

@@ -1187,3 +1187,23 @@ async fn openrouter_connect_with_key_and_cancel_or_empty() {
             .contains("invalid OpenRouter key")
     );
 }
+
+#[tokio::test]
+async fn import_rate_limit_returns_429_with_structured_error() {
+    let app = app(true);
+    let browser = Browser::new();
+    let key_id = pair(&app, &browser, UI).await;
+    let token = login(&app, &browser, &key_id, UI).await;
+    let (status, v, _) = call(
+        &app,
+        Req {
+            token: Some(&token),
+            ..Req::post("/v1/projects/import", UI, json!({ "repo": "rate/limit" }))
+        },
+    )
+    .await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(v["code"], json!("rate_limit"));
+    assert_eq!(v["resetMinutes"], json!(42));
+    assert!(v["error"].as_str().unwrap().contains("try again in 42 min"));
+}

@@ -20,6 +20,11 @@ pub enum BackendError {
     NotFound(String),
     /// Not allowed (`403`).
     Forbidden(String),
+    /// Request limit reached (`429`).
+    RateLimited {
+        /// Reset time in minutes.
+        reset_minutes: u64,
+    },
     /// Anything else (`500`).
     Internal(String),
 }
@@ -29,6 +34,12 @@ impl std::fmt::Display for BackendError {
         match self {
             Self::BadRequest(m) | Self::NotFound(m) | Self::Forbidden(m) | Self::Internal(m) => {
                 f.write_str(m)
+            }
+            Self::RateLimited { reset_minutes } => {
+                write!(
+                    f,
+                    "GitHub's limit of requests is reached; connect GitHub or try again in {reset_minutes} min"
+                )
             }
         }
     }

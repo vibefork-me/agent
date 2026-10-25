@@ -153,6 +153,7 @@ fn gh(e: GithubError) -> BackendError {
     match e {
         GithubError::NotFound => BackendError::NotFound("not found on GitHub".into()),
         GithubError::Data(m) => BackendError::BadRequest(m),
+        GithubError::RateLimit { reset_minutes } => BackendError::RateLimited { reset_minutes },
         e => BackendError::Internal(e.to_string()),
     }
 }

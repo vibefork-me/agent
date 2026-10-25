@@ -33,7 +33,7 @@ pub const SAVE_BRANCH: &str = "vibefork";
 const API: &str = "https://api.github.com";
 
 /// Errors of GitHub calls.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
 pub enum GithubError {
     /// Network or GitHub failure.
     #[error("GitHub: {0}")]
@@ -41,6 +41,14 @@ pub enum GithubError {
     /// No such repository (or no access to it).
     #[error("not found")]
     NotFound,
+    /// Limit of requests reached.
+    #[error(
+        "GitHub's limit of requests is reached; connect GitHub or try again in {reset_minutes} min"
+    )]
+    RateLimit {
+        /// Minutes until the limit resets.
+        reset_minutes: u64,
+    },
     /// The user has not approved the sign-in (yet).
     #[error("{0}")]
     Auth(String),
@@ -201,12 +209,10 @@ fn rate_limited(status: u16, headers: &reqwest::header::HeaderMap) -> Option<Git
     if !matches!(status, 403 | 429) || num("x-ratelimit-remaining") != Some(0) {
         return None;
     }
-    let minutes = num("x-ratelimit-reset")
+    let reset_minutes = num("x-ratelimit-reset")
         .map(|at| at.saturating_sub(now()).div_ceil(60).max(1))
         .unwrap_or(60);
-    Some(GithubError::Http(format!(
-        "GitHub's limit of requests is reached; connect GitHub or try again in {minutes} min"
-    )))
+    Some(GithubError::RateLimit { reset_minutes })
 }
 
 /// REST client; anonymous for public data or with the user's token.
@@ -371,6 +377,32 @@ impl Client {
 
     /// The `.tar.gz` of a repository at a commit.
     pub fn tarball(&self, full_name: &str, sha: &str) -> Result<Vec<u8>, GithubError> {
+        // For anonymous public repositories, download via codeload without consuming REST API quota.
+        if self.token.is_none() {
+            let codeload_url = format!("https://codeload.github.com/{full_name}/tar.gz/{sha}");
+            if let Ok(client) = http() {
+                let download = block_on(async {
+                    let res = client
+                        .get(&codeload_url)
+                        .send()
+                        .await
+                        .map_err(|e| GithubError::Http(e.to_string()))?;
+                    if res.status().is_success() {
+                        let bytes = res
+                            .bytes()
+                            .await
+                            .map_err(|e| GithubError::Http(e.to_string()))?;
+                        Ok(bytes.to_vec())
+                    } else {
+                        Err(GithubError::Http(format!("HTTP {}", res.status())))
+                    }
+                });
+                if let Ok(Ok(bytes)) = download {
+                    return Ok(bytes);
+                }
+            }
+        }
+
         let mut req = http()?.get(format!("{API}/repos/{full_name}/tarball/{sha}"));
         if let Some(t) = &self.token {
             req = req.bearer_auth(t.expose());
@@ -380,11 +412,15 @@ impl Client {
                 .send()
                 .await
                 .map_err(|e| GithubError::Http(e.to_string()))?;
-            if !res.status().is_success() {
-                return Err(if res.status().as_u16() == 404 {
+            let status = res.status();
+            if let Some(limit) = rate_limited(status.as_u16(), res.headers()) {
+                return Err(limit);
+            }
+            if !status.is_success() {
+                return Err(if status.as_u16() == 404 {
                     GithubError::NotFound
                 } else {
-                    GithubError::Http(format!("HTTP {}", res.status()))
+                    GithubError::Http(format!("HTTP {status}"))
                 });
             }
             Ok(res
@@ -664,7 +700,9 @@ mod tests {
             "x-ratelimit-reset",
             (now() + 600).to_string().parse().unwrap(),
         );
-        let e = rate_limited(403, &h).unwrap().to_string();
+        let err = rate_limited(403, &h).unwrap();
+        assert_eq!(err, GithubError::RateLimit { reset_minutes: 10 });
+        let e = err.to_string();
         assert!(e.contains("connect GitHub or try again in 10 min"), "{e}");
         assert!(rate_limited(404, &h).is_none());
         h.insert("x-ratelimit-remaining", "5".parse().unwrap());
