@@ -491,3 +491,30 @@ fn viewer_diff_is_against_the_start_of_the_project() {
     assert_eq!((n.original, n.modified.as_deref()), (None, Some("new")));
     assert!(engine.read_diff("demo", ".git/HEAD").is_err());
 }
+
+#[test]
+fn map_shows_parts_and_what_changed_since_the_start() {
+    let (base, engine, _) = setup();
+    let demo = base.join("projects/demo");
+    std::fs::create_dir_all(demo.join("src")).unwrap();
+    std::fs::write(demo.join("src/main.rs"), "fn main() {}").unwrap();
+    let repo = vf_git::Repo::init_with(demo.clone(), "start").unwrap();
+    let start = vf_journal::Vcs::head(&repo).unwrap();
+    std::fs::create_dir_all(base.join("state/projects")).unwrap();
+    std::fs::write(
+        base.join("state/projects/demo.json"),
+        serde_json::json!({ "localBase": start }).to_string(),
+    )
+    .unwrap();
+    let g = engine.graph("demo").unwrap();
+    assert_eq!(g.revision.as_deref(), Some(start.as_str()));
+    assert!(g.nodes.iter().all(|n| n.changed == 0));
+    std::fs::write(demo.join("src/main.rs"), "fn main() { todo!() }").unwrap();
+    vf_journal::Vcs::commit_all(&repo, "step", &[])
+        .unwrap()
+        .unwrap();
+    let g = engine.graph("demo").unwrap();
+    assert_ne!(g.revision.as_deref(), Some(start.as_str()));
+    let src = g.nodes.iter().find(|n| n.id == "src").unwrap();
+    assert_eq!((src.files, src.changed), (1, 1));
+}

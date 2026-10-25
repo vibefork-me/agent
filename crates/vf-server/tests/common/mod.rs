@@ -5,9 +5,9 @@
 use std::sync::Arc;
 
 use vf_protocol::http::{
-    FileDiffResponse, FileResponse, GithubConnectResponse, GithubStatusResponse, ImportRequest,
-    ImportResponse, JournalResponse, ModelsResponse, ProjectsResponse, RollbackResponse,
-    SaveRequest, SaveResponse, SaveStep,
+    FileDiffResponse, FileResponse, GithubConnectResponse, GithubStatusResponse, GraphResponse,
+    ImportRequest, ImportResponse, JournalResponse, ModelsResponse, ProjectsResponse,
+    RollbackResponse, SaveRequest, SaveResponse, SaveStep,
 };
 use vf_protocol::ws::ServerMessage;
 use vf_protocol::{Backend, BackendError, Cancel, TaskRequest};
@@ -84,6 +84,13 @@ impl Backend for FakeBackend {
             modified: Some("text".into()),
             too_large: false,
             binary: false,
+        })
+    }
+    fn graph(&self, _: &str) -> Result<GraphResponse, BackendError> {
+        Ok(GraphResponse {
+            revision: None,
+            nodes: Vec::new(),
+            edges: Vec::new(),
         })
     }
     fn save(&self, _: &SaveRequest) -> Result<SaveResponse, BackendError> {

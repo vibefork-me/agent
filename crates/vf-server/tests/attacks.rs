@@ -827,6 +827,7 @@ async fn files_need_a_session_and_a_project_grant() {
     for path in [
         "/v1/file?project=demo&path=a.txt",
         "/v1/diff?project=demo&path=a.txt",
+        "/v1/graph?project=demo",
     ] {
         assert_eq!(
             call(&denying, Req::get(path, Some(UI))).await.0,

@@ -573,6 +573,87 @@
       ],
       "type": "object"
     },
+    "GraphEdge": {
+      "description": "`from` contains `to`.",
+      "properties": {
+        "from": {
+          "description": "Containing part.",
+          "type": "string"
+        },
+        "to": {
+          "description": "Contained part.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "from",
+        "to"
+      ],
+      "type": "object"
+    },
+    "GraphNode": {
+      "description": "A part of a project: a folder (or the files at the root).",
+      "properties": {
+        "changed": {
+          "description": "Files in it added, changed or deleted since the project was taken.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "files": {
+          "description": "Number of files in it (including deeper folders shown as their own parts).",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "id": {
+          "description": "Folder path, `/`-separated; `.` — files at the root.",
+          "type": "string"
+        },
+        "label": {
+          "description": "Name to show.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "changed",
+        "files",
+        "id",
+        "label"
+      ],
+      "type": "object"
+    },
+    "GraphResponse": {
+      "description": "`GET /v1/graph?project=…`: the map of a project — its parts by folder, and which of them changed since the project was taken.",
+      "properties": {
+        "edges": {
+          "description": "A folder contains a part.",
+          "items": {
+            "$ref": "#/components/schemas/GraphEdge"
+          },
+          "type": "array"
+        },
+        "nodes": {
+          "description": "Parts of the project.",
+          "items": {
+            "$ref": "#/components/schemas/GraphNode"
+          },
+          "type": "array"
+        },
+        "revision": {
+          "description": "Newest commit of the project; the map changes only with it. Absent — no commits yet.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "edges",
+        "nodes"
+      ],
+      "type": "object"
+    },
     "Hello": {
       "description": "`GET /v1/hello` — the only call that needs neither a session nor an allowed origin.",
       "properties": {

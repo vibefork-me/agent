@@ -404,6 +404,38 @@ impl Repo {
         )))
     }
 
+    /// Paths (`/`-separated) of the files at `commit`.
+    pub fn files_at(&self, commit: &str) -> Result<Vec<String>, JournalError> {
+        let repo = self.repo()?;
+        let tree = tree_of(&repo, commit)?;
+        let mut out = Vec::new();
+        tree.walk(git2::TreeWalkMode::PreOrder, |dir, e| {
+            if e.kind() == Some(git2::ObjectType::Blob)
+                && let Ok(name) = e.name()
+            {
+                out.push(format!("{dir}{name}"));
+            }
+            git2::TreeWalkResult::Ok
+        })
+        .map_err(err)?;
+        Ok(out)
+    }
+
+    /// Paths of the files added, changed or deleted from `base` to `head`.
+    pub fn changed_paths(&self, base: &str, head: &str) -> Result<Vec<String>, JournalError> {
+        let repo = self.repo()?;
+        let a = tree_of(&repo, base)?;
+        let b = tree_of(&repo, head)?;
+        let diff = repo
+            .diff_tree_to_tree(Some(&a), Some(&b), None)
+            .map_err(err)?;
+        Ok(diff
+            .deltas()
+            .filter_map(|d| d.new_file().path().or_else(|| d.old_file().path()))
+            .map(|p| p.to_string_lossy().replace('\\', "/"))
+            .collect())
+    }
+
     /// Git blob ids of `paths` at `commit` (a path that is not a file there is absent; `commit`
     /// empty — none).
     pub fn blob_ids(

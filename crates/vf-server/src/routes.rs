@@ -293,6 +293,23 @@ pub(crate) async fn diff(
     .await
 }
 
+/// The map of a project; the browser needs access to the project.
+pub(crate) async fn graph(
+    State(state): State<AppState>,
+    Extension(origin): Extension<EffectiveOrigin>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let project = q.get("project").cloned().unwrap_or_default();
+    if session_from(&state, &headers, &origin.0).is_none() {
+        return no_session();
+    }
+    if !project_allowed(&state, &headers, &origin.0, &project).await {
+        return error(StatusCode::FORBIDDEN, "no access to this project");
+    }
+    with_backend(state, &headers, &origin.0, move |b| b.graph(&project)).await
+}
+
 /// Resets a project to a journal checkpoint after the native dialog confirms it (invariant 3).
 pub(crate) async fn rollback(
     State(state): State<AppState>,
