@@ -222,6 +222,20 @@ impl Provider for Codex {
         "codex"
     }
 
+    fn connect(&self, timeout: Duration) -> Result<(), String> {
+        let bin = self.bin.as_ref().ok_or("Codex is not installed")?;
+        let mut cmd = process::command(bin);
+        cmd.arg("login");
+        let exit = process::run_streaming(cmd, None, &Cancel::new(), Some(timeout), &mut |_, _| {})
+            .map_err(|e| e.to_string())?;
+        *self.cache.lock().unwrap_or_else(|p| p.into_inner()) = None;
+        if exit.code == 0 && Self::logged_in(bin) {
+            Ok(())
+        } else {
+            Err(format!("sign-in did not finish (code {})", exit.code))
+        }
+    }
+
     fn status(&self) -> crate::Status {
         crate::Status {
             installed: self.bin.is_some(),

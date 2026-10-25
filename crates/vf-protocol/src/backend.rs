@@ -94,6 +94,9 @@ pub trait Backend: Send + Sync {
     fn models(&self) -> Result<ModelsResponse, BackendError>;
     /// Whether AI is connected, per way to connect it.
     fn ai(&self) -> Result<AiResponse, BackendError>;
+    /// Runs the sign-in of a subscription's official CLI to the end (minutes; the user finishes
+    /// it in the browser). The caller has confirmed it with the user.
+    fn connect_ai(&self, provider: &str) -> Result<(), BackendError>;
     /// Runs a task to the end, reporting progress through `out`; the last message is
     /// [`ServerMessage::Done`], [`ServerMessage::Cancelled`] or [`ServerMessage::Error`].
     fn run_task(&self, task: TaskRequest, out: &mut dyn FnMut(ServerMessage), cancel: &Cancel);

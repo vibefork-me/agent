@@ -109,6 +109,12 @@ pub trait Provider: Send + Sync {
     fn run(&self, req: &RunRequest<'_>, out: &mut dyn FnMut(Output), cancel: &Cancel) -> RunResult;
     /// Asks a read-only question; the model may read the project but not change it.
     fn ask(&self, req: &AskRequest<'_>, cancel: &Cancel) -> Result<Answer, String>;
+    /// Runs the provider's own sign-in (its official CLI opens the browser); blocks until the
+    /// user finishes it or `timeout` passes.
+    fn connect(&self, timeout: std::time::Duration) -> Result<(), String> {
+        let _ = timeout;
+        Err("this provider is connected another way".into())
+    }
     /// Whether the provider is set up: its CLI is installed (or it needs none) and the user is
     /// signed in (`None` — the agent cannot tell).
     fn status(&self) -> Status {

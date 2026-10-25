@@ -1,6 +1,32 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "definitions": {
+    "AiConnectRequest": {
+      "description": "Request of `POST /v1/ai/connect`: sign in to a subscription through its official CLI.",
+      "properties": {
+        "provider": {
+          "description": "`claude` or `codex`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider"
+      ],
+      "type": "object"
+    },
+    "AiConnectResponse": {
+      "description": "Response of `POST /v1/ai/connect`: the sign-in opened in the browser; `GET /v1/ai` tells when it is done.",
+      "properties": {
+        "started": {
+          "description": "The sign-in was started (false: one is already running).",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "started"
+      ],
+      "type": "object"
+    },
     "AiConnected": {
       "description": "Whether a way to connect AI is set up.",
       "oneOf": [

@@ -42,6 +42,8 @@ fn definitions() -> Map<String, Value> {
         AiProvider,
         AiKind,
         AiConnected,
+        AiConnectRequest,
+        AiConnectResponse,
         JournalResponse,
         RollbackRequest,
         RollbackResponse,

@@ -80,6 +80,8 @@ pub struct AppState {
     pub(crate) auth: Auth,
     pub(crate) ui: UiSlot,
     pub(crate) backend: Arc<dyn Backend>,
+    /// Subscriptions whose sign-in is running.
+    pub(crate) connecting: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
 }
 
 /// The router (used by [`serve`] and by tests).
@@ -89,6 +91,7 @@ pub fn router(config: Config, auth: Auth, ui: UiSlot, backend: Arc<dyn Backend>)
         auth,
         ui,
         backend,
+        connecting: Arc::default(),
     };
     Router::new()
         .route("/", get(ui::root))
@@ -109,6 +112,7 @@ pub fn router(config: Config, auth: Auth, ui: UiSlot, backend: Arc<dyn Backend>)
         .route("/v1/file", get(routes::file))
         .route("/v1/diff", get(routes::diff))
         .route("/v1/ai", get(routes::ai))
+        .route("/v1/ai/connect", post(routes::ai_connect))
         .route("/v1/graph", get(routes::graph))
         .route("/v1/graph/describe", post(routes::describe_graph))
         .route("/v1/rollback", post(routes::rollback))

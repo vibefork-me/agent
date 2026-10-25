@@ -33,6 +33,9 @@ use vf_providers::Provider;
 use orchestrate::Task;
 pub use step::{StepRequest, StepResult};
 
+/// How long a subscription sign-in may take (the user finishes it in the browser).
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+
 /// Longest accepted prompt, characters.
 pub const MAX_PROMPT: usize = 8000;
 /// Longest diff sent to the browser, bytes.
@@ -271,6 +274,16 @@ impl Backend for Engine {
         }
         let ready = providers.iter().any(|p| p.connected != AiConnected::No);
         Ok(AiResponse { ready, providers })
+    }
+
+    fn connect_ai(&self, provider: &str) -> Result<(), BackendError> {
+        if provider != "claude" && provider != "codex" {
+            return Err(BackendError::BadRequest("unknown subscription".into()));
+        }
+        let p = self
+            .provider(provider)
+            .ok_or_else(|| BackendError::NotFound("no such provider".into()))?;
+        p.connect(CONNECT_TIMEOUT).map_err(BackendError::BadRequest)
     }
 
     fn models(&self) -> Result<ModelsResponse, BackendError> {

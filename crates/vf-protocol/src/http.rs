@@ -548,3 +548,18 @@ pub enum AiConnected {
     /// Installed; the agent cannot tell whether the user is signed in.
     Unknown,
 }
+
+/// Request of `POST /v1/ai/connect`: sign in to a subscription through its official CLI.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AiConnectRequest {
+    /// `claude` or `codex`.
+    pub provider: String,
+}
+
+/// Response of `POST /v1/ai/connect`: the sign-in opened in the browser; `GET /v1/ai` tells
+/// when it is done.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AiConnectResponse {
+    /// The sign-in was started (false: one is already running).
+    pub started: bool,
+}

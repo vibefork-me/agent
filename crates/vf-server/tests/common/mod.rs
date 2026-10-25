@@ -104,6 +104,9 @@ impl Backend for FakeBackend {
             providers: Vec::new(),
         })
     }
+    fn connect_ai(&self, _: &str) -> Result<(), BackendError> {
+        Ok(())
+    }
     fn save(&self, _: &SaveRequest) -> Result<SaveResponse, BackendError> {
         Ok(SaveResponse {
             step: SaveStep::Saved,
