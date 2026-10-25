@@ -197,8 +197,16 @@ pub struct GithubStatusResponse {
 /// Request of `POST /v1/projects/import`: a project from GitHub, without git on the machine.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ImportRequest {
-    /// `owner/name` or `https://github.com/owner/name`.
+    /// Where the code comes from: `owner/name` or `https://github.com/owner/name` (the original, or a
+    /// fork of it).
     pub repo: String,
+    /// Branch, tag, commit or `pull/<N>/head` of `repo`; absent — its default branch.
+    #[serde(default, rename = "ref", skip_serializing_if = "Option::is_none")]
+    pub git_ref: Option<String>,
+    /// The original when `repo` is a fork or the ref is a pull request: `owner/name`; absent —
+    /// `repo` is the original.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upstream: Option<String>,
 }
 
 /// Response of `POST /v1/projects/import`.
@@ -208,8 +216,32 @@ pub struct ImportResponse {
     pub project: String,
     /// The original: `owner/name`.
     pub upstream: String,
-    /// Commit of the original the project was taken from.
+    /// Commit the project was taken from.
     pub commit: String,
+    /// Present when the code is not the original's (a fork or a pull request): what it changes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub foreign: Option<ForeignChanges>,
+}
+
+/// What code from outside the original changes compared with it, so the user sees it before a build.
+/// Sorted by file name only; the content is not reviewed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ForeignChanges {
+    /// Where the code comes from: `owner/name@ref`.
+    pub source: String,
+    /// Number of changed files.
+    pub files: u32,
+    /// Changed dependency manifests and lockfiles.
+    pub dependencies: Vec<String>,
+    /// Changed build scripts, installers and CI files.
+    pub build_scripts: Vec<String>,
+    /// Changed binary files.
+    pub binaries: Vec<String>,
+    /// Whether every changed file was checked (false: GitHub's list was cut or not available).
+    pub complete: bool,
+    /// The comparison on github.com.
+    pub compare_url: String,
 }
 
 /// Request of `POST /v1/save`.

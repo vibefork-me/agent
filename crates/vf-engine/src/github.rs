@@ -19,13 +19,13 @@ use serde::{Deserialize, Serialize};
 use vf_core::Secret;
 use vf_git::Repo;
 use vf_github::{
-    Change, Client, GithubError, RepoInfo, Tokens, User, fork_url, install_url, install_url_any,
-    installation_url, new_repo_url, parse_repo,
+    Change, Client, GitRef, GithubError, RepoInfo, Tokens, User, fork_url, install_url,
+    install_url_any, installation_url, new_repo_url, parse_repo,
 };
 use vf_journal::{JournalStore as _, Vcs as _};
 use vf_protocol::http::{
-    GithubConnectResponse, GithubStatusResponse, ImportRequest, ImportResponse, SaveRequest,
-    SaveResponse, SaveStep,
+    ForeignChanges, GithubConnectResponse, GithubStatusResponse, ImportRequest, ImportResponse,
+    SaveRequest, SaveResponse, SaveStep,
 };
 use vf_protocol::{BackendError, Cancel};
 
@@ -66,6 +66,79 @@ pub(crate) struct ProjectMeta {
     /// Time of the last save.
     #[serde(default)]
     pub(crate) saved_at: Option<String>,
+    /// The original when the code was taken from a fork or a pull request (`upstream` is then where
+    /// the code came from).
+    #[serde(default)]
+    pub(crate) original: Option<String>,
+}
+
+/// What code taken from `source` at `git_ref` changes compared with `original`. GitHub failing to
+/// list the files is not an error: the summary says it is incomplete, and the UI shows that.
+fn foreign_changes(
+    client: &Client,
+    original: &str,
+    source: &RepoInfo,
+    git_ref: Option<&GitRef>,
+) -> ForeignChanges {
+    let ref_name = git_ref.map_or_else(|| source.default_branch.clone(), GitRef::as_str);
+    let label = format!("{}@{ref_name}", source.full_name);
+    let (listed, compare_url) = match git_ref {
+        Some(GitRef::Pull(n)) => (
+            client.changed_files(&source.full_name, "", Ok(*n)),
+            format!("https://github.com/{}/pull/{n}/files", source.full_name),
+        ),
+        _ => {
+            let base = client
+                .repo(original)
+                .ok()
+                .flatten()
+                .map_or_else(|| "HEAD".to_owned(), |r| r.default_branch);
+            let owner = source.full_name.split('/').next().unwrap_or_default();
+            let head = format!("{owner}:{ref_name}");
+            (
+                client.changed_files(original, &base, Err(&head)),
+                format!("https://github.com/{original}/compare/{base}...{head}"),
+            )
+        }
+    };
+    match listed {
+        Ok(c) => ForeignChanges {
+            source: label,
+            files: u32::try_from(c.all.len()).unwrap_or(u32::MAX),
+            dependencies: c
+                .all
+                .iter()
+                .filter(|p| vf_github::is_dependency_file(p))
+                .cloned()
+                .collect(),
+            build_scripts: c
+                .all
+                .iter()
+                .filter(|p| vf_github::is_build_script(p))
+                .cloned()
+                .collect(),
+            binaries: c
+                .all
+                .iter()
+                .filter(|p| vf_github::is_binary(p))
+                .cloned()
+                .collect(),
+            complete: c.complete,
+            compare_url,
+        },
+        Err(e) => {
+            tracing::warn!(source = %label, error = %e, "changed files of foreign code not listed");
+            ForeignChanges {
+                source: label,
+                files: 0,
+                dependencies: Vec::new(),
+                build_scripts: Vec::new(),
+                binaries: Vec::new(),
+                complete: false,
+                compare_url,
+            }
+        }
+    }
 }
 
 /// The sign-in in progress.
@@ -189,6 +262,28 @@ impl Engine {
     ) -> Result<ImportResponse, BackendError> {
         let upstream = parse_repo(&req.repo)
             .ok_or_else(|| BackendError::BadRequest("not a GitHub project (owner/name)".into()))?;
+        let git_ref = match req
+            .git_ref
+            .as_deref()
+            .map(str::trim)
+            .filter(|r| !r.is_empty())
+        {
+            Some(r) => Some(GitRef::parse(r).ok_or_else(|| {
+                BackendError::BadRequest("not a branch, tag, commit or pull/<N>/head".into())
+            })?),
+            None => None,
+        };
+        let original = match req
+            .upstream
+            .as_deref()
+            .map(str::trim)
+            .filter(|u| !u.is_empty())
+        {
+            Some(u) => Some(parse_repo(u).ok_or_else(|| {
+                BackendError::BadRequest("the original is not a GitHub project (owner/name)".into())
+            })?),
+            None => None,
+        };
         let signed_in = self.client();
         let connected = signed_in.is_some();
         let client = signed_in.unwrap_or_else(Client::anonymous);
@@ -200,9 +295,16 @@ impl Engine {
                 format!("{upstream} is not a public project on GitHub (connect GitHub for a private one)")
             })
         })?;
-        let sha = client
-            .branch_head(&info.full_name, &info.default_branch)
-            .map_err(gh)?;
+        let sha = match &git_ref {
+            Some(r) => client.resolve_ref(&info.full_name, r).map_err(gh)?,
+            None => client
+                .branch_head(&info.full_name, &info.default_branch)
+                .map_err(gh)?,
+        };
+        let original = original.unwrap_or_else(|| info.full_name.clone());
+        let foreign = (matches!(git_ref, Some(GitRef::Pull(_)))
+            || !original.eq_ignore_ascii_case(&info.full_name))
+        .then(|| foreign_changes(&client, &original, &info, git_ref.as_ref()));
         let archive = client.tarball(&info.full_name, &sha).map_err(gh)?;
         let base = info
             .full_name
@@ -250,13 +352,15 @@ impl Engine {
                 private: info.private,
                 base_sha: sha.clone(),
                 local_base,
+                original: foreign.is_some().then(|| original.clone()),
                 ..ProjectMeta::default()
             },
         )?;
         Ok(ImportResponse {
             project: name,
-            upstream: info.full_name,
+            upstream: original,
             commit: sha,
+            foreign,
         })
     }
 

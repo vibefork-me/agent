@@ -18,6 +18,9 @@ export type ErrorBody = { error: string };
 /** A normalized event, tagged by `kind`. */
 export type Event = { cli: string; kind: "init"; mcp?: number | null; model?: string | null; session?: string | null; skills?: number | null } | { kind: "text"; text: string } | { detail: string; kind: "tool"; tool: string } | { error: boolean; kind: "tool_result"; text: string } | { costUsd?: number | null; kind: "result"; ms?: number | null; ok: boolean; text: string; turns?: number | null; usage?: Usage | null } | { kind: "error"; text: string };
 
+/** What code from outside the original changes compared with it, so the user sees it before a build. Sorted by file name only; the content is not reviewed. */
+export type ForeignChanges = { binaries: (string)[]; buildScripts: (string)[]; compareUrl: string; complete: boolean; dependencies: (string)[]; files: number; source: string };
+
 /** Response of `POST /v1/github/connect`: the code the user enters on GitHub. */
 export type GithubConnectResponse = { expiresIn: number; userCode: string; verificationUri: string };
 
@@ -28,10 +31,10 @@ export type GithubStatusResponse = { connected: boolean; error?: string | null; 
 export type Hello = { agent: string; extraOriginsActive?: boolean; platform: string; version: string };
 
 /** Request of `POST /v1/projects/import`: a project from GitHub, without git on the machine. */
-export type ImportRequest = { repo: string };
+export type ImportRequest = { ref?: string | null; repo: string; upstream?: string | null };
 
 /** Response of `POST /v1/projects/import`. */
-export type ImportResponse = { commit: string; project: string; upstream: string };
+export type ImportResponse = { commit: string; foreign?: ForeignChanges | null; project: string; upstream: string };
 
 /** One journal entry: a task or a plan step. */
 export type JournalEntry = { at: string; commit?: string | null; commits?: (string)[]; costUsd?: number | null; files?: string; handoff?: boolean; model: string; ms?: number | null; prompt: string; provider: string; session?: string | null; summary?: string; usage?: Usage | null };
