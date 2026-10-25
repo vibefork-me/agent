@@ -6,6 +6,7 @@
 //! environment, then a checkpoint and a journal entry (`vf-journal`).
 
 mod build;
+mod files;
 mod github;
 mod orchestrate;
 mod step;
@@ -18,8 +19,9 @@ use vf_git::Repo;
 use vf_journal::JournalStore as _;
 use vf_platform::{JournalFiles, ProjectError, Projects, Settings};
 use vf_protocol::http::{
-    GithubConnectResponse, GithubStatusResponse, ImportRequest, ImportResponse, JournalResponse,
-    ModelsResponse, ProjectInfo, ProjectsResponse, RollbackResponse, SaveRequest, SaveResponse,
+    FileDiffResponse, FileResponse, GithubConnectResponse, GithubStatusResponse, ImportRequest,
+    ImportResponse, JournalResponse, ModelsResponse, ProjectInfo, ProjectsResponse,
+    RollbackResponse, SaveRequest, SaveResponse,
 };
 use vf_protocol::ws::ServerMessage;
 use vf_protocol::{Backend, BackendError, Cancel, ModelInfo, TaskRequest};
@@ -279,6 +281,14 @@ impl Backend for Engine {
         ));
         self.exclusive(&req.project, &mut out, |_| result = self.save_project(req));
         result
+    }
+
+    fn read_file(&self, project: &str, path: &str) -> Result<FileResponse, BackendError> {
+        self.read_project_file(project, path)
+    }
+
+    fn read_diff(&self, project: &str, path: &str) -> Result<FileDiffResponse, BackendError> {
+        self.read_project_diff(project, path)
     }
 
     fn rollback(&self, project: &str, commit: &str) -> Result<RollbackResponse, BackendError> {

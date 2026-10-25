@@ -5,8 +5,9 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 use crate::http::{
-    GithubConnectResponse, GithubStatusResponse, ImportRequest, ImportResponse, JournalResponse,
-    ModelsResponse, ProjectsResponse, RollbackResponse, SaveRequest, SaveResponse,
+    FileDiffResponse, FileResponse, GithubConnectResponse, GithubStatusResponse, ImportRequest,
+    ImportResponse, JournalResponse, ModelsResponse, ProjectsResponse, RollbackResponse,
+    SaveRequest, SaveResponse,
 };
 use crate::ws::ServerMessage;
 
@@ -17,6 +18,8 @@ pub enum BackendError {
     BadRequest(String),
     /// No such thing (`404`).
     NotFound(String),
+    /// Not allowed (`403`).
+    Forbidden(String),
     /// Anything else (`500`).
     Internal(String),
 }
@@ -24,7 +27,9 @@ pub enum BackendError {
 impl std::fmt::Display for BackendError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::BadRequest(m) | Self::NotFound(m) | Self::Internal(m) => f.write_str(m),
+            Self::BadRequest(m) | Self::NotFound(m) | Self::Forbidden(m) | Self::Internal(m) => {
+                f.write_str(m)
+            }
         }
     }
 }
@@ -105,6 +110,10 @@ pub trait Backend: Send + Sync {
     fn save_needs_confirm(&self, project: &str) -> bool;
     /// Saves the project's work into the user's copy on GitHub, or tells the next step.
     fn save(&self, req: &SaveRequest) -> Result<SaveResponse, BackendError>;
+    /// A project file for the viewer (read-only; no git data, no secret files, at most 2 MiB).
+    fn read_file(&self, project: &str, path: &str) -> Result<FileResponse, BackendError>;
+    /// A project file as it was taken and as it is now, for the viewer's diff.
+    fn read_diff(&self, project: &str, path: &str) -> Result<FileDiffResponse, BackendError>;
 }
 
 #[cfg(test)]

@@ -5,8 +5,9 @@
 use std::sync::Arc;
 
 use vf_protocol::http::{
-    GithubConnectResponse, GithubStatusResponse, ImportRequest, ImportResponse, JournalResponse,
-    ModelsResponse, ProjectsResponse, RollbackResponse, SaveRequest, SaveResponse, SaveStep,
+    FileDiffResponse, FileResponse, GithubConnectResponse, GithubStatusResponse, ImportRequest,
+    ImportResponse, JournalResponse, ModelsResponse, ProjectsResponse, RollbackResponse,
+    SaveRequest, SaveResponse, SaveStep,
 };
 use vf_protocol::ws::ServerMessage;
 use vf_protocol::{Backend, BackendError, Cancel, TaskRequest};
@@ -62,6 +63,28 @@ impl Backend for FakeBackend {
     }
     fn save_needs_confirm(&self, _: &str) -> bool {
         true
+    }
+    fn read_file(&self, _: &str, path: &str) -> Result<FileResponse, BackendError> {
+        if path == ".env" {
+            return Err(BackendError::Forbidden("this file is not shown".into()));
+        }
+        Ok(FileResponse {
+            path: path.into(),
+            content: Some("text".into()),
+            size: 4,
+            too_large: false,
+            binary: false,
+        })
+    }
+    fn read_diff(&self, _: &str, path: &str) -> Result<FileDiffResponse, BackendError> {
+        Ok(FileDiffResponse {
+            path: path.into(),
+            base: None,
+            original: None,
+            modified: Some("text".into()),
+            too_large: false,
+            binary: false,
+        })
     }
     fn save(&self, _: &SaveRequest) -> Result<SaveResponse, BackendError> {
         Ok(SaveResponse {

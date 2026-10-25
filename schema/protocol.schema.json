@@ -381,6 +381,87 @@
         }
       ]
     },
+    "FileDiffResponse": {
+      "description": "`GET /v1/diff?project=…&path=…`: a file as the project was taken and as it is now.",
+      "properties": {
+        "base": {
+          "description": "Commit the original side comes from (the project's start); absent — no start commit.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "binary": {
+          "description": "A side is not UTF-8 text.",
+          "type": "boolean"
+        },
+        "modified": {
+          "description": "Text now; absent — the file was deleted, or is binary / too large.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "original": {
+          "description": "Text at the start; absent — the file did not exist, or is binary / too large.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "description": "Project-relative path, `/`-separated.",
+          "type": "string"
+        },
+        "tooLarge": {
+          "description": "A side is larger than 2 MiB.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "binary",
+        "path",
+        "tooLarge"
+      ],
+      "type": "object"
+    },
+    "FileResponse": {
+      "description": "`GET /v1/file?project=…&path=…`: a file for the code viewer.",
+      "properties": {
+        "binary": {
+          "description": "Not UTF-8 text.",
+          "type": "boolean"
+        },
+        "content": {
+          "description": "UTF-8 text; absent for a binary or too large file.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "description": "Project-relative path, `/`-separated.",
+          "type": "string"
+        },
+        "size": {
+          "description": "Size in bytes.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "tooLarge": {
+          "description": "Larger than 2 MiB: described, not sent.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "binary",
+        "path",
+        "size",
+        "tooLarge"
+      ],
+      "type": "object"
+    },
     "ForeignChanges": {
       "description": "What code from outside the original changes compared with it, so the user sees it before a build. Sorted by file name only; the content is not reviewed.",
       "properties": {

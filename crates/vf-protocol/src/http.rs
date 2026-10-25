@@ -401,3 +401,41 @@ pub struct JournalResponse {
     /// Entries, oldest first.
     pub entries: Vec<JournalEntry>,
 }
+
+/// `GET /v1/file?project=…&path=…`: a file for the code viewer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct FileResponse {
+    /// Project-relative path, `/`-separated.
+    pub path: String,
+    /// UTF-8 text; absent for a binary or too large file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    /// Size in bytes.
+    pub size: u64,
+    /// Larger than 2 MiB: described, not sent.
+    pub too_large: bool,
+    /// Not UTF-8 text.
+    pub binary: bool,
+}
+
+/// `GET /v1/diff?project=…&path=…`: a file as the project was taken and as it is now.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct FileDiffResponse {
+    /// Project-relative path, `/`-separated.
+    pub path: String,
+    /// Commit the original side comes from (the project's start); absent — no start commit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<String>,
+    /// Text at the start; absent — the file did not exist, or is binary / too large.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original: Option<String>,
+    /// Text now; absent — the file was deleted, or is binary / too large.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modified: Option<String>,
+    /// A side is larger than 2 MiB.
+    pub too_large: bool,
+    /// A side is not UTF-8 text.
+    pub binary: bool,
+}
