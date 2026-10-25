@@ -439,3 +439,41 @@ pub struct FileDiffResponse {
     /// A side is not UTF-8 text.
     pub binary: bool,
 }
+
+/// `GET /v1/graph?project=…`: the map of a project — its parts by folder, and which of them
+/// changed since the project was taken.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphResponse {
+    /// Newest commit of the project; the map changes only with it. Absent — no commits yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision: Option<String>,
+    /// Parts of the project.
+    pub nodes: Vec<GraphNode>,
+    /// A folder contains a part.
+    pub edges: Vec<GraphEdge>,
+}
+
+/// A part of a project: a folder (or the files at the root).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphNode {
+    /// Folder path, `/`-separated; `.` — files at the root.
+    pub id: String,
+    /// Name to show.
+    pub label: String,
+    /// Number of files in it (including deeper folders shown as their own parts).
+    pub files: u32,
+    /// Files in it added, changed or deleted since the project was taken.
+    pub changed: u32,
+}
+
+/// `from` contains `to`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphEdge {
+    /// Containing part.
+    pub from: String,
+    /// Contained part.
+    pub to: String,
+}

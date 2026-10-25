@@ -8,6 +8,7 @@
 mod build;
 mod files;
 mod github;
+mod graph;
 mod orchestrate;
 mod step;
 
@@ -19,8 +20,8 @@ use vf_git::Repo;
 use vf_journal::JournalStore as _;
 use vf_platform::{JournalFiles, ProjectError, Projects, Settings};
 use vf_protocol::http::{
-    FileDiffResponse, FileResponse, GithubConnectResponse, GithubStatusResponse, ImportRequest,
-    ImportResponse, JournalResponse, ModelsResponse, ProjectInfo, ProjectsResponse,
+    FileDiffResponse, FileResponse, GithubConnectResponse, GithubStatusResponse, GraphResponse,
+    ImportRequest, ImportResponse, JournalResponse, ModelsResponse, ProjectInfo, ProjectsResponse,
     RollbackResponse, SaveRequest, SaveResponse,
 };
 use vf_protocol::ws::ServerMessage;
@@ -289,6 +290,10 @@ impl Backend for Engine {
 
     fn read_diff(&self, project: &str, path: &str) -> Result<FileDiffResponse, BackendError> {
         self.read_project_diff(project, path)
+    }
+
+    fn graph(&self, project: &str) -> Result<GraphResponse, BackendError> {
+        self.project_graph(project)
     }
 
     fn rollback(&self, project: &str, commit: &str) -> Result<RollbackResponse, BackendError> {

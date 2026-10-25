@@ -124,6 +124,14 @@ pub const ROUTES: &[Route] = &[
         session: true,
     },
     Route {
+        method: "GET",
+        path: "/v1/graph",
+        summary: "The map of a project (?project=): parts by folder, which changed since it was taken",
+        request: None,
+        response: Some("GraphResponse"),
+        session: true,
+    },
+    Route {
         method: "POST",
         path: "/v1/rollback",
         summary: "Reset a project to a journal checkpoint; confirmed in the native dialog",

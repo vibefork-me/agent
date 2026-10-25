@@ -33,6 +33,15 @@ export type GithubConnectResponse = { expiresIn: number; userCode: string; verif
 /** Response of `GET /v1/github/status`. */
 export type GithubStatusResponse = { connected: boolean; error?: string | null; login?: string | null; pending: boolean };
 
+/** `from` contains `to`. */
+export type GraphEdge = { from: string; to: string };
+
+/** A part of a project: a folder (or the files at the root). */
+export type GraphNode = { changed: number; files: number; id: string; label: string };
+
+/** `GET /v1/graph?project=…`: the map of a project — its parts by folder, and which of them changed since the project was taken. */
+export type GraphResponse = { edges: (GraphEdge)[]; nodes: (GraphNode)[]; revision?: string | null };
+
 /** `GET /v1/hello` — the only call that needs neither a session nor an allowed origin. */
 export type Hello = { agent: string; extraOriginsActive?: boolean; platform: string; version: string };
 

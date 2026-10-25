@@ -50,6 +50,9 @@ fn definitions() -> Map<String, Value> {
         SaveResponse,
         FileResponse,
         FileDiffResponse,
+        GraphResponse,
+        GraphNode,
+        GraphEdge,
         ClientMessage,
         ServerMessage,
     );
