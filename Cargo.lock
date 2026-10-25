@@ -3957,9 +3957,11 @@ dependencies = [
 name = "vf-toolchains"
 version = "0.0.0"
 dependencies = [
+ "flate2",
  "hex",
  "reqwest",
  "sha2",
+ "tar",
  "tokio",
  "vf-protocol",
 ]

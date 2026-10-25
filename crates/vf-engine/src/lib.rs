@@ -54,6 +54,8 @@ pub struct Engine {
     sandbox_helper: Option<PathBuf>,
     state_dir: PathBuf,
     sign_in: github::SignInState,
+    /// CLIs being installed now.
+    installing: Mutex<HashSet<String>>,
 }
 
 impl Engine {
@@ -71,6 +73,17 @@ impl Engine {
             sandbox_helper: None,
             state_dir: settings.state_dir.clone(),
             sign_in: Default::default(),
+            installing: Mutex::new(HashSet::new()),
+        }
+    }
+
+    /// Hands a provider the CLI the agent installed earlier when it found none of its own.
+    fn attach_installed_cli(&self, id: &str) {
+        if let Some(p) = self.provider(id)
+            && !p.status().installed
+            && let Some(bin) = vf_toolchains::cli::installed(&self.tools, id)
+        {
+            p.use_cli(bin);
         }
     }
 
@@ -256,8 +269,15 @@ impl Backend for Engine {
             let Some(p) = self.provider(id) else {
                 continue;
             };
+            self.attach_installed_cli(id);
             let s = p.status();
+            let installing = self
+                .installing
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .contains(id);
             providers.push(AiProvider {
+                installing,
                 id: id.into(),
                 kind: if id == "openrouter" {
                     AiKind::Free
@@ -283,6 +303,19 @@ impl Backend for Engine {
         let p = self
             .provider(provider)
             .ok_or_else(|| BackendError::NotFound("no such provider".into()))?;
+        self.attach_installed_cli(provider);
+        if !p.status().installed {
+            self.installing
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .insert(provider.to_owned());
+            let installed = vf_toolchains::cli::install(&self.tools, provider, &Cancel::new());
+            self.installing
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .remove(provider);
+            p.use_cli(installed.map_err(BackendError::Internal)?);
+        }
         p.connect(CONNECT_TIMEOUT).map_err(BackendError::BadRequest)
     }
 

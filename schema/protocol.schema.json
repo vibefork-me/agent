@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "definitions": {
     "AiConnectRequest": {
-      "description": "Request of `POST /v1/ai/connect`: sign in to a subscription through its official CLI.",
+      "description": "Request of `POST /v1/ai/connect`: sign in to a subscription through its official CLI (the agent installs a pinned official release first when the CLI is missing).",
       "properties": {
         "provider": {
           "description": "`claude` or `codex`.",
@@ -87,6 +87,10 @@
           "description": "Its CLI is installed (always true for a provider that needs none).",
           "type": "boolean"
         },
+        "installing": {
+          "description": "The agent is installing its official CLI now.",
+          "type": "boolean"
+        },
         "kind": {
           "$ref": "#/components/schemas/AiKind",
           "description": "Paid subscription or free."
@@ -96,6 +100,7 @@
         "connected",
         "id",
         "installed",
+        "installing",
         "kind"
       ],
       "type": "object"

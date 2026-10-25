@@ -277,7 +277,11 @@ pub(crate) async fn ai_connect(
     let auth = state.auth.clone();
     let o = origin.0.clone();
     let approved = tokio::task::spawn_blocking(move || {
-        auth.confirm_action(&o, &format!("sign in to {name} in your browser"), None)
+        auth.confirm_action(
+            &o,
+            &format!("set up {name} (official app) and sign in in your browser"),
+            None,
+        )
     })
     .await
     .unwrap_or(false);

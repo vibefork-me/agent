@@ -523,6 +523,8 @@ pub struct AiProvider {
     pub kind: AiKind,
     /// Its CLI is installed (always true for a provider that needs none).
     pub installed: bool,
+    /// The agent is installing its official CLI now.
+    pub installing: bool,
     /// Signed in or a key is set.
     pub connected: AiConnected,
 }
@@ -549,7 +551,8 @@ pub enum AiConnected {
     Unknown,
 }
 
-/// Request of `POST /v1/ai/connect`: sign in to a subscription through its official CLI.
+/// Request of `POST /v1/ai/connect`: sign in to a subscription through its official CLI (the
+/// agent installs a pinned official release first when the CLI is missing).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct AiConnectRequest {
     /// `claude` or `codex`.
