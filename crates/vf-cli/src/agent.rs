@@ -62,6 +62,12 @@ pub(crate) fn ensure_started(s: &Settings) -> bool {
 
 pub(crate) fn start() -> ExitCode {
     let s = Settings::from_env();
+    if !s.ignored_extra_origins.is_empty() {
+        eprintln!(
+            "vibefork: extraOrigins ignored (release build or invalid origin): {:?}",
+            s.ignored_extra_origins
+        );
+    }
     if !s.extra_origins.is_empty() {
         eprintln!(
             "⚠️  SECURITY WARNING: extraOrigins enabled: {:?}",

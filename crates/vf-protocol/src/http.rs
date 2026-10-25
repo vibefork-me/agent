@@ -16,9 +16,9 @@ pub struct Hello {
     pub version: String,
     /// `windows`, `macos`, `linux`.
     pub platform: String,
-    /// Extra allowed web origins configured on the agent (if any).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub extra_origins: Vec<String>,
+    /// Whether extra web origins are in effect (development builds only). The list itself is not exposed.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub extra_origins_active: bool,
 }
 
 /// An error body: `{ "error": "…" }`.
