@@ -63,7 +63,10 @@ pub(crate) fn ensure_started(s: &Settings) -> bool {
 pub(crate) fn start() -> ExitCode {
     let s = Settings::from_env();
     if !s.extra_origins.is_empty() {
-        eprintln!("⚠️  SECURITY WARNING: extraOrigins enabled: {:?}", s.extra_origins);
+        eprintln!(
+            "⚠️  SECURITY WARNING: extraOrigins enabled: {:?}",
+            s.extra_origins
+        );
         eprintln!("    Web pages on these origins can access the local agent, projects, and API.");
     }
     if hello(s.port).is_some() {
