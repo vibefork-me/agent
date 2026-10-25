@@ -162,9 +162,15 @@ pub(crate) fn status(json: bool) -> ExitCode {
         if !s.extra_origins.is_empty() {
             println!("⚠️  extraOrigins enabled: {:?}", s.extra_origins);
         }
-        println!("{}", vf_core::catalog::cli_status_auto_update(lang, s.auto_update));
+        println!(
+            "{}",
+            vf_core::catalog::cli_status_auto_update(lang, s.auto_update)
+        );
         if let Some(version) = vf_platform::settings::read_update_notice(&s.state_dir) {
-            println!("{}", vf_core::catalog::cli_status_update_available(lang, &version));
+            println!(
+                "{}",
+                vf_core::catalog::cli_status_update_available(lang, &version)
+            );
         }
         println!("data: {}", s.state_dir.display());
     }

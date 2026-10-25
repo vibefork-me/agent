@@ -33,7 +33,11 @@ pub fn system_language() -> Language {
             .output()
         {
             let text = String::from_utf8_lossy(&output.stdout);
-            if text.lines().take(3).any(|l| l.trim().to_ascii_lowercase().starts_with("\"ru")) {
+            if text
+                .lines()
+                .take(3)
+                .any(|l| l.trim().to_ascii_lowercase().starts_with("\"ru"))
+            {
                 return Language::Ru;
             }
         }

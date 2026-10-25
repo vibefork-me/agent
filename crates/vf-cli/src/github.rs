@@ -94,7 +94,10 @@ pub(crate) fn github(backend: &dyn Backend, args: &[String]) -> ExitCode {
             let lang = vf_platform::system_language();
             match backend.github_status() {
                 Ok(s) if s.connected => {
-                    println!("{}", vf_core::catalog::cli_github_connected(lang, s.login.as_deref()));
+                    println!(
+                        "{}",
+                        vf_core::catalog::cli_github_connected(lang, s.login.as_deref())
+                    );
                     ExitCode::SUCCESS
                 }
                 Ok(_) => {

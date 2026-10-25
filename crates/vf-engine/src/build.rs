@@ -26,8 +26,12 @@ impl Engine {
         out: &mut dyn FnMut(ServerMessage),
         cancel: &Cancel,
     ) {
-        let error =
-            |out: &mut dyn FnMut(ServerMessage), e: String| out(ServerMessage::Error { error: e, code: None });
+        let error = |out: &mut dyn FnMut(ServerMessage), e: String| {
+            out(ServerMessage::Error {
+                error: e,
+                code: None,
+            })
+        };
         let Ok(dir) = self.projects.resolve(project) else {
             return error(out, "unknown project".into());
         };

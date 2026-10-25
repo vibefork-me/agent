@@ -29,7 +29,11 @@ fn main() {
     let event_loop = EventLoopBuilder::new().build();
     let menu = Menu::new();
     let status = MenuItem::new(vf_core::catalog::tray_checking(lang), false, None);
-    let install = MenuItem::new(vf_core::catalog::tray_install_update(lang, None), false, None);
+    let install = MenuItem::new(
+        vf_core::catalog::tray_install_update(lang, None),
+        false,
+        None,
+    );
     let automatic = MenuItem::new(vf_core::catalog::tray_automatic_updates(lang), true, None);
     let open = MenuItem::new(vf_core::catalog::tray_open_vibefork(lang), true, None);
     let toggle = MenuItem::new(vf_core::catalog::tray_stop_agent(lang), true, None);
@@ -103,7 +107,10 @@ fn main() {
                     install.set_enabled(false);
                 }
             }
-            automatic.set_text(vf_core::catalog::tray_auto_updates_toggle(lang, auto_update_enabled()));
+            automatic.set_text(vf_core::catalog::tray_auto_updates_toggle(
+                lang,
+                auto_update_enabled(),
+            ));
             toggle.set_text(if running {
                 vf_core::catalog::tray_stop_agent(lang)
             } else {

@@ -268,7 +268,8 @@ impl Auth {
         let action = vf_core::dialog_field(action, 100);
         let target_clean = target.map(|t| vf_core::dialog_field(t, 200));
         let title = vf_core::catalog::confirm_action_title(lang);
-        let text = vf_core::catalog::confirm_action_text(lang, origin, &action, target_clean.as_deref());
+        let text =
+            vf_core::catalog::confirm_action_text(lang, origin, &action, target_clean.as_deref());
         self.dialog.confirm(title, &text)
     }
 
@@ -300,7 +301,8 @@ impl Auth {
         let origin_clean = vf_core::dialog_field(origin, 80);
         let name_clean = vf_core::dialog_field(&pair.name, 80);
         let title = vf_core::catalog::project_access_title(lang);
-        let text = vf_core::catalog::project_access_text(lang, &origin_clean, &name_clean, &project_shown);
+        let text =
+            vf_core::catalog::project_access_text(lang, &origin_clean, &name_clean, &project_shown);
         let allowed = self.dialog.confirm(title, &text);
         allowed && self.store.add_project(key_id, project).is_ok()
     }
@@ -379,7 +381,8 @@ mod tests {
     #[test]
     fn confirm_action_localized_russian() {
         let dialog = Arc::new(RecordingDialog::new(Language::Ru));
-        let temp_dir = std::env::temp_dir().join(format!("vf_auth_test_{}", crypto::random_token()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("vf_auth_test_{}", crypto::random_token()));
         let auth = Auth::load(temp_dir, dialog.clone()).unwrap();
 
         auth.confirm_action("http://localhost:5173", "собрать проект", Some("test-proj"));
@@ -393,7 +396,8 @@ mod tests {
     #[test]
     fn confirm_action_localized_english() {
         let dialog = Arc::new(RecordingDialog::new(Language::En));
-        let temp_dir = std::env::temp_dir().join(format!("vf_auth_test_{}", crypto::random_token()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("vf_auth_test_{}", crypto::random_token()));
         let auth = Auth::load(temp_dir, dialog.clone()).unwrap();
 
         auth.confirm_action("http://localhost:5173", "build project", Some("test-proj"));
@@ -407,7 +411,8 @@ mod tests {
     #[test]
     fn ask_secret_localized_russian() {
         let dialog = Arc::new(RecordingDialog::new(Language::Ru));
-        let temp_dir = std::env::temp_dir().join(format!("vf_auth_test_{}", crypto::random_token()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("vf_auth_test_{}", crypto::random_token()));
         let auth = Auth::load(temp_dir, dialog.clone()).unwrap();
 
         let res = auth.ask_secret("http://localhost:5173", "введите ключ");

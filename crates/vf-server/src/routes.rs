@@ -285,7 +285,13 @@ pub(crate) async fn ai_connect(
         "claude" => "Claude",
         "codex" => "ChatGPT (Codex)",
         "openrouter" => "OpenRouter",
-        _ => return error_with_code(StatusCode::BAD_REQUEST, "unknown provider", Some("unknown_provider")),
+        _ => {
+            return error_with_code(
+                StatusCode::BAD_REQUEST,
+                "unknown provider",
+                Some("unknown_provider"),
+            );
+        }
     };
     {
         let mut running = state.connecting.lock().unwrap_or_else(|p| p.into_inner());
@@ -310,18 +316,20 @@ pub(crate) async fn ai_connect(
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .remove(&req.provider);
-        return error_with_code(StatusCode::FORBIDDEN, "not confirmed", Some("action_not_confirmed"));
+        return error_with_code(
+            StatusCode::FORBIDDEN,
+            "not confirmed",
+            Some("action_not_confirmed"),
+        );
     }
 
     if is_openrouter {
         let auth = state.auth.clone();
         let o = origin.0.clone();
         let secret_prompt = vf_core::catalog::openrouter_key_prompt(lang);
-        let secret = tokio::task::spawn_blocking(move || {
-            auth.ask_secret(&o, secret_prompt)
-        })
-        .await
-        .unwrap_or(None);
+        let secret = tokio::task::spawn_blocking(move || auth.ask_secret(&o, secret_prompt))
+            .await
+            .unwrap_or(None);
 
         let Some(key) = secret.filter(|s| !s.expose().trim().is_empty()) else {
             state
@@ -467,7 +475,11 @@ pub(crate) async fn rollback(
         return no_session();
     }
     if !project_allowed(&state, &headers, &origin.0, &req.project).await {
-        return error_with_code(StatusCode::FORBIDDEN, "no access to this project", Some("project_forbidden"));
+        return error_with_code(
+            StatusCode::FORBIDDEN,
+            "no access to this project",
+            Some("project_forbidden"),
+        );
     }
     let auth = state.auth.clone();
     let lang = auth.dialog().language();
@@ -476,13 +488,16 @@ pub(crate) async fn rollback(
         origin.0.clone(),
         format!("{} → {}", req.project, req.commit),
     );
-    let approved = tokio::task::spawn_blocking(move || {
-        auth.confirm_action(&o, prompt, Some(&target))
-    })
-    .await
-    .unwrap_or(false);
+    let approved =
+        tokio::task::spawn_blocking(move || auth.confirm_action(&o, prompt, Some(&target)))
+            .await
+            .unwrap_or(false);
     if !approved {
-        return error_with_code(StatusCode::FORBIDDEN, "rollback not confirmed", Some("rollback_not_confirmed"));
+        return error_with_code(
+            StatusCode::FORBIDDEN,
+            "rollback not confirmed",
+            Some("rollback_not_confirmed"),
+        );
     }
     with_backend(state, &headers, &origin.0, move |b| {
         b.rollback(&req.project, &req.commit)
@@ -527,7 +542,11 @@ pub(crate) async fn save(
         return no_session();
     }
     if !project_allowed(&state, &headers, &origin.0, &req.project).await {
-        return error_with_code(StatusCode::FORBIDDEN, "no access to this project", Some("project_forbidden"));
+        return error_with_code(
+            StatusCode::FORBIDDEN,
+            "no access to this project",
+            Some("project_forbidden"),
+        );
     }
     let (auth, backend, o, p) = (
         state.auth.clone(),
@@ -538,17 +557,16 @@ pub(crate) async fn save(
     let lang = auth.dialog().language();
     let prompt = vf_core::catalog::action_save(lang);
     let approved = tokio::task::spawn_blocking(move || {
-        !backend.save_needs_confirm(&p)
-            || auth.confirm_action(
-                &o,
-                prompt,
-                Some(&p),
-            )
+        !backend.save_needs_confirm(&p) || auth.confirm_action(&o, prompt, Some(&p))
     })
     .await
     .unwrap_or(false);
     if !approved {
-        return error_with_code(StatusCode::FORBIDDEN, "save not confirmed", Some("save_not_confirmed"));
+        return error_with_code(
+            StatusCode::FORBIDDEN,
+            "save not confirmed",
+            Some("save_not_confirmed"),
+        );
     }
     with_backend(state, &headers, &origin.0, move |b| b.save(&req)).await
 }

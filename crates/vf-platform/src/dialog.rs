@@ -63,35 +63,42 @@ fn spawn_dialog(title: &str, text: &str, lang: vf_core::Language) -> std::io::Re
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     let script = "Add-Type -AssemblyName System.Windows.Forms; \
         Add-Type -AssemblyName System.Drawing; \
+        $sig = @'
+[DllImport(\"user32.dll\")]
+public static extern bool SetForegroundWindow(IntPtr hWnd);
+'@; \
+        $u = Add-Type -MemberDefinition $sig -Name \"NativeUtil\" -Namespace \"Win32\" -PassThru; \
         $form = New-Object System.Windows.Forms.Form; \
         $form.Text = $env:VF_DIALOG_TITLE; \
-        $form.Size = New-Object System.Drawing.Size(460, 240); \
-        $form.StartPosition = 'CenterScreen'; \
         $form.FormBorderStyle = 'FixedDialog'; \
         $form.MaximizeBox = $false; \
         $form.MinimizeBox = $false; \
         $form.HelpButton = $false; \
+        $form.StartPosition = 'CenterScreen'; \
         $form.TopMost = $true; \
         $label = New-Object System.Windows.Forms.Label; \
+        $label.AutoSize = $true; \
+        $label.MaximumSize = New-Object System.Drawing.Size(430, 0); \
+        $label.Location = New-Object System.Drawing.Point(24, 20); \
         $label.Text = $env:VF_DIALOG_TEXT; \
-        $label.Location = New-Object System.Drawing.Point(16, 16); \
-        $label.Size = New-Object System.Drawing.Size(410, 130); \
         $form.Controls.Add($label); \
+        $btnY = [Math]::Max($label.Bottom + 20, 100); \
         $btnAllow = New-Object System.Windows.Forms.Button; \
         $btnAllow.Text = $env:VF_BTN_ALLOW; \
         $btnAllow.DialogResult = [System.Windows.Forms.DialogResult]::Yes; \
-        $btnAllow.Location = New-Object System.Drawing.Point(220, 160); \
+        $btnAllow.Location = New-Object System.Drawing.Point(230, $btnY); \
         $btnAllow.Size = New-Object System.Drawing.Size(100, 28); \
         $form.Controls.Add($btnAllow); \
         $btnBlock = New-Object System.Windows.Forms.Button; \
         $btnBlock.Text = $env:VF_BTN_BLOCK; \
         $btnBlock.DialogResult = [System.Windows.Forms.DialogResult]::No; \
-        $btnBlock.Location = New-Object System.Drawing.Point(326, 160); \
-        $btnBlock.Size = New-Object System.Drawing.Size(100, 28); \
+        $btnBlock.Location = New-Object System.Drawing.Point(344, $btnY); \
+        $btnBlock.Size = New-Object System.Drawing.Size(110, 28); \
         $form.Controls.Add($btnBlock); \
         $form.AcceptButton = $btnBlock; \
         $form.CancelButton = $btnBlock; \
-        $form.Add_Shown({$form.Activate(); $btnBlock.Focus()}); \
+        $form.ClientSize = New-Object System.Drawing.Size(480, ($btnY + 48)); \
+        $form.Add_Shown({ [Win32.NativeUtil]::SetForegroundWindow($form.Handle); $form.Activate(); $form.BringToFront(); $btnBlock.Focus() }); \
         if ($form.ShowDialog() -eq [System.Windows.Forms.DialogResult]::Yes) { \
             exit 0; \
         } else { \
@@ -116,38 +123,48 @@ fn spawn_secret_dialog(title: &str, text: &str, lang: vf_core::Language) -> std:
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     let script = "Add-Type -AssemblyName System.Windows.Forms; \
         Add-Type -AssemblyName System.Drawing; \
+        $sig = @'
+[DllImport(\"user32.dll\")]
+public static extern bool SetForegroundWindow(IntPtr hWnd);
+'@; \
+        $u = Add-Type -MemberDefinition $sig -Name \"NativeUtilSecret\" -Namespace \"Win32\" -PassThru; \
         $form = New-Object System.Windows.Forms.Form; \
         $form.Text = $env:VF_DIALOG_TITLE; \
-        $form.Size = New-Object System.Drawing.Size(420, 190); \
-        $form.StartPosition = 'CenterScreen'; \
         $form.FormBorderStyle = 'FixedDialog'; \
         $form.MaximizeBox = $false; \
         $form.MinimizeBox = $false; \
         $form.HelpButton = $false; \
+        $form.StartPosition = 'CenterScreen'; \
         $form.TopMost = $true; \
         $label = New-Object System.Windows.Forms.Label; \
+        $label.AutoSize = $true; \
+        $label.MaximumSize = New-Object System.Drawing.Size(430, 0); \
+        $label.Location = New-Object System.Drawing.Point(24, 20); \
         $label.Text = $env:VF_DIALOG_TEXT; \
-        $label.Location = New-Object System.Drawing.Point(16, 16); \
-        $label.Size = New-Object System.Drawing.Size(370, 40); \
         $form.Controls.Add($label); \
+        $textY = $label.Bottom + 12; \
         $text = New-Object System.Windows.Forms.TextBox; \
         $text.UseSystemPasswordChar = $true; \
-        $text.Location = New-Object System.Drawing.Point(16, 64); \
-        $text.Size = New-Object System.Drawing.Size(370, 24); \
+        $text.Location = New-Object System.Drawing.Point(24, $textY); \
+        $text.Size = New-Object System.Drawing.Size(430, 24); \
         $form.Controls.Add($text); \
+        $btnY = $text.Bottom + 16; \
         $btnOk = New-Object System.Windows.Forms.Button; \
         $btnOk.Text = $env:VF_BTN_OK; \
         $btnOk.DialogResult = [System.Windows.Forms.DialogResult]::OK; \
-        $btnOk.Location = New-Object System.Drawing.Point(220, 104); \
+        $btnOk.Location = New-Object System.Drawing.Point(230, $btnY); \
+        $btnOk.Size = New-Object System.Drawing.Size(100, 28); \
         $form.Controls.Add($btnOk); \
         $form.AcceptButton = $btnOk; \
         $btnCancel = New-Object System.Windows.Forms.Button; \
         $btnCancel.Text = $env:VF_BTN_CANCEL; \
         $btnCancel.DialogResult = [System.Windows.Forms.DialogResult]::Cancel; \
-        $btnCancel.Location = New-Object System.Drawing.Point(305, 104); \
+        $btnCancel.Location = New-Object System.Drawing.Point(344, $btnY); \
+        $btnCancel.Size = New-Object System.Drawing.Size(110, 28); \
         $form.Controls.Add($btnCancel); \
         $form.CancelButton = $btnCancel; \
-        $form.Add_Shown({$form.Activate(); $text.Focus()}); \
+        $form.ClientSize = New-Object System.Drawing.Size(480, ($btnY + 48)); \
+        $form.Add_Shown({ [Win32.NativeUtilSecret]::SetForegroundWindow($form.Handle); $form.Activate(); $form.BringToFront(); $text.Focus() }); \
         if ($form.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { \
             [Console]::Out.Write($text.Text); \
             exit 0; \
@@ -213,12 +230,7 @@ fn spawn_dialog(title: &str, text: &str, lang: vf_core::Language) -> std::io::Re
     let ok_label = format!("--ok-label={}", vf_core::catalog::btn_allow(lang));
     let cancel_label = format!("--cancel-label={}", vf_core::catalog::btn_block(lang));
     Command::new("zenity")
-        .args([
-            "--question",
-            "--no-markup",
-            &ok_label,
-            &cancel_label,
-        ])
+        .args(["--question", "--no-markup", &ok_label, &cancel_label])
         .arg(format!("--title={title}"))
         .arg(format!("--text={text}"))
         .stdin(Stdio::null())

@@ -28,11 +28,17 @@ pub(crate) fn run(args: &[String]) -> ExitCode {
         }
         [cmd, kind, to] if cmd == "move" => {
             let Some(kind) = Kind::parse(kind) else {
-                eprintln!("{}", vf_core::catalog::cli_storage_unknown_folder(lang, kind));
+                eprintln!(
+                    "{}",
+                    vf_core::catalog::cli_storage_unknown_folder(lang, kind)
+                );
                 return ExitCode::from(2);
             };
             if agent_running(settings.port) {
-                eprintln!("{}", vf_core::catalog::cli_storage_stop_agent_first(lang, settings.port));
+                eprintln!(
+                    "{}",
+                    vf_core::catalog::cli_storage_stop_agent_first(lang, settings.port)
+                );
                 return ExitCode::FAILURE;
             }
             match move_folder(&mut settings, kind, Path::new(to)) {

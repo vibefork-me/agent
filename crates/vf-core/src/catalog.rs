@@ -80,7 +80,12 @@ pub fn confirm_action_title(lang: Language) -> &'static str {
 }
 
 /// Confirm action dialog text.
-pub fn confirm_action_text(lang: Language, origin: &str, action: &str, target: Option<&str>) -> String {
+pub fn confirm_action_text(
+    lang: Language,
+    origin: &str,
+    action: &str,
+    target: Option<&str>,
+) -> String {
     match lang {
         Language::En => {
             let target_str = target.map(|t| format!("\nTarget: {t}")).unwrap_or_default();
@@ -113,15 +118,21 @@ pub fn action_rollback(lang: Language) -> &'static str {
 pub fn action_save(lang: Language) -> &'static str {
     match lang {
         Language::En => "save the project's changes to your copy on GitHub (it may be public)",
-        Language::Ru => "сохранить изменения проекта в вашу копию на GitHub (она может быть публичной)",
+        Language::Ru => {
+            "сохранить изменения проекта в вашу копию на GitHub (она может быть публичной)"
+        }
     }
 }
 
 /// Action prompt: connect subscription CLI.
 pub fn action_connect_ai_subscription(lang: Language, provider_name: &str) -> String {
     match lang {
-        Language::En => format!("set up {provider_name} (official app) and sign in in your browser"),
-        Language::Ru => format!("установить {provider_name} (официальное приложение) и войти в браузере"),
+        Language::En => {
+            format!("set up {provider_name} (official app) and sign in in your browser")
+        }
+        Language::Ru => {
+            format!("установить {provider_name} (официальное приложение) и войти в браузере")
+        }
     }
 }
 
@@ -271,14 +282,21 @@ pub fn tray_quit(lang: Language) -> &'static str {
 }
 
 /// Tray status: running.
-pub fn tray_status_running(lang: Language, version: &str, port: u16, update: Option<&str>) -> String {
+pub fn tray_status_running(
+    lang: Language,
+    version: &str,
+    port: u16,
+    update: Option<&str>,
+) -> String {
     match lang {
         Language::En => match update {
             Some(u) => format!("Vibefork {version}: running on port {port} · update {u} available"),
             None => format!("Vibefork {version}: running on port {port}"),
         },
         Language::Ru => match update {
-            Some(u) => format!("Vibefork {version}: работает на порту {port} · доступно обновление {u}"),
+            Some(u) => {
+                format!("Vibefork {version}: работает на порту {port} · доступно обновление {u}")
+            }
             None => format!("Vibefork {version}: работает на порту {port}"),
         },
     }
@@ -334,7 +352,9 @@ pub fn cli_status_stopped(lang: Language) -> &'static str {
 pub fn cli_status_update_notice(lang: Language, update: &str) -> String {
     match lang {
         Language::En => format!(" · update {update} available (run `vibefork update` to install)"),
-        Language::Ru => format!(" · доступно обновление {update} (запустите `vibefork update` для установки)"),
+        Language::Ru => {
+            format!(" · доступно обновление {update} (запустите `vibefork update` для установки)")
+        }
     }
 }
 
@@ -371,8 +391,12 @@ pub fn cli_github_not_connected(lang: Language) -> &'static str {
 /// CLI GitHub: disconnected message.
 pub fn cli_github_disconnected(lang: Language) -> &'static str {
     match lang {
-        Language::En => "disconnected (the app stays installed on your copies; remove it in GitHub settings if you want)",
-        Language::Ru => "отключено (приложение остаётся установленным в ваших копиях; при желании удалите его в настройках GitHub)",
+        Language::En => {
+            "disconnected (the app stays installed on your copies; remove it in GitHub settings if you want)"
+        }
+        Language::Ru => {
+            "отключено (приложение остаётся установленным в ваших копиях; при желании удалите его в настройках GitHub)"
+        }
     }
 }
 
@@ -387,8 +411,12 @@ pub fn cli_storage_header_files(lang: Language) -> &'static str {
 /// CLI storage: unknown folder.
 pub fn cli_storage_unknown_folder(lang: Language, kind: &str) -> String {
     match lang {
-        Language::En => format!("vibefork: unknown folder `{kind}` (projects, tools, caches, artifacts)"),
-        Language::Ru => format!("vibefork: неизвестная папка `{kind}` (projects, tools, caches, artifacts)"),
+        Language::En => {
+            format!("vibefork: unknown folder `{kind}` (projects, tools, caches, artifacts)")
+        }
+        Language::Ru => {
+            format!("vibefork: неизвестная папка `{kind}` (projects, tools, caches, artifacts)")
+        }
     }
 }
 
@@ -465,20 +493,41 @@ mod tests {
     #[test]
     fn russian_entries_differ_from_english() {
         assert_ne!(pair_title(Language::En), pair_title(Language::Ru));
-        assert_ne!(project_access_title(Language::En), project_access_title(Language::Ru));
-        assert_ne!(confirm_action_title(Language::En), confirm_action_title(Language::Ru));
+        assert_ne!(
+            project_access_title(Language::En),
+            project_access_title(Language::Ru)
+        );
+        assert_ne!(
+            confirm_action_title(Language::En),
+            confirm_action_title(Language::Ru)
+        );
         assert_ne!(action_build(Language::En), action_build(Language::Ru));
         assert_ne!(action_rollback(Language::En), action_rollback(Language::Ru));
         assert_ne!(action_save(Language::En), action_save(Language::Ru));
-        assert_ne!(ask_secret_title(Language::En), ask_secret_title(Language::Ru));
+        assert_ne!(
+            ask_secret_title(Language::En),
+            ask_secret_title(Language::Ru)
+        );
         assert_ne!(btn_allow(Language::En), btn_allow(Language::Ru));
         assert_ne!(btn_block(Language::En), btn_block(Language::Ru));
         assert_ne!(btn_cancel(Language::En), btn_cancel(Language::Ru));
         assert_ne!(tray_stop_agent(Language::En), tray_stop_agent(Language::Ru));
-        assert_ne!(cli_status_stopped(Language::En), cli_status_stopped(Language::Ru));
-        assert_ne!(cli_status_not_running(Language::En, 8080), cli_status_not_running(Language::Ru, 8080));
-        assert_ne!(cli_github_not_connected(Language::En), cli_github_not_connected(Language::Ru));
-        assert_ne!(cli_storage_header_files(Language::En), cli_storage_header_files(Language::Ru));
+        assert_ne!(
+            cli_status_stopped(Language::En),
+            cli_status_stopped(Language::Ru)
+        );
+        assert_ne!(
+            cli_status_not_running(Language::En, 8080),
+            cli_status_not_running(Language::Ru, 8080)
+        );
+        assert_ne!(
+            cli_github_not_connected(Language::En),
+            cli_github_not_connected(Language::Ru)
+        );
+        assert_ne!(
+            cli_storage_header_files(Language::En),
+            cli_storage_header_files(Language::Ru)
+        );
     }
 
     #[test]
@@ -490,5 +539,16 @@ mod tests {
         assert!(!clean_name.contains('\n'));
         assert!(!clean_name.contains('\u{202E}'));
         assert!(text.contains(&clean_name));
+    }
+
+    #[test]
+    fn long_project_names_and_texts_are_preserved() {
+        let long_proj = "a".repeat(200);
+        let text_ru =
+            project_access_text(Language::Ru, "http://localhost:5173", "Chrome", &long_proj);
+        assert!(text_ru.contains(&long_proj));
+        let text_en =
+            project_access_text(Language::En, "http://localhost:5173", "Chrome", &long_proj);
+        assert!(text_en.contains(&long_proj));
     }
 }
