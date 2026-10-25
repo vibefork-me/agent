@@ -381,6 +381,60 @@
           }
         ]
       },
+      "ForeignChanges": {
+        "description": "What code from outside the original changes compared with it, so the user sees it before a build. Sorted by file name only; the content is not reviewed.",
+        "properties": {
+          "binaries": {
+            "description": "Changed binary files.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "buildScripts": {
+            "description": "Changed build scripts, installers and CI files.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "compareUrl": {
+            "description": "The comparison on github.com.",
+            "type": "string"
+          },
+          "complete": {
+            "description": "Whether every changed file was checked (false: GitHub's list was cut or not available).",
+            "type": "boolean"
+          },
+          "dependencies": {
+            "description": "Changed dependency manifests and lockfiles.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "files": {
+            "description": "Number of changed files.",
+            "format": "uint32",
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "source": {
+            "description": "Where the code comes from: `owner/name@ref`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "binaries",
+          "buildScripts",
+          "compareUrl",
+          "complete",
+          "dependencies",
+          "files",
+          "source"
+        ],
+        "type": "object"
+      },
       "GithubConnectResponse": {
         "description": "Response of `POST /v1/github/connect`: the code the user enters on GitHub.",
         "properties": {
@@ -468,9 +522,23 @@
       "ImportRequest": {
         "description": "Request of `POST /v1/projects/import`: a project from GitHub, without git on the machine.",
         "properties": {
+          "ref": {
+            "description": "Branch, tag, commit or `pull/<N>/head` of `repo`; absent — its default branch.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "repo": {
-            "description": "`owner/name` or `https://github.com/owner/name`.",
+            "description": "Where the code comes from: `owner/name` or `https://github.com/owner/name` (the original, or a fork of it).",
             "type": "string"
+          },
+          "upstream": {
+            "description": "The original when `repo` is a fork or the ref is a pull request: `owner/name`; absent — `repo` is the original.",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -482,8 +550,19 @@
         "description": "Response of `POST /v1/projects/import`.",
         "properties": {
           "commit": {
-            "description": "Commit of the original the project was taken from.",
+            "description": "Commit the project was taken from.",
             "type": "string"
+          },
+          "foreign": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ForeignChanges"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Present when the code is not the original's (a fork or a pull request): what it changes."
           },
           "project": {
             "description": "Project name (folder).",

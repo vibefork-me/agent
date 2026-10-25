@@ -9,6 +9,7 @@
 //! GitHub) and allows the app on it ([`install_url`], [`install_url_any`]).
 
 mod archive;
+mod changes;
 mod device;
 
 use std::collections::HashMap;
@@ -20,6 +21,7 @@ use serde_json::{Value, json};
 use vf_core::Secret;
 
 pub use archive::extract;
+pub use changes::{ChangedFiles, GitRef, is_binary, is_build_script, is_dependency_file};
 pub use device::{DeviceCode, poll_token, refresh, start_device_flow};
 
 /// Client ID of the Vibefork.me GitHub App (public).
@@ -304,6 +306,67 @@ impl Client {
             .as_str()
             .map(str::to_owned)
             .ok_or_else(|| GithubError::Data("no commit".into()))
+    }
+
+    /// The commit `git_ref` points to in `full_name`: the head commit of a pull request, or the commit
+    /// of a branch, tag or commit name.
+    pub fn resolve_ref(&self, full_name: &str, git_ref: &GitRef) -> Result<String, GithubError> {
+        match git_ref {
+            GitRef::Pull(n) => {
+                let v = self.get(&format!("/repos/{full_name}/pulls/{n}"))?;
+                v["head"]["sha"]
+                    .as_str()
+                    .map(str::to_owned)
+                    .ok_or_else(|| GithubError::Data("no head commit of the pull request".into()))
+            }
+            GitRef::Named(name) => self.branch_head(full_name, name),
+        }
+    }
+
+    /// Files a pull request of `upstream` changes, or files `head` (`owner:ref` of a fork) changes
+    /// compared with `base` of `upstream`. GitHub lists at most 3000 for a pull request and 300 for
+    /// a comparison; `complete` is false when the list stopped there.
+    pub fn changed_files(
+        &self,
+        upstream: &str,
+        base: &str,
+        head: Result<u64, &str>,
+    ) -> Result<ChangedFiles, GithubError> {
+        let mut all = Vec::new();
+        let complete = match head {
+            Ok(pull) => {
+                let mut page = 1;
+                loop {
+                    let v = self.get(&format!(
+                        "/repos/{upstream}/pulls/{pull}/files?per_page=100&page={page}"
+                    ))?;
+                    let files = v.as_array().cloned().unwrap_or_default();
+                    all.extend(
+                        files
+                            .iter()
+                            .filter_map(|f| f["filename"].as_str().map(str::to_owned)),
+                    );
+                    if files.len() < 100 {
+                        break true;
+                    }
+                    if page == 30 {
+                        break false;
+                    }
+                    page += 1;
+                }
+            }
+            Err(head) => {
+                let v = self.get(&format!("/repos/{upstream}/compare/{base}...{head}"))?;
+                let files = v["files"].as_array().cloned().unwrap_or_default();
+                all.extend(
+                    files
+                        .iter()
+                        .filter_map(|f| f["filename"].as_str().map(str::to_owned)),
+                );
+                files.len() < 300
+            }
+        };
+        Ok(ChangedFiles { all, complete })
     }
 
     /// The `.tar.gz` of a repository at a commit.

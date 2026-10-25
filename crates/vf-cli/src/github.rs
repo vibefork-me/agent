@@ -18,10 +18,16 @@ fn fail(e: impl std::fmt::Display) -> ExitCode {
 
 pub(crate) fn import(backend: &dyn Backend, args: &[String]) -> ExitCode {
     let Some(repo) = args.first() else {
-        eprintln!("usage: vibefork import <owner/name | https://github.com/owner/name>");
+        eprintln!(
+            "usage: vibefork import <owner/name | https://github.com/owner/name> [ref] [original]"
+        );
         return ExitCode::from(2);
     };
-    match backend.import(&ImportRequest { repo: repo.clone() }) {
+    match backend.import(&ImportRequest {
+        repo: repo.clone(),
+        git_ref: args.get(1).cloned(),
+        upstream: args.get(2).cloned(),
+    }) {
         Ok(r) => {
             println!(
                 "project {} — from {} at {}",
@@ -29,6 +35,27 @@ pub(crate) fn import(backend: &dyn Backend, args: &[String]) -> ExitCode {
                 r.upstream,
                 &r.commit[..7.min(r.commit.len())]
             );
+            if let Some(f) = &r.foreign {
+                println!(
+                    "code not from the original: {} — {} changed files",
+                    f.source, f.files
+                );
+                for (kind, list) in [
+                    ("dependencies", &f.dependencies),
+                    ("build scripts", &f.build_scripts),
+                    ("binary files", &f.binaries),
+                ] {
+                    if !list.is_empty() {
+                        println!("  changes {kind}: {}", list.join(", "));
+                    }
+                }
+                if !f.complete {
+                    println!(
+                        "  not every changed file was checked — see {}",
+                        f.compare_url
+                    );
+                }
+            }
             ExitCode::SUCCESS
         }
         Err(e) => fail(e),

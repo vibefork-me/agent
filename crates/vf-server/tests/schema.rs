@@ -44,6 +44,7 @@ fn definitions() -> Map<String, Value> {
         GithubStatusResponse,
         ImportRequest,
         ImportResponse,
+        ForeignChanges,
         SaveRequest,
         SaveResponse,
         ClientMessage,
