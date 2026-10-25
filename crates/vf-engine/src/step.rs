@@ -58,11 +58,12 @@ impl Engine {
     /// The environment of the model's (and the build's) processes: cleaned, the agent's git
     /// identity, the project's toolchain in front of `PATH`. Returns it with the toolchain folders.
     /// Prepares the environment for a child process.
-    pub fn child_env(
+    pub(crate) fn child_env(
         &self,
         dir: &Path,
         sandboxed: bool,
         is_cli: bool,
+        run_id: Option<&str>,
         out: &mut dyn FnMut(ServerMessage),
         cancel: &Cancel,
     ) -> (ChildEnv, Vec<String>, IsolationLevel) {
@@ -74,7 +75,10 @@ impl Engine {
         // to access their auth sessions, but inherit explicit toolchain cache variables.
         if !is_cli {
             let sandbox_home = self.caches.join("home");
-            let sandbox_tmp = self.caches.join("tmp");
+            let sandbox_tmp = match run_id {
+                Some(id) => self.caches.join("tmp").join(id),
+                None => self.caches.join("tmp"),
+            };
             let _ = std::fs::create_dir_all(&sandbox_home);
             let _ = std::fs::create_dir_all(&sandbox_tmp);
 
@@ -224,7 +228,10 @@ impl Engine {
 
         let cli = matches!(id, "claude" | "codex");
         let sandboxed = !cli || vf_sandbox::supports_coding_clis();
-        let (env, toolchain, isolation) = self.child_env(req.dir, sandboxed, cli, out, cancel);
+        let run_id = new_run_id(&format!("step-{}", req.project));
+        let _tmp_guard = (!cli).then(|| TmpGuard::new(&self.caches, &run_id));
+        let (env, toolchain, isolation) =
+            self.child_env(req.dir, sandboxed, cli, Some(&run_id), out, cancel);
         out(ServerMessage::Started {
             project: req.project.to_owned(),
             provider: id.to_owned(),
@@ -313,7 +320,6 @@ impl Engine {
             ok = result.ok,
             "step end"
         );
-        clean_tmp(&self.caches.join("tmp"));
         match finished {
             Ok(outcome) => StepResult {
                 code: result.code,
@@ -347,18 +353,51 @@ impl Engine {
     }
 }
 
-/// Cleans all entries inside a directory without deleting the directory itself.
-pub fn clean_tmp(tmp: &Path) {
-    if let Ok(entries) = std::fs::read_dir(tmp) {
-        for entry in entries.flatten() {
-            let p = entry.path();
-            if p.is_dir() {
-                let _ = std::fs::remove_dir_all(&p);
-            } else {
-                let _ = std::fs::remove_file(&p);
+/// RAII guard that removes a run's temporary folder upon completion.
+pub(crate) struct TmpGuard {
+    dir: std::path::PathBuf,
+}
+
+impl TmpGuard {
+    pub(crate) fn new(caches: &Path, run_id: &str) -> Self {
+        Self {
+            dir: caches.join("tmp").join(run_id),
+        }
+    }
+}
+
+impl Drop for TmpGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+/// Removes stale run folders in `tmp_dir` older than `max_age` (e.g. 24h remnants from crashes).
+pub(crate) fn clean_stale_tmp(tmp_dir: &Path, max_age: std::time::Duration) {
+    let Ok(entries) = std::fs::read_dir(tmp_dir) else {
+        return;
+    };
+    let now = SystemTime::now();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if let Ok(meta) = entry.metadata() {
+            let modified = meta.modified().unwrap_or(UNIX_EPOCH);
+            if let Ok(age) = now.duration_since(modified)
+                && age >= max_age
+            {
+                let _ = std::fs::remove_dir_all(&path);
             }
         }
     }
+}
+
+/// Generates a unique run ID for a task or build.
+pub(crate) fn new_run_id(prefix: &str) -> String {
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!("{prefix}-{ts}-{}", std::process::id())
 }
 
 fn install_git_shim(tools: &Path, agent: &Path) -> Option<std::path::PathBuf> {
@@ -447,6 +486,7 @@ pub(crate) fn now_rfc3339() -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -473,5 +513,132 @@ mod tests {
         assert!(git_shim_required(root.as_os_str(), true, || false));
         assert!(!git_shim_required(root.as_os_str(), true, || true));
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn concurrent_runs_do_not_delete_each_others_temp() {
+        let base = std::env::temp_dir().join(format!("vf-tmp-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let caches = base.join("caches");
+        let run1_id = "run-1";
+        let run2_id = "run-2";
+
+        let guard1 = TmpGuard::new(&caches, run1_id);
+        let guard2 = TmpGuard::new(&caches, run2_id);
+
+        let tmp1 = caches.join("tmp").join(run1_id);
+        let tmp2 = caches.join("tmp").join(run2_id);
+
+        std::fs::create_dir_all(&tmp1).unwrap();
+        std::fs::create_dir_all(&tmp2).unwrap();
+
+        let file1 = tmp1.join("temp_file1.txt");
+        let file2 = tmp2.join("temp_file2.txt");
+
+        std::fs::write(&file1, "run1").unwrap();
+        std::fs::write(&file2, "run2").unwrap();
+
+        assert!(file1.exists());
+        assert!(file2.exists());
+
+        // Run 1 finishes and cleans up its own folder
+        drop(guard1);
+
+        assert!(!file1.exists(), "run1 temp should be deleted");
+        assert!(!tmp1.exists(), "run1 dir should be deleted");
+        assert!(
+            file2.exists(),
+            "run2 temp file must still exist while run2 is active"
+        );
+        assert!(tmp2.exists(), "run2 dir must still exist");
+
+        // Run 2 finishes and cleans up
+        drop(guard2);
+
+        assert!(!file2.exists(), "run2 temp should now be deleted");
+        assert!(!tmp2.exists(), "run2 dir should now be deleted");
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn stale_temp_cleanup_deletes_old_folders_only() {
+        let base = std::env::temp_dir().join(format!("vf-stale-tmp-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let tmp_root = base.join("tmp");
+        let fresh_dir = tmp_root.join("fresh-run");
+        let stale_dir = tmp_root.join("stale-run");
+
+        std::fs::create_dir_all(&fresh_dir).unwrap();
+        std::fs::create_dir_all(&stale_dir).unwrap();
+
+        // With max_age = 1 day, neither is considered old
+        clean_stale_tmp(&tmp_root, std::time::Duration::from_secs(86_400));
+        assert!(fresh_dir.exists());
+        assert!(stale_dir.exists());
+
+        // With zero duration, both are stale
+        clean_stale_tmp(&tmp_root, std::time::Duration::from_secs(0));
+        assert!(!fresh_dir.exists());
+        assert!(!stale_dir.exists());
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn internal_processes_get_fake_home_and_clis_keep_real_home() {
+        let base =
+            std::env::temp_dir().join(format!("vf-engine-step-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let settings = vf_platform::Settings {
+            state_dir: base.join("state"),
+            port: 1,
+            extra_origins: vec![],
+            ignored_extra_origins: vec![],
+            ui_bundle_url: String::new(),
+            storage: vf_platform::settings::Storage {
+                projects: base.join("projects"),
+                tools: base.join("tools"),
+                caches: base.join("caches"),
+                artifacts: base.join("artifacts"),
+            },
+            simulate_clean_machine: false,
+            update_url: String::new(),
+            auto_update: false,
+        };
+        let engine = Engine::new(&settings, Vec::new());
+        let project_dir = base.join("projects/demo");
+        let cancel = Cancel::default();
+
+        // 1. Internal processes / builds (is_cli = false): fake home and tmp in caches/<run_id>
+        let run_id = "test-run-123";
+        let (env_internal, _, _) =
+            engine.child_env(&project_dir, false, false, Some(run_id), &mut |_| {}, &cancel);
+        let home = env_internal
+            .get("HOME")
+            .map(|s| s.to_string_lossy().to_string());
+        let userprofile = env_internal
+            .get("USERPROFILE")
+            .map(|s| s.to_string_lossy().to_string());
+        let tmp = env_internal
+            .get("TEMP")
+            .map(|s| s.to_string_lossy().to_string());
+
+        let expected_home = engine.caches.join("home").display().to_string();
+        let expected_tmp = engine.caches.join("tmp").join(run_id).display().to_string();
+
+        assert_eq!(home.as_deref(), Some(expected_home.as_str()));
+        assert_eq!(userprofile.as_deref(), Some(expected_home.as_str()));
+        assert_eq!(tmp.as_deref(), Some(expected_tmp.as_str()));
+
+        // 2. CLI providers (is_cli = true): real home is preserved
+        let (env_cli, _, _) =
+            engine.child_env(&project_dir, false, true, Some(run_id), &mut |_| {}, &cancel);
+        let cli_home = env_cli
+            .get("HOME")
+            .map(|s| s.to_string_lossy().to_string());
+        assert_ne!(cli_home.as_deref(), Some(expected_home.as_str()));
+
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

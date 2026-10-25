@@ -32,7 +32,7 @@ use vf_protocol::{Backend, BackendError, Cancel, ModelInfo, TaskRequest};
 use vf_providers::Provider;
 
 use orchestrate::Task;
-pub use step::{StepRequest, StepResult, clean_tmp};
+pub use step::{StepRequest, StepResult};
 
 /// How long a subscription sign-in may take (the user finishes it in the browser).
 const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
@@ -62,6 +62,10 @@ pub struct Engine {
 impl Engine {
     /// An engine over the folders of `settings` with the given providers.
     pub fn new(settings: &Settings, providers: Vec<Arc<dyn Provider>>) -> Self {
+        step::clean_stale_tmp(
+            &settings.storage.caches.join("tmp"),
+            std::time::Duration::from_secs(86_400),
+        );
         Self {
             projects: Projects::new(&settings.storage.projects),
             journal: JournalFiles::new(settings.journal_dir()),
@@ -93,11 +97,6 @@ impl Engine {
     pub fn with_sandbox(mut self, helper: PathBuf) -> Self {
         self.sandbox_helper = Some(helper);
         self
-    }
-
-    /// The agent's caches folder.
-    pub fn caches_dir(&self) -> &std::path::Path {
-        &self.caches
     }
 
     /// Every model available now.
