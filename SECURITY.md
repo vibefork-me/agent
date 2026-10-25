@@ -24,16 +24,17 @@ Report vulnerabilities privately through GitHub: **Security → Report a vulnera
 | Your personal AI setup is used | Claude Code and Codex run without your user settings, MCP servers, plugins and rules | `vf-providers/tests/normalize.rs` |
 | A project's files act on the agent | Git hooks, `core.fsmonitor`, external diff and signing are off for every git call; the agent's own model loop cannot leave the project or touch `.git` | `vf-git/tests/checkpoint.rs`, `vf-providers` (`tools`) |
 | A page reads secrets through the code viewer | The viewer reads only inside a project the browser was granted; `..`, absolute paths and links out of the project are refused; git data and usual secret files (`.env*`, keys, certificates, `.npmrc`, `.netrc`) are never shown; Windows path aliases (`name::$DATA`, trailing dot or space) are refused; files over 2 MiB are described, not sent | `vf-engine/tests/engine.rs`, `attacks.rs` |
-| A model or a project reads your other files (Linux) | Landlock sandbox for the CLI, its commands and builds | `vf-sandbox/tests/linux.rs` (canary) |
+| A model or a project reads your other files | Landlock on Linux, Seatbelt on macOS for the CLI, its commands and builds | `vf-sandbox/tests/linux.rs` (canary), `vf-sandbox/tests/macos.rs` |
 | Malformed input crashes or misleads the agent | Parsers of untrusted input are fuzzed | `vf-engine/tests/robustness.rs`, `fuzz/` |
 | Another user of the machine | Nothing works without pairing; the agent's folder is owner-only | — |
 
 ## Known limits
 
-- **Isolation on Linux only.** On Linux (Landlock, no root) the coding CLI, everything it runs, the
-  agent's own model loop and builds see only the project, the agent's tools and caches, system
-  folders and the CLIs' own data; the rest of your home is closed. Network is open. On macOS and
-  Windows these processes still have your user's rights. The level is reported with every task.
+- **Isolation on Linux and macOS.** On Linux (Landlock, no root) and macOS (Seatbelt, no root) the
+  coding CLI, everything it runs, the agent's own model loop and builds see only the project, the
+  agent's tools and caches, system folders and the CLIs' own data; the rest of your home is closed.
+  Network is open. On Windows these processes still have your user's rights. The level is reported
+  with every task.
 - On Windows an AppContainer sandbox exists but is off by default (`VF_SANDBOX_WINDOWS=appcontainer`
   turns it on): Git Bash, PowerShell 7 and Codex CLI do not start in it, and Node.js fails on
   projects outside the system drive.

@@ -832,7 +832,7 @@
       ]
     },
     "Hello": {
-      "description": "`GET /v1/hello` — the only call that needs neither a session nor an allowed origin.",
+      "description": "`GET /v1/hello` — answers without an Origin header (or from allowed origins); does not require a session.",
       "properties": {
         "agent": {
           "description": "Always `vibefork`.",

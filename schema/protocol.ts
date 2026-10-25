@@ -66,7 +66,7 @@ export type GraphResponse = { edges: (GraphEdge)[]; nodes: (GraphNode)[]; revisi
 /** Who drew a project map. */
 export type GraphSource = "model" | "folders";
 
-/** `GET /v1/hello` — the only call that needs neither a session nor an allowed origin. */
+/** `GET /v1/hello` — answers without an Origin header (or from allowed origins); does not require a session. */
 export type Hello = { agent: string; extraOriginsActive?: boolean; platform: string; version: string };
 
 /** Request of `POST /v1/projects/import`: a project from GitHub, without git on the machine. */

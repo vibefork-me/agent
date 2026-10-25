@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::event::Usage;
 use crate::model::ModelInfo;
 
-/// `GET /v1/hello` — the only call that needs neither a session nor an allowed origin.
+/// `GET /v1/hello` — answers without an Origin header (or from allowed origins); does not require a session.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Hello {
