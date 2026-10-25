@@ -9,9 +9,9 @@ use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use vf_auth::{AuthError, SessionInfo};
 use vf_protocol::http::{
-    ActionRequest, ActionResponse, ChallengeRequest, ChallengeResponse, EchoResponse, ErrorBody,
-    Hello, ImportRequest, Me, PairStartRequest, PairStartResponse, PairStatusResponse,
-    RevokeRequest, RevokeResponse, RollbackRequest, SaveRequest, SessionRequest, SessionResponse,
+    ChallengeRequest, ChallengeResponse, ErrorBody, Hello, ImportRequest, Me, PairStartRequest,
+    PairStartResponse, PairStatusResponse, RevokeRequest, RevokeResponse, RollbackRequest,
+    SaveRequest, SessionRequest, SessionResponse,
 };
 use vf_protocol::{Backend, BackendError};
 
@@ -71,10 +71,6 @@ fn platform() -> &'static str {
     } else {
         "linux"
     }
-}
-
-pub(crate) async fn echo(body: String) -> Json<EchoResponse> {
-    Json(EchoResponse { echo: body })
 }
 
 pub(crate) async fn pair_start(
@@ -146,35 +142,6 @@ pub(crate) async fn me(
         name: s.name,
     })
     .into_response()
-}
-
-pub(crate) async fn action(
-    State(state): State<AppState>,
-    Extension(origin): Extension<EffectiveOrigin>,
-    headers: HeaderMap,
-    Json(req): Json<ActionRequest>,
-) -> Response {
-    if session_from(&state, &headers, &origin.0).is_none() {
-        return no_session();
-    }
-    let auth = state.auth.clone();
-    let (o, a, t) = (origin.0.clone(), req.action.clone(), req.target.clone());
-    let approved = tokio::task::spawn_blocking(move || auth.confirm_action(&o, &a, t.as_deref()))
-        .await
-        .unwrap_or(false);
-    let status = if approved {
-        StatusCode::OK
-    } else {
-        StatusCode::FORBIDDEN
-    };
-    (
-        status,
-        Json(ActionResponse {
-            action: req.action,
-            approved,
-        }),
-    )
-        .into_response()
 }
 
 pub(crate) async fn pairs(

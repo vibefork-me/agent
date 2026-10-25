@@ -24,7 +24,6 @@ fn definitions() -> Map<String, Value> {
     add!(
         Hello,
         ErrorBody,
-        EchoResponse,
         PairStartRequest,
         PairStartResponse,
         PairStatusResponse,
@@ -33,8 +32,6 @@ fn definitions() -> Map<String, Value> {
         SessionRequest,
         SessionResponse,
         Me,
-        ActionRequest,
-        ActionResponse,
         PairInfo,
         RevokeRequest,
         RevokeResponse,

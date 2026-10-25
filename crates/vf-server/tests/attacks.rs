@@ -261,7 +261,7 @@ async fn preflight_and_cors_echo_the_allowed_origin_only() {
         &app,
         Req {
             method: "OPTIONS",
-            ..Req::get("/v1/echo", Some(UI))
+            ..Req::get("/v1/pair/start", Some(UI))
         },
     )
     .await;
@@ -273,12 +273,12 @@ async fn simple_csrf_post_is_rejected() {
     let app = app(true);
     let no_marker = Req {
         marker: false,
-        ..Req::post("/v1/echo", UI, json!({}))
+        ..Req::post("/v1/pair/start", UI, json!({}))
     };
     assert_eq!(call(&app, no_marker).await.0, StatusCode::BAD_REQUEST);
     let text_plain = Req {
         content_type: Some("text/plain"),
-        ..Req::post("/v1/echo", UI, json!({}))
+        ..Req::post("/v1/pair/start", UI, json!({}))
     };
     assert_eq!(call(&app, text_plain).await.0, StatusCode::BAD_REQUEST);
 }
@@ -492,9 +492,9 @@ async fn revoke_kills_sessions_and_login() {
 }
 
 #[tokio::test]
-async fn dangerous_action_follows_the_dialog() {
+async fn dangerous_operation_follows_the_dialog() {
     for (allows, expected) in [(true, StatusCode::OK), (false, StatusCode::FORBIDDEN)] {
-        // Pair with an approving dialog, then act through an app whose dialog says `allows`.
+        // Pair with an approving dialog, then roll back through an app whose dialog says `allows`.
         let dir = temp_dir();
         let browser = Browser::new();
         let pairing = router(
@@ -521,7 +521,11 @@ async fn dangerous_action_follows_the_dialog() {
         let token = login(&acting, &browser, &key_id, UI).await;
         let req = Req {
             token: Some(&token),
-            ..Req::post("/v1/action", UI, json!({ "action": "Build the project" }))
+            ..Req::post(
+                "/v1/rollback",
+                UI,
+                json!({ "project": "demo", "commit": "abcdef1" }),
+            )
         };
         assert_eq!(
             call(&acting, req).await.0,
@@ -568,7 +572,11 @@ async fn same_origin_get_without_origin_needs_the_marker() {
 async fn oversized_body_is_rejected() {
     let app = app(true);
     let big = "x".repeat(vf_server::BODY_LIMIT + 1);
-    let (s, _, _) = call(&app, Req::post("/v1/echo", UI, json!({ "data": big }))).await;
+    let (s, _, _) = call(
+        &app,
+        Req::post("/v1/pair/start", UI, json!({ "data": big })),
+    )
+    .await;
     assert_eq!(s, StatusCode::PAYLOAD_TOO_LARGE);
 }
 

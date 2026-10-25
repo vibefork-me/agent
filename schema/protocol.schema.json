@@ -1,45 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "definitions": {
-    "ActionRequest": {
-      "description": "`POST /v1/action` — an action that needs the native confirm dialog.",
-      "properties": {
-        "action": {
-          "description": "What to do (shown in the dialog).",
-          "type": "string"
-        },
-        "target": {
-          "default": null,
-          "description": "What it applies to (shown in the dialog).",
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      },
-      "required": [
-        "action"
-      ],
-      "type": "object"
-    },
-    "ActionResponse": {
-      "description": "Response of `POST /v1/action`.",
-      "properties": {
-        "action": {
-          "description": "The action.",
-          "type": "string"
-        },
-        "approved": {
-          "description": "Whether the user allowed it.",
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "action",
-        "approved"
-      ],
-      "type": "object"
-    },
     "ChallengeRequest": {
       "description": "`POST /v1/auth/challenge`.",
       "properties": {
@@ -197,19 +158,6 @@
           "type": "string"
         }
       ]
-    },
-    "EchoResponse": {
-      "description": "Response of `POST /v1/echo` (connectivity check).",
-      "properties": {
-        "echo": {
-          "description": "The request body as received.",
-          "type": "string"
-        }
-      },
-      "required": [
-        "echo"
-      ],
-      "type": "object"
     },
     "ErrorBody": {
       "description": "An error body: `{ \"error\": \"…\" }`.",

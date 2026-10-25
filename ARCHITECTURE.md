@@ -63,7 +63,7 @@ layer 0  domain        vf-core  vf-protocol           (no IO: no network, no dis
 These must hold in every version. A PR that touches one says so explicitly.
 
 1. **The agent listens on loopback only** (`127.0.0.1` / `::1`), never `0.0.0.0`.
-2. **Every API call except `GET /v1/hello` and the fallback UI requires a session** obtained by a signed challenge from a browser paired through the native dialog. A paired browser works only in the projects the user gave it in the native dialog (asked on first use).
+2. **Every API call requires a session, except `GET /v1/hello`, the pairing and login handshake (`POST /v1/pair/start`, `GET /v1/pair/status`, `POST /v1/auth/challenge`, `POST /v1/auth/session`) and the fallback UI** obtained by a signed challenge from a browser paired through the native dialog. A paired browser works only in the projects the user gave it in the native dialog (asked on first use).
 3. **Dangerous actions are confirmed in the native dialog**, never only in the web page (build/run, install into the system, leave the project folder, publish).
 4. **Nothing from the network is executed without local confirmation.** Server hints are data, not commands.
 5. **The fallback UI is served only from a bundle whose signature was verified** with our public key, and only files listed in its manifest.
