@@ -48,7 +48,15 @@ pub enum AuthError {
     /// Pairings could not be saved.
     #[error("storage error")]
     Storage,
+    /// Too many pairing requests from this origin are waiting for the user.
+    #[error("too many pairing requests; answer the open dialog first")]
+    TooManyPairings,
 }
+
+/// Pairing requests one origin may keep waiting for the user at the same time.
+pub const MAX_WAITING_PAIRINGS: usize = 3;
+/// How long a pairing request is kept (for status polling) after it was started.
+const PENDING_KEEP: Duration = Duration::from_secs(10 * 60);
 
 /// A valid session.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,6 +73,7 @@ struct Pending {
     origin: String,
     key_id: String,
     status: PairState,
+    created: Instant,
 }
 
 struct Session {
@@ -114,16 +123,33 @@ impl Auth {
         name: Option<&str>,
     ) -> Result<(String, String), AuthError> {
         crypto::verifying_key(jwk)?; // reject anything that is not a valid public P-256 key
+        {
+            // Finished requests are kept for status polling, then dropped; one origin may keep only a
+            // few dialogs waiting, so a page cannot flood the screen with them.
+            let mut state = self.state();
+            state
+                .pending
+                .retain(|_, p| p.created.elapsed() < PENDING_KEEP);
+            let waiting = state
+                .pending
+                .values()
+                .filter(|p| p.origin == origin && p.status == PairState::Pending)
+                .count();
+            if waiting >= MAX_WAITING_PAIRINGS {
+                return Err(AuthError::TooManyPairings);
+            }
+        }
         let key_id = key_id_of(jwk);
         let pair_id = crypto::random_token();
         let code = crypto::pairing_code();
-        let name: String = name.unwrap_or("browser").chars().take(80).collect();
+        let name = vf_core::dialog_field(name.unwrap_or("browser"), 80);
         self.state().pending.insert(
             pair_id.clone(),
             Pending {
                 origin: origin.to_owned(),
                 key_id: key_id.clone(),
                 status: PairState::Pending,
+                created: Instant::now(),
             },
         );
 
@@ -238,9 +264,9 @@ impl Auth {
 
     /// Asks the user to confirm an action in the native dialog. Blocks.
     pub fn confirm_action(&self, origin: &str, action: &str, target: Option<&str>) -> bool {
-        let action: String = action.chars().take(100).collect();
+        let action = vf_core::dialog_field(action, 100);
         let target = target
-            .map(|t| format!("\nTarget: {}", t.chars().take(200).collect::<String>()))
+            .map(|t| format!("\nTarget: {}", vf_core::dialog_field(t, 200)))
             .unwrap_or_default();
         self.dialog.confirm(
             "Vibefork: confirm an action",
@@ -257,7 +283,7 @@ impl Auth {
         let Some(pair) = self.store.get(key_id).filter(|p| p.origin == origin) else {
             return false;
         };
-        let project_shown: String = project.chars().take(80).collect();
+        let project_shown = vf_core::dialog_field(project, 80);
         let allowed = self.dialog.confirm(
             "Vibefork: give access to a project?",
             &format!(

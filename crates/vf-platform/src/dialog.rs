@@ -1,10 +1,11 @@
 //! Native Allow / Block dialog: Windows — MessageBox (PowerShell), macOS — `osascript`, Linux — `zenity`.
-//! Text goes through environment variables / arguments, never through a shell string.
+//! Text goes through environment variables / arguments, never through a shell string; it is cleaned
+//! of control characters and layout tricks, and zenity gets it as plain text (`--no-markup`).
 
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-use vf_core::ConfirmDialog;
+use vf_core::{ConfirmDialog, dialog_text};
 
 /// How long a dialog waits for the user before it counts as Block.
 pub const DIALOG_TIMEOUT: Duration = Duration::from_secs(60);
@@ -15,7 +16,8 @@ pub struct NativeConfirmDialog;
 
 impl ConfirmDialog for NativeConfirmDialog {
     fn confirm(&self, title: &str, text: &str) -> bool {
-        match spawn_dialog(title, text) {
+        // Defence in depth: callers already clean page values; the dialog cleans the whole text.
+        match spawn_dialog(&dialog_text(title), &dialog_text(text)) {
             Ok(child) => wait_allowed(child),
             Err(e) => {
                 tracing::warn!(error = %e, "cannot show a confirm dialog; treating as Block");
@@ -64,7 +66,12 @@ fn spawn_dialog(title: &str, text: &str) -> std::io::Result<Child> {
 #[cfg(all(unix, not(target_os = "macos")))]
 fn spawn_dialog(title: &str, text: &str) -> std::io::Result<Child> {
     Command::new("zenity")
-        .args(["--question", "--ok-label=Allow", "--cancel-label=Block"])
+        .args([
+            "--question",
+            "--no-markup",
+            "--ok-label=Allow",
+            "--cancel-label=Block",
+        ])
         .arg(format!("--title={title}"))
         .arg(format!("--text={text}"))
         .stdin(Stdio::null())
