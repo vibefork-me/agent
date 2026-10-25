@@ -144,7 +144,7 @@ impl Engine {
         let lang = task
             .lang
             .as_deref()
-            .filter(|s| !s.trim().is_empty())
+            .and_then(vf_core::catalog::lang_code)
             .map(str::to_owned)
             .unwrap_or_else(|| vf_platform::system_language().as_str().to_owned());
         let t = Task {

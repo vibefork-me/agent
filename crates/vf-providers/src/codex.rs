@@ -192,8 +192,9 @@ pub fn args(dir: &Path, model: &str, resume: Option<&str>, system: Option<&str>)
     if !model.is_empty() {
         a.extend(["-m".into(), model.into()]);
     }
-    if let Some(sys) = system.filter(|s| !s.trim().is_empty()) {
-        let json_val = serde_json::to_string(sys).unwrap_or_else(|_| format!("\"{sys}\""));
+    if let Some(sys) = system.filter(|s| !s.trim().is_empty())
+        && let Ok(json_val) = serde_json::to_string(sys)
+    {
         a.extend(["-c".into(), format!("developer_instructions={json_val}")]);
     }
     if let Some(r) = resume {
@@ -340,8 +341,9 @@ impl Provider for Codex {
         if !req.model.is_empty() {
             args.extend(["-m".into(), req.model.into()]);
         }
-        if let Some(sys) = req.system.filter(|s| !s.trim().is_empty()) {
-            let json_val = serde_json::to_string(sys).unwrap_or_else(|_| format!("\"{sys}\""));
+        if let Some(sys) = req.system.filter(|s| !s.trim().is_empty())
+            && let Ok(json_val) = serde_json::to_string(sys)
+        {
             args.extend(["-c".into(), format!("developer_instructions={json_val}")]);
         }
         args.push("-".into());
