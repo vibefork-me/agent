@@ -12,6 +12,7 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use vf_core::Secret;
 use vf_engine::Engine;
 use vf_platform::Settings;
 use vf_platform::settings::Storage;
@@ -573,4 +574,87 @@ fn ai_is_ready_when_a_provider_is_signed_in() {
             .iter()
             .all(|p| p.connected == vf_protocol::http::AiConnected::Yes)
     );
+}
+
+#[test]
+fn openrouter_key_verification_and_dynamic_reload() {
+    vf_platform::secrets::enable_test_store();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let server_url = format!("http://127.0.0.1:{port}");
+    let _server = std::thread::spawn(move || {
+        for stream in listener.incoming().take(3) {
+            let Ok(mut stream) = stream else { break };
+            let mut buf = [0u8; 1024];
+            let _ = std::io::Read::read(&mut stream, &mut buf);
+            let req = String::from_utf8_lossy(&buf);
+            if req.contains("Bearer valid-openrouter-key") {
+                let body =
+                    r#"{"data":[{"id":"openrouter/test:free","supported_parameters":["tools"]}]}"#;
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = std::io::Write::write_all(&mut stream, response.as_bytes());
+            } else {
+                let response = "HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n";
+                let _ = std::io::Write::write_all(&mut stream, response.as_bytes());
+            }
+        }
+    });
+
+    let (base, _, _) = setup();
+    let dynamic_key: Arc<Mutex<Option<Secret<String>>>> = Arc::new(Mutex::new(None));
+    let key_ref = dynamic_key.clone();
+    let openrouter = Arc::new(vf_providers::openai::OpenAiCompatible::dynamic(
+        "openrouter",
+        &server_url,
+        move || key_ref.lock().unwrap().clone(),
+    ));
+
+    let settings = Settings {
+        state_dir: base.join("state"),
+        port: 1,
+        extra_origins: vec![],
+        ignored_extra_origins: vec![],
+        ui_bundle_url: String::new(),
+        storage: Storage {
+            projects: base.join("projects"),
+            tools: PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("vf-engine-tools"),
+            caches: base.join("caches"),
+            artifacts: base.join("artifacts"),
+        },
+        simulate_clean_machine: true,
+        update_url: String::new(),
+        auto_update: false,
+    };
+    let engine = Engine::new(&settings, vec![openrouter]);
+
+    // Initially no key -> connected: No
+    let ai = engine.ai().unwrap();
+    assert_eq!(ai.providers.len(), 1);
+    assert_eq!(
+        ai.providers[0].connected,
+        vf_protocol::http::AiConnected::No
+    );
+
+    // Bad key fails verification
+    let bad = engine.connect_ai_key("openrouter", "bad-key");
+    assert!(bad.is_err());
+
+    // Valid key succeeds
+    *dynamic_key.lock().unwrap() = Some(Secret::new("valid-openrouter-key".into()));
+    let good = engine.connect_ai_key("openrouter", "valid-openrouter-key");
+    assert!(good.is_ok());
+
+    // Status updated without restart
+    let ai = engine.ai().unwrap();
+    assert_eq!(
+        ai.providers[0].connected,
+        vf_protocol::http::AiConnected::Yes
+    );
+    assert!(ai.ready);
+
+    let _ = std::fs::remove_dir_all(&base);
 }

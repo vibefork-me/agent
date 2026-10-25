@@ -17,6 +17,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use vf_core::Secret;
 use vf_git::Repo;
 use vf_journal::JournalStore as _;
 use vf_platform::{JournalFiles, ProjectError, Projects, Settings};
@@ -317,6 +318,21 @@ impl Backend for Engine {
             p.use_cli(installed.map_err(BackendError::Internal)?);
         }
         p.connect(CONNECT_TIMEOUT).map_err(BackendError::BadRequest)
+    }
+
+    fn connect_ai_key(&self, provider: &str, key: &str) -> Result<(), BackendError> {
+        if provider != "openrouter" {
+            return Err(BackendError::BadRequest("unknown provider for key".into()));
+        }
+        let p = self
+            .provider(provider)
+            .ok_or_else(|| BackendError::NotFound("no such provider".into()))?;
+        let secret = Secret::new(key.to_owned());
+        p.connect_key(&secret).map_err(BackendError::BadRequest)?;
+        vf_platform::secrets::set("openrouter", key)
+            .map_err(|e| BackendError::Internal(format!("cannot save secret: {e}")))?;
+        p.reload();
+        Ok(())
     }
 
     fn models(&self) -> Result<ModelsResponse, BackendError> {

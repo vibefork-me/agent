@@ -252,8 +252,8 @@ pub(crate) async fn ai(
     with_backend(state, &headers, &origin.0, |b| b.ai()).await
 }
 
-/// Starts a subscription sign-in after the user confirms it in the native dialog; it runs on
-/// (the browser shows the provider's page) and `GET /v1/ai` tells when it is done.
+/// Starts a provider connection (subscription sign-in or OpenRouter API key) after the user
+/// confirms it in the native dialog; `GET /v1/ai` tells when it is done.
 pub(crate) async fn ai_connect(
     State(state): State<AppState>,
     Extension(origin): Extension<EffectiveOrigin>,
@@ -263,10 +263,12 @@ pub(crate) async fn ai_connect(
     if session_from(&state, &headers, &origin.0).is_none() {
         return no_session();
     }
+    let is_openrouter = req.provider == "openrouter";
     let name = match req.provider.as_str() {
         "claude" => "Claude",
         "codex" => "ChatGPT (Codex)",
-        _ => return error(StatusCode::BAD_REQUEST, "unknown subscription"),
+        "openrouter" => "OpenRouter",
+        _ => return error(StatusCode::BAD_REQUEST, "unknown provider"),
     };
     {
         let mut running = state.connecting.lock().unwrap_or_else(|p| p.into_inner());
@@ -276,15 +278,14 @@ pub(crate) async fn ai_connect(
     }
     let auth = state.auth.clone();
     let o = origin.0.clone();
-    let approved = tokio::task::spawn_blocking(move || {
-        auth.confirm_action(
-            &o,
-            &format!("set up {name} (official app) and sign in in your browser"),
-            None,
-        )
-    })
-    .await
-    .unwrap_or(false);
+    let prompt = if is_openrouter {
+        format!("connect {name} with an API key")
+    } else {
+        format!("set up {name} (official app) and sign in in your browser")
+    };
+    let approved = tokio::task::spawn_blocking(move || auth.confirm_action(&o, &prompt, None))
+        .await
+        .unwrap_or(false);
     if !approved {
         state
             .connecting
@@ -293,6 +294,45 @@ pub(crate) async fn ai_connect(
             .remove(&req.provider);
         return error(StatusCode::FORBIDDEN, "not confirmed");
     }
+
+    if is_openrouter {
+        let auth = state.auth.clone();
+        let o = origin.0.clone();
+        let secret = tokio::task::spawn_blocking(move || {
+            auth.ask_secret(&o, "enter OpenRouter API key (get one at openrouter.ai)")
+        })
+        .await
+        .unwrap_or(None);
+
+        let Some(key) = secret.filter(|s| !s.expose().trim().is_empty()) else {
+            state
+                .connecting
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .remove(&req.provider);
+            return Json(AiConnectResponse { started: false }).into_response();
+        };
+
+        let backend = state.backend.clone();
+        let provider = req.provider.clone();
+        let res =
+            tokio::task::spawn_blocking(move || backend.connect_ai_key(&provider, key.expose()))
+                .await
+                .unwrap_or_else(|e| Err(BackendError::Internal(e.to_string())));
+
+        state
+            .connecting
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&req.provider);
+
+        return match res {
+            Ok(()) => Json(AiConnectResponse { started: true }).into_response(),
+            Err(BackendError::BadRequest(m)) => error(StatusCode::BAD_REQUEST, &m),
+            Err(e) => error(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+        };
+    }
+
     let (backend, connecting, provider) = (
         state.backend.clone(),
         state.connecting.clone(),

@@ -20,6 +20,7 @@ mod tools;
 
 use std::path::{Path, PathBuf};
 
+use vf_core::Secret;
 use vf_protocol::{Cancel, Event, ModelInfo, Usage};
 
 pub use env::ChildEnv;
@@ -119,6 +120,11 @@ pub trait Provider: Send + Sync {
     fn use_cli(&self, bin: PathBuf) {
         let _ = bin;
     }
+    /// Connects the provider using an API key (e.g. OpenRouter).
+    fn connect_key(&self, key: &Secret<String>) -> Result<(), String> {
+        let _ = key;
+        Err("this provider does not use an API key".into())
+    }
     /// Whether the provider is set up: its CLI is installed (or it needs none) and the user is
     /// signed in (`None` — the agent cannot tell).
     fn status(&self) -> Status {
@@ -128,6 +134,8 @@ pub trait Provider: Send + Sync {
             signed_in: Some(ok),
         }
     }
+    /// Reloads or invalidates any cached state (e.g. models or credentials).
+    fn reload(&self) {}
 }
 
 /// Whether a provider is set up.

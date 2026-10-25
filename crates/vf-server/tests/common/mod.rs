@@ -107,6 +107,17 @@ impl Backend for FakeBackend {
     fn connect_ai(&self, _: &str) -> Result<(), BackendError> {
         Ok(())
     }
+    fn connect_ai_key(&self, provider: &str, key: &str) -> Result<(), BackendError> {
+        if provider != "openrouter" {
+            return Err(BackendError::BadRequest("unknown provider for key".into()));
+        }
+        if key == "bad-key" || key.contains("invalid") {
+            return Err(BackendError::BadRequest(
+                "invalid OpenRouter key: OpenRouter returned HTTP 401".into(),
+            ));
+        }
+        Ok(())
+    }
     fn save(&self, _: &SaveRequest) -> Result<SaveResponse, BackendError> {
         Ok(SaveResponse {
             step: SaveStep::Saved,

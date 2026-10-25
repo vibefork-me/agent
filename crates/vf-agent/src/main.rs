@@ -156,9 +156,9 @@ fn providers() -> Vec<Arc<dyn Provider>> {
     vec![
         Arc::new(Claude::detect()),
         Arc::new(Codex::detect()),
-        Arc::new(OpenAiCompatible::openrouter(
-            vf_platform::secrets::openrouter_key(),
-        )),
+        Arc::new(OpenAiCompatible::openrouter_dynamic(|| {
+            vf_platform::secrets::openrouter_key()
+        })),
     ]
 }
 

@@ -20,7 +20,7 @@ use serde_json::{Value, json};
 use std::sync::RwLock;
 use tower::ServiceExt as _;
 use vf_auth::Auth;
-use vf_core::ConfirmDialog;
+use vf_core::{ConfirmDialog, Secret};
 mod common;
 
 use vf_server::{Config, router};
@@ -34,6 +34,23 @@ struct Always(bool);
 impl ConfirmDialog for Always {
     fn confirm(&self, _title: &str, _text: &str) -> bool {
         self.0
+    }
+}
+
+struct DialogWithSecret {
+    allow: bool,
+    secret: Option<String>,
+}
+impl ConfirmDialog for DialogWithSecret {
+    fn confirm(&self, _title: &str, _text: &str) -> bool {
+        self.allow
+    }
+    fn ask_secret(&self, _title: &str, _text: &str) -> Option<Secret<String>> {
+        if self.allow {
+            self.secret.as_ref().map(|s| Secret::new(s.clone()))
+        } else {
+            None
+        }
     }
 }
 
@@ -748,9 +765,111 @@ async fn secrets_never_reach_the_logs() {
         },
     )
     .await;
+
+    // AI API key never reaches the logs or API responses
+    let api_key = "sk-or-v1-super-secret-openrouter-key-98765";
+    let auth = Auth::load(
+        temp_dir(),
+        Arc::new(DialogWithSecret {
+            allow: true,
+            secret: Some(api_key.into()),
+        }),
+    )
+    .unwrap();
+    let app_secret = router(
+        Config {
+            port: PORT,
+            allowed_origins: vec![UI.into()],
+            extra_origins: vec![],
+        },
+        auth,
+        Arc::new(RwLock::new(None)),
+        common::backend(),
+    );
+    let key_id_secret = pair(&app_secret, &browser, UI).await;
+    let token_secret = login(&app_secret, &browser, &key_id_secret, UI).await;
+    let (status, connect_res, _) = call(
+        &app_secret,
+        Req {
+            token: Some(&token_secret),
+            ..Req::post("/v1/ai/connect", UI, json!({ "provider": "openrouter" }))
+        },
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(connect_res["started"], json!(true));
+    assert!(
+        !connect_res.to_string().contains(api_key),
+        "API key leaked in ai/connect response"
+    );
+
+    let (_, ai_res, _) = call(
+        &app_secret,
+        Req {
+            token: Some(&token_secret),
+            ..Req::get("/v1/ai", Some(UI))
+        },
+    )
+    .await;
+    assert!(
+        !ai_res.to_string().contains(api_key),
+        "API key leaked in ai status response"
+    );
+
+    let (_, models_res, _) = call(
+        &app_secret,
+        Req {
+            token: Some(&token_secret),
+            ..Req::get("/v1/models", Some(UI))
+        },
+    )
+    .await;
+    assert!(
+        !models_res.to_string().contains(api_key),
+        "API key leaked in models response"
+    );
+
+    // Failed verification with invalid key: error message and logs never contain the key
+    let invalid_key = "sk-or-v1-invalid-secret-key-11111";
+    let auth_invalid = Auth::load(
+        temp_dir(),
+        Arc::new(DialogWithSecret {
+            allow: true,
+            secret: Some(invalid_key.into()),
+        }),
+    )
+    .unwrap();
+    let app_invalid = router(
+        Config {
+            port: PORT,
+            allowed_origins: vec![UI.into()],
+            extra_origins: vec![],
+        },
+        auth_invalid,
+        Arc::new(RwLock::new(None)),
+        common::backend(),
+    );
+    let key_id_invalid = pair(&app_invalid, &browser, UI).await;
+    let token_invalid = login(&app_invalid, &browser, &key_id_invalid, UI).await;
+    let (status, err_res, _) = call(
+        &app_invalid,
+        Req {
+            token: Some(&token_invalid),
+            ..Req::post("/v1/ai/connect", UI, json!({ "provider": "openrouter" }))
+        },
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(
+        !err_res.to_string().contains(invalid_key),
+        "API key leaked in 400 error response"
+    );
+
     let text = String::from_utf8_lossy(&logs.lock().unwrap()).into_owned();
     assert!(text.contains("rejected"), "logging is captured: {text}");
     assert!(!text.contains(&token), "session token in the logs");
+    assert!(!text.contains(api_key), "API key in the logs");
+    assert!(!text.contains(invalid_key), "invalid API key in the logs");
 }
 
 #[tokio::test]
@@ -948,9 +1067,18 @@ async fn ai_sign_in_needs_a_session_and_the_dialog() {
     assert_eq!(call(&denying, r).await.0, StatusCode::FORBIDDEN);
     let r = Req {
         token: Some(&token),
-        ..Req::post("/v1/ai/connect", UI, json!({ "provider": "openrouter" }))
+        ..Req::post(
+            "/v1/ai/connect",
+            UI,
+            json!({ "provider": "unknown_provider" }),
+        )
     };
     assert_eq!(call(&denying, r).await.0, StatusCode::BAD_REQUEST);
+    let r = Req {
+        token: Some(&token),
+        ..Req::post("/v1/ai/connect", UI, json!({ "provider": "openrouter" }))
+    };
+    assert_eq!(call(&denying, r).await.0, StatusCode::FORBIDDEN);
     let allowing = make(true);
     let token = login(&allowing, &browser, &key_id, UI).await;
     let r = Req {
@@ -960,4 +1088,102 @@ async fn ai_sign_in_needs_a_session_and_the_dialog() {
     let (status, v, _) = call(&allowing, r).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(v["started"], json!(true));
+    // OpenRouter with cancelled dialog returns started: false
+    let r = Req {
+        token: Some(&token),
+        ..Req::post("/v1/ai/connect", UI, json!({ "provider": "openrouter" }))
+    };
+    let (status, v, _) = call(&allowing, r).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(v["started"], json!(false));
+}
+
+#[tokio::test]
+async fn openrouter_connect_with_key_and_cancel_or_empty() {
+    let browser = Browser::new();
+    let make = |secret: Option<String>| {
+        let auth = Auth::load(
+            temp_dir(),
+            Arc::new(DialogWithSecret {
+                allow: true,
+                secret,
+            }),
+        )
+        .unwrap();
+        router(
+            Config {
+                port: PORT,
+                allowed_origins: vec![UI.into()],
+                extra_origins: vec![],
+            },
+            auth,
+            Arc::new(RwLock::new(None)),
+            common::backend(),
+        )
+    };
+
+    // 1. Cancelled dialog (returns None) -> started: false
+    let app_cancel = make(None);
+    let key_id = pair(&app_cancel, &browser, UI).await;
+    let token = login(&app_cancel, &browser, &key_id, UI).await;
+    let (status, v, _) = call(
+        &app_cancel,
+        Req {
+            token: Some(&token),
+            ..Req::post("/v1/ai/connect", UI, json!({ "provider": "openrouter" }))
+        },
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(v["started"], json!(false));
+
+    // 2. Empty secret string -> started: false
+    let app_empty = make(Some("   ".into()));
+    let key_id = pair(&app_empty, &browser, UI).await;
+    let token = login(&app_empty, &browser, &key_id, UI).await;
+    let (status, v, _) = call(
+        &app_empty,
+        Req {
+            token: Some(&token),
+            ..Req::post("/v1/ai/connect", UI, json!({ "provider": "openrouter" }))
+        },
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(v["started"], json!(false));
+
+    // 3. Valid secret provided -> started: true
+    let app_valid = make(Some("sk-or-valid-test-key".into()));
+    let key_id = pair(&app_valid, &browser, UI).await;
+    let token = login(&app_valid, &browser, &key_id, UI).await;
+    let (status, v, _) = call(
+        &app_valid,
+        Req {
+            token: Some(&token),
+            ..Req::post("/v1/ai/connect", UI, json!({ "provider": "openrouter" }))
+        },
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(v["started"], json!(true));
+
+    // 4. Invalid key -> 400 Bad Request immediately
+    let app_invalid = make(Some("invalid-key".into()));
+    let key_id = pair(&app_invalid, &browser, UI).await;
+    let token = login(&app_invalid, &browser, &key_id, UI).await;
+    let (status, v, _) = call(
+        &app_invalid,
+        Req {
+            token: Some(&token),
+            ..Req::post("/v1/ai/connect", UI, json!({ "provider": "openrouter" }))
+        },
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(
+        v["error"]
+            .as_str()
+            .unwrap()
+            .contains("invalid OpenRouter key")
+    );
 }
