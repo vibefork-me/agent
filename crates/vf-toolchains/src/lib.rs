@@ -119,6 +119,11 @@ pub fn prepare(
             caches.join("go-mod").display().to_string(),
         ),
         ("GOTOOLCHAIN".into(), "local".into()),
+        // Node 22+ keeps a module compile cache in the system temp folder by default.
+        (
+            "NODE_COMPILE_CACHE".into(),
+            caches.join("node-compile-cache").display().to_string(),
+        ),
     ]);
     // Rust: the same homes `mise` installs into, so `cargo` finds its toolchain and a project's
     // `rust-toolchain.toml` is installed there too, never into `~/.rustup`.

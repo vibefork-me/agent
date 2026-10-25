@@ -40,6 +40,8 @@ jobs:
         run: cargo test --workspace
       - name: Layers
         run: python3 scripts/check_layers.py
+      - name: Canary (builds leave nothing in the home folder)
+        run: cargo test -p vf-engine --test canary -- --ignored
       - name: Dev-only origins (feature on)
         run: cargo test -p vf-platform --features dev-extra-origins
       - name: Default build has no dev or insecure features
@@ -77,3 +79,5 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Tests
         run: cargo test --workspace
+      - name: Canary (builds leave nothing in the home folder)
+        run: cargo test -p vf-engine --test canary -- --ignored
