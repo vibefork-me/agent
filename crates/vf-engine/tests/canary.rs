@@ -80,7 +80,7 @@ fn builds_leave_nothing_in_the_home_folder() {
         &[
             (
                 "Cargo.toml",
-                "[package]\nname = \"canary\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nitoa = \"1\"\n",
+                "[package]\nname = \"canary\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\n\n[dependencies]\nitoa = \"1\"\n",
             ),
             (
                 "src/main.rs",
