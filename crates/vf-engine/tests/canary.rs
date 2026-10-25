@@ -50,9 +50,10 @@ fn listing(root: &Path, skip: &[PathBuf]) -> BTreeMap<PathBuf, (u64, Option<Syst
     out
 }
 
-/// Files the operating system itself changes in the background (Windows: `AppData\…\Microsoft`
-/// and the registry hives; macOS: Apple's own services). Folders tools write to, like
-/// `~/Library/Caches/go-build`, are not noise.
+/// Files the operating system itself changes in the background. Windows: `AppData\…\Microsoft`,
+/// Store apps (`AppData\Local\Packages`) and the registry hives. macOS: everything in `~/Library`
+/// except `Caches` and `Application Support` — where tools keep their data (`go-build`, `pip`,
+/// `Yarn`, …) — and Apple's own entries there.
 fn os_noise(home: &Path, path: &Path) -> bool {
     let Ok(rel) = path.strip_prefix(home) else {
         return false;
@@ -64,25 +65,13 @@ fn os_noise(home: &Path, path: &Path) -> bool {
     let at = |i: usize| parts.get(i).map(String::as_str).unwrap_or_default();
     if cfg!(windows) {
         return (at(0) == "AppData" && at(2) == "Microsoft")
-            || at(0).starts_with("NTUSER.DAT")
-            || at(0).starts_with("ntuser.dat");
+            || (at(0) == "AppData" && at(1) == "Local" && at(2) == "Packages")
+            || at(0).to_ascii_lowercase().starts_with("ntuser.dat");
     }
     if cfg!(target_os = "macos") && at(0) == "Library" {
-        let apple = |s: &str| s.starts_with("com.apple.") || s.starts_with("group.com.apple.");
-        return matches!(
-            at(1),
-            "Safari"
-                | "SafariSafeBrowsing"
-                | "Suggestions"
-                | "HomeKit"
-                | "Daemon Containers"
-                | "IdentityServices"
-                | "Biome"
-        ) || (at(1) == "Caches" && (apple(at(2)) || at(2) == "CloudKit"))
-            || (matches!(
-                at(1),
-                "Application Support" | "Preferences" | "Logs" | "Containers" | "Group Containers"
-            ) && (apple(at(2)) || at(2) == "ByHost"));
+        let tools_area = matches!(at(1), "Caches" | "Application Support");
+        let apple = at(2).starts_with("com.apple.") || at(2) == "CloudKit";
+        return !tools_area || apple;
     }
     false
 }
