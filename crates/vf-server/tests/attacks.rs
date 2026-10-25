@@ -1205,10 +1205,5 @@ async fn import_rate_limit_returns_429_with_structured_error() {
     assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(v["code"], json!("rate_limit"));
     assert_eq!(v["resetMinutes"], json!(42));
-    assert!(
-        v["error"]
-            .as_str()
-            .unwrap()
-            .contains("try again in 42 min")
-    );
+    assert!(v["error"].as_str().unwrap().contains("try again in 42 min"));
 }

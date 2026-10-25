@@ -31,7 +31,11 @@ pub struct ErrorBody {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
     /// Reset time in minutes (when rate limited).
-    #[serde(default, skip_serializing_if = "Option::is_none", alias = "reset_minutes")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "reset_minutes"
+    )]
     pub reset_minutes: Option<u64>,
 }
 

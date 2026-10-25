@@ -42,7 +42,9 @@ pub enum GithubError {
     #[error("not found")]
     NotFound,
     /// Limit of requests reached.
-    #[error("GitHub's limit of requests is reached; connect GitHub or try again in {reset_minutes} min")]
+    #[error(
+        "GitHub's limit of requests is reached; connect GitHub or try again in {reset_minutes} min"
+    )]
     RateLimit {
         /// Minutes until the limit resets.
         reset_minutes: u64,
