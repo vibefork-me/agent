@@ -35,6 +35,7 @@ Report vulnerabilities privately through GitHub: **Security → Report a vulnera
   agent's tools and caches, system folders and the CLIs' own data; the rest of your home is closed.
   Network is open. On Windows these processes still have your user's rights. The level is reported
   with every task.
+- Package installation scripts (`npm`, `pip`) and build commands run with your user's rights on Windows without isolation; on Linux and macOS builds run inside the sandbox.
 - On Windows an AppContainer sandbox exists but is off by default (`VF_SANDBOX_WINDOWS=appcontainer`
   turns it on): Git Bash, PowerShell 7 and Codex CLI do not start in it, and Node.js fails on
   projects outside the system drive.

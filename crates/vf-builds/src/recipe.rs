@@ -86,8 +86,22 @@ impl Recipe {
     }
 }
 
+/// Relative path to the Python executable inside a project's `.venv`.
+pub fn venv_python(windows: bool) -> &'static str {
+    if windows {
+        r".venv\Scripts\python.exe"
+    } else {
+        ".venv/bin/python"
+    }
+}
+
 /// The recipe of `dir`, if the project type is known.
 pub fn detect_recipe(dir: &Path) -> Option<Recipe> {
+    detect_recipe_os(dir, cfg!(windows))
+}
+
+/// Detects recipe with explicit operating system convention for wrappers and binary paths.
+pub fn detect_recipe_os(dir: &Path, windows: bool) -> Option<Recipe> {
     let has = |f: &str| dir.join(f).exists();
     let r = |ecosystem, program: &str, args: &[&str], outputs: &[&str]| Recipe {
         ecosystem,
@@ -95,7 +109,7 @@ pub fn detect_recipe(dir: &Path) -> Option<Recipe> {
         outputs: outputs.iter().map(|s| (*s).to_owned()).collect(),
     };
     let wrapper = |name: &str| {
-        if cfg!(windows) {
+        if windows {
             format!("{name}.bat")
         } else {
             format!("./{name}")
@@ -180,10 +194,14 @@ pub fn detect_recipe(dir: &Path) -> Option<Recipe> {
         }
     }
     if has("pyproject.toml") || has("setup.py") || has("requirements.txt") {
+        let py = venv_python(windows);
         let mut steps = Vec::new();
+        if !has(".venv") {
+            steps.push(Step::new("python", &["-m", "venv", ".venv"]));
+        }
         if has("requirements.txt") {
             steps.push(Step::new(
-                "python",
+                py,
                 &[
                     "-m",
                     "pip",
@@ -196,7 +214,7 @@ pub fn detect_recipe(dir: &Path) -> Option<Recipe> {
             ));
         } else {
             steps.push(Step::new(
-                "python",
+                py,
                 &[
                     "-m",
                     "pip",
@@ -209,7 +227,7 @@ pub fn detect_recipe(dir: &Path) -> Option<Recipe> {
         }
         if has("pyproject.toml") || has("setup.py") {
             steps.push(Step::new(
-                "python",
+                py,
                 &[
                     "-m",
                     "pip",
@@ -237,7 +255,7 @@ pub fn detect_recipe(dir: &Path) -> Option<Recipe> {
 mod tests {
     use super::*;
 
-    fn with(files: &[(&str, &str)]) -> Option<Recipe> {
+    fn with_os(files: &[(&str, &str)], windows: bool) -> Option<Recipe> {
         static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let counter = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let nanos = std::time::SystemTime::now()
@@ -250,11 +268,19 @@ mod tests {
         ));
         let _ = std::fs::create_dir_all(&dir);
         for (f, c) in files {
-            let _ = std::fs::write(dir.join(f), c);
+            let p = dir.join(f);
+            if let Some(parent) = p.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let _ = std::fs::write(p, c);
         }
-        let r = detect_recipe(&dir);
+        let r = detect_recipe_os(&dir, windows);
         let _ = std::fs::remove_dir_all(&dir);
         r
+    }
+
+    fn with(files: &[(&str, &str)]) -> Option<Recipe> {
+        with_os(files, cfg!(windows))
     }
 
     #[test]
@@ -337,23 +363,36 @@ mod tests {
     }
 
     #[test]
+    fn venv_python_paths_for_windows_and_unix() {
+        assert_eq!(venv_python(true), r".venv\Scripts\python.exe");
+        assert_eq!(venv_python(false), ".venv/bin/python");
+    }
+
+    #[test]
     fn python_recipe_detects_pyproject_and_requirements() {
-        // pyproject.toml with requirements.txt
-        let r_py = with(&[
-            (
-                "pyproject.toml",
-                "[project]\nname = 'demo'\nversion = '0.1.0'",
-            ),
-            ("requirements.txt", "requests>=2.0"),
-        ])
+        // Windows path test
+        let r_win = with_os(
+            &[
+                (
+                    "pyproject.toml",
+                    "[project]\nname = 'demo'\nversion = '0.1.0'",
+                ),
+                ("requirements.txt", "requests>=2.0"),
+            ],
+            true,
+        )
         .unwrap();
-        assert_eq!(r_py.ecosystem, Ecosystem::Python);
-        assert_eq!(r_py.outputs, vec!["dist"]);
-        assert_eq!(r_py.steps.len(), 2);
+        assert_eq!(r_win.ecosystem, Ecosystem::Python);
+        assert_eq!(r_win.outputs, vec!["dist"]);
+        assert_eq!(r_win.steps.len(), 3);
         assert_eq!(
-            r_py.steps[0],
+            r_win.steps[0],
+            Step::new("python", &["-m", "venv", ".venv"])
+        );
+        assert_eq!(
+            r_win.steps[1],
             Step::new(
-                "python",
+                r".venv\Scripts\python.exe",
                 &[
                     "-m",
                     "pip",
@@ -366,9 +405,9 @@ mod tests {
             )
         );
         assert_eq!(
-            r_py.steps[1],
+            r_win.steps[2],
             Step::new(
-                "python",
+                r".venv\Scripts\python.exe",
                 &[
                     "-m",
                     "pip",
@@ -383,14 +422,49 @@ mod tests {
             )
         );
 
-        // requirements.txt alone
-        let r_req = with(&[("requirements.txt", "flask>=3.0")]).unwrap();
+        // Unix path test
+        let r_unix = with_os(
+            &[
+                (
+                    "pyproject.toml",
+                    "[project]\nname = 'demo'\nversion = '0.1.0'",
+                ),
+                ("requirements.txt", "requests>=2.0"),
+            ],
+            false,
+        )
+        .unwrap();
+        assert_eq!(r_unix.steps[1].program, ".venv/bin/python");
+        assert_eq!(r_unix.steps[2].program, ".venv/bin/python");
+
+        // When .venv already exists, python -m venv step is omitted
+        let r_existing_venv = with_os(
+            &[
+                (
+                    "pyproject.toml",
+                    "[project]\nname = 'demo'\nversion = '0.1.0'",
+                ),
+                (".venv/pyvenv.cfg", "home = /usr/bin"),
+            ],
+            false,
+        )
+        .unwrap();
+        assert_eq!(r_existing_venv.steps.len(), 2);
+        assert_eq!(r_existing_venv.steps[0].program, ".venv/bin/python");
+        assert_eq!(r_existing_venv.steps[0].args[1], "pip");
+
+        // requirements.txt alone without .venv
+        let r_req = with_os(&[("requirements.txt", "flask>=3.0")], false).unwrap();
         assert_eq!(r_req.ecosystem, Ecosystem::Python);
-        assert_eq!(r_req.steps.len(), 1);
+        assert_eq!(r_req.steps.len(), 2);
         assert_eq!(
             r_req.steps[0],
+            Step::new("python", &["-m", "venv", ".venv"])
+        );
+        assert_eq!(
+            r_req.steps[1],
             Step::new(
-                "python",
+                ".venv/bin/python",
                 &[
                     "-m",
                     "pip",
@@ -404,8 +478,18 @@ mod tests {
         );
 
         // setup.py alone
-        let r_setup = with(&[("setup.py", "from setuptools import setup; setup()")]).unwrap();
+        let r_setup = with_os(
+            &[("setup.py", "from setuptools import setup; setup()")],
+            false,
+        )
+        .unwrap();
         assert_eq!(r_setup.ecosystem, Ecosystem::Python);
-        assert_eq!(r_setup.steps.len(), 2);
+        assert_eq!(r_setup.steps.len(), 3);
+        assert_eq!(
+            r_setup.steps[0],
+            Step::new("python", &["-m", "venv", ".venv"])
+        );
+        assert_eq!(r_setup.steps[1].program, ".venv/bin/python");
+        assert_eq!(r_setup.steps[2].program, ".venv/bin/python");
     }
 }

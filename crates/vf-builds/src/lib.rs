@@ -9,4 +9,4 @@ pub mod estimate;
 pub mod recipe;
 
 pub use estimate::{Machine, Needs, Verdict, estimate};
-pub use recipe::{Ecosystem, Recipe, Step, detect_recipe};
+pub use recipe::{Ecosystem, Recipe, Step, detect_recipe, detect_recipe_os, venv_python};
