@@ -1099,6 +1099,68 @@ async fn ai_sign_in_needs_a_session_and_the_dialog() {
 }
 
 #[tokio::test]
+async fn ai_connect_cli_home_mode_switch_requires_confirm_for_user_not_agent() {
+    let dir = temp_dir();
+    let browser = Browser::new();
+    let make = |allow: bool| {
+        router(
+            Config {
+                port: PORT,
+                allowed_origins: vec![UI.into()],
+                extra_origins: vec![],
+            },
+            Auth::load(dir.clone(), Arc::new(Always(allow))).unwrap(),
+            Arc::new(RwLock::new(None)),
+            common::backend(),
+        )
+    };
+    let key_id = pair(&make(true), &browser, UI).await;
+    let denying = make(false);
+    let token = login(&denying, &browser, &key_id, UI).await;
+
+    // Switching to user with denying dialog -> FORBIDDEN action_not_confirmed
+    let r = Req {
+        token: Some(&token),
+        ..Req::post(
+            "/v1/ai/connect",
+            UI,
+            json!({ "provider": "claude", "mode": "user" }),
+        )
+    };
+    let (status, v, _) = call(&denying, r).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(v["code"], json!("action_not_confirmed"));
+
+    // Switching to agent with denying dialog -> OK started: true (requires no confirm dialog)
+    let r = Req {
+        token: Some(&token),
+        ..Req::post(
+            "/v1/ai/connect",
+            UI,
+            json!({ "provider": "claude", "mode": "agent" }),
+        )
+    };
+    let (status, v, _) = call(&denying, r).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(v["started"], json!(true));
+
+    // Switching to user with allowing dialog -> OK started: true
+    let allowing = make(true);
+    let token = login(&allowing, &browser, &key_id, UI).await;
+    let r = Req {
+        token: Some(&token),
+        ..Req::post(
+            "/v1/ai/connect",
+            UI,
+            json!({ "provider": "claude", "mode": "user" }),
+        )
+    };
+    let (status, v, _) = call(&allowing, r).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(v["started"], json!(true));
+}
+
+#[tokio::test]
 async fn openrouter_connect_with_key_and_cancel_or_empty() {
     let browser = Browser::new();
     let make = |secret: Option<String>| {

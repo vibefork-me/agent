@@ -48,6 +48,7 @@ pub(crate) fn run(json: bool) -> ExitCode {
     );
     let claude = Claude::detect()
         .with_home(s.storage.tools.join("cli-home").join("claude"))
+        .with_mode(s.cli_home_mode("claude"))
         .models();
     add(
         "claude",
@@ -61,6 +62,7 @@ pub(crate) fn run(json: bool) -> ExitCode {
     );
     let codex = Codex::detect()
         .with_home(s.storage.tools.join("cli-home").join("codex"))
+        .with_mode(s.cli_home_mode("codex"))
         .models();
     add(
         "codex",

@@ -4,6 +4,17 @@
       "AiConnectRequest": {
         "description": "Request of `POST /v1/ai/connect`: sign in to a subscription through its official CLI (the agent installs a pinned official release first when the CLI is missing).",
         "properties": {
+          "mode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CliHomeMode"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Desired CLI home mode (`agent` or `user`)."
+          },
           "provider": {
             "description": "`claude` or `codex`.",
             "type": "string"
@@ -94,6 +105,24 @@
           "kind": {
             "$ref": "#/components/schemas/AiKind",
             "description": "Paid subscription or free."
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CliHomeMode"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Current CLI home mode (agent or user)."
+          },
+          "userSignedIn": {
+            "description": "Whether the user has an existing personal login in their personal home.",
+            "type": [
+              "boolean",
+              "null"
+            ]
           }
         },
         "required": [
@@ -151,6 +180,25 @@
           "nonce"
         ],
         "type": "object"
+      },
+      "CliHomeMode": {
+        "description": "Where a CLI keeps its sign-in, settings, and sessions.",
+        "oneOf": [
+          {
+            "description": "Isolated home inside Vibefork (`state/tools/cli-home/<provider>`).",
+            "enum": [
+              "agent"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "User's personal home (`~/.claude` or `~/.codex`).",
+            "enum": [
+              "user"
+            ],
+            "type": "string"
+          }
+        ]
       },
       "ClientMessage": {
         "description": "Messages from the browser.",

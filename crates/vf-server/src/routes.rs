@@ -9,9 +9,10 @@ use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use vf_auth::{AuthError, SessionInfo};
 use vf_protocol::http::{
-    AiConnectRequest, AiConnectResponse, ChallengeRequest, ChallengeResponse, DescribeRequest,
-    ErrorBody, Hello, ImportRequest, Me, PairStartRequest, PairStartResponse, PairStatusResponse,
-    RevokeRequest, RevokeResponse, RollbackRequest, SaveRequest, SessionRequest, SessionResponse,
+    AiConnectRequest, AiConnectResponse, ChallengeRequest, ChallengeResponse, CliHomeMode,
+    DescribeRequest, ErrorBody, Hello, ImportRequest, Me, PairStartRequest, PairStartResponse,
+    PairStatusResponse, RevokeRequest, RevokeResponse, RollbackRequest, SaveRequest,
+    SessionRequest, SessionResponse,
 };
 use vf_protocol::{Backend, BackendError};
 
@@ -293,6 +294,70 @@ pub(crate) async fn ai_connect(
             );
         }
     };
+
+    if let Some(target_mode) = req.mode {
+        if is_openrouter {
+            return error_with_code(
+                StatusCode::BAD_REQUEST,
+                "openrouter does not support cli home modes",
+                Some("invalid_provider_mode"),
+            );
+        }
+        let dialog_name = match req.provider.as_str() {
+            "claude" => "Claude Code",
+            "codex" => "Codex",
+            _ => name,
+        };
+        match target_mode {
+            CliHomeMode::User => {
+                let auth = state.auth.clone();
+                let o = origin.0.clone();
+                let lang = auth.dialog().language();
+                let prompt = vf_core::catalog::action_connect_ai_user_home(lang, dialog_name);
+                let approved =
+                    tokio::task::spawn_blocking(move || auth.confirm_action(&o, &prompt, None))
+                        .await
+                        .unwrap_or(false);
+                if !approved {
+                    return error_with_code(
+                        StatusCode::FORBIDDEN,
+                        "not confirmed",
+                        Some("action_not_confirmed"),
+                    );
+                }
+                let backend = state.backend.clone();
+                let provider = req.provider.clone();
+                let res = tokio::task::spawn_blocking(move || {
+                    backend.set_cli_home_mode(&provider, CliHomeMode::User)
+                })
+                .await
+                .unwrap_or_else(|e| Err(BackendError::Internal(e.to_string())));
+
+                return match res {
+                    Ok(()) => Json(AiConnectResponse { started: true }).into_response(),
+                    Err(BackendError::BadRequest(m)) => error(StatusCode::BAD_REQUEST, &m),
+                    Err(BackendError::NotFound(m)) => error(StatusCode::NOT_FOUND, &m),
+                    Err(e) => error(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+                };
+            }
+            CliHomeMode::Agent => {
+                let backend = state.backend.clone();
+                let provider = req.provider.clone();
+                let res = tokio::task::spawn_blocking(move || {
+                    backend.set_cli_home_mode(&provider, CliHomeMode::Agent)
+                })
+                .await
+                .unwrap_or_else(|e| Err(BackendError::Internal(e.to_string())));
+
+                return match res {
+                    Ok(()) => Json(AiConnectResponse { started: true }).into_response(),
+                    Err(BackendError::BadRequest(m)) => error(StatusCode::BAD_REQUEST, &m),
+                    Err(BackendError::NotFound(m)) => error(StatusCode::NOT_FOUND, &m),
+                    Err(e) => error(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+                };
+            }
+        }
+    }
     {
         let mut running = state.connecting.lock().unwrap_or_else(|p| p.into_inner());
         if !running.insert(req.provider.clone()) {

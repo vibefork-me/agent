@@ -541,6 +541,23 @@ pub struct AiProvider {
     pub installing: bool,
     /// Signed in or a key is set.
     pub connected: AiConnected,
+    /// Whether the user has an existing personal login in their personal home.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_signed_in: Option<bool>,
+    /// Current CLI home mode (agent or user).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<CliHomeMode>,
+}
+
+/// Where a CLI keeps its sign-in, settings, and sessions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum CliHomeMode {
+    /// Isolated home inside Vibefork (`state/tools/cli-home/<provider>`).
+    #[default]
+    Agent,
+    /// User's personal home (`~/.claude` or `~/.codex`).
+    User,
 }
 
 /// What a way to connect AI costs the user.
@@ -568,9 +585,13 @@ pub enum AiConnected {
 /// Request of `POST /v1/ai/connect`: sign in to a subscription through its official CLI (the
 /// agent installs a pinned official release first when the CLI is missing).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct AiConnectRequest {
     /// `claude` or `codex`.
     pub provider: String,
+    /// Desired CLI home mode (`agent` or `user`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<CliHomeMode>,
 }
 
 /// Response of `POST /v1/ai/connect`: the sign-in opened in the browser; `GET /v1/ai` tells

@@ -110,6 +110,17 @@ pub trait Backend: Send + Sync {
     /// Runs the sign-in of a subscription's official CLI to the end (minutes; the user finishes
     /// it in the browser). The caller has confirmed it with the user.
     fn connect_ai(&self, provider: &str) -> Result<(), BackendError>;
+    /// Changes the CLI home mode for a provider (`agent` or `user`).
+    fn set_cli_home_mode(
+        &self,
+        provider: &str,
+        mode: crate::http::CliHomeMode,
+    ) -> Result<(), BackendError> {
+        let _ = (provider, mode);
+        Err(BackendError::BadRequest(
+            "this provider does not support cli home modes".into(),
+        ))
+    }
     /// Connects a provider using an API key (e.g. OpenRouter).
     fn connect_ai_key(&self, provider: &str, key: &str) -> Result<(), BackendError> {
         let _ = (provider, key);

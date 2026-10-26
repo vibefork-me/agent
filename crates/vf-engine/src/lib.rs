@@ -66,6 +66,12 @@ impl Engine {
             &settings.storage.caches.join("tmp"),
             std::time::Duration::from_secs(86_400),
         );
+        for p in &providers {
+            let id = p.id();
+            if id == "claude" || id == "codex" {
+                p.set_cli_home_mode(settings.cli_home_mode(id));
+            }
+        }
         Self {
             projects: Projects::new(&settings.storage.projects),
             journal: JournalFiles::new(settings.journal_dir()),
@@ -307,6 +313,16 @@ impl Backend for Engine {
                     (true, Some(true)) => AiConnected::Yes,
                     (true, None) => AiConnected::Unknown,
                 },
+                user_signed_in: if id == "claude" || id == "codex" {
+                    s.user_signed_in
+                } else {
+                    None
+                },
+                mode: if id == "claude" || id == "codex" {
+                    s.cli_home_mode.or(Some(vf_protocol::CliHomeMode::Agent))
+                } else {
+                    None
+                },
             });
         }
         let ready = providers.iter().any(|p| p.connected != AiConnected::No);
@@ -334,6 +350,25 @@ impl Backend for Engine {
             p.use_cli(installed.map_err(BackendError::Internal)?);
         }
         p.connect(CONNECT_TIMEOUT).map_err(BackendError::BadRequest)
+    }
+
+    fn set_cli_home_mode(
+        &self,
+        provider: &str,
+        mode: vf_protocol::CliHomeMode,
+    ) -> Result<(), BackendError> {
+        if provider != "claude" && provider != "codex" {
+            return Err(BackendError::BadRequest(
+                "this provider does not support cli home modes".into(),
+            ));
+        }
+        let p = self
+            .provider(provider)
+            .ok_or_else(|| BackendError::NotFound("no such provider".into()))?;
+        p.set_cli_home_mode(mode);
+        vf_platform::Settings::save_cli_home_mode_at(&self.state_dir, provider, mode)
+            .map_err(|e| BackendError::Internal(e.to_string()))?;
+        Ok(())
     }
 
     fn connect_ai_key(&self, provider: &str, key: &str) -> Result<(), BackendError> {

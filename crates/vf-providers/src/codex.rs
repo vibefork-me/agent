@@ -26,8 +26,12 @@ const CACHE_TTL: Duration = Duration::from_secs(60);
 pub struct Codex {
     bin: std::sync::RwLock<Option<PathBuf>>,
     cache: Mutex<Option<(Instant, Vec<ModelInfo>)>>,
-    /// `CODEX_HOME`: sign-in, settings, sessions and the models cache; `None` — `~/.codex`.
-    home: Option<PathBuf>,
+    signed_in_cache: Mutex<Option<(Instant, bool)>>,
+    user_cache: Mutex<Option<(Instant, bool)>>,
+    /// `CODEX_HOME`: sign-in, settings, sessions and the models cache in agent mode.
+    agent_home: Option<PathBuf>,
+    /// Mode: agent or user.
+    mode: std::sync::RwLock<vf_protocol::CliHomeMode>,
 }
 
 impl Codex {
@@ -46,19 +50,36 @@ impl Codex {
         Self {
             bin: std::sync::RwLock::new(bin),
             cache: Mutex::new(None),
-            home: None,
+            signed_in_cache: Mutex::new(None),
+            user_cache: Mutex::new(None),
+            agent_home: None,
+            mode: std::sync::RwLock::new(vf_protocol::CliHomeMode::Agent),
         }
     }
 
-    /// Keeps the CLI's sign-in, settings and sessions in `home` instead of `~/.codex`.
+    /// Keeps the CLI's sign-in, settings and sessions in `home` in agent mode instead of `~/.codex`.
     pub fn with_home(mut self, home: PathBuf) -> Self {
-        self.home = Some(home);
+        self.agent_home = Some(home);
         self
+    }
+
+    /// Sets the CLI home mode (agent or user).
+    pub fn with_mode(self, mode: vf_protocol::CliHomeMode) -> Self {
+        *self.mode.write().unwrap_or_else(|p| p.into_inner()) = mode;
+        self
+    }
+
+    fn active_home(&self) -> Option<PathBuf> {
+        let mode = *self.mode.read().unwrap_or_else(|p| p.into_inner());
+        match mode {
+            vf_protocol::CliHomeMode::Agent => self.agent_home.clone(),
+            vf_protocol::CliHomeMode::User => None,
+        }
     }
 
     /// The folder the CLI keeps its data in.
     fn data_dir(&self) -> PathBuf {
-        self.home.clone().unwrap_or_else(|| {
+        self.active_home().unwrap_or_else(|| {
             std::env::var_os("USERPROFILE")
                 .or_else(|| std::env::var_os("HOME"))
                 .map(PathBuf::from)
@@ -69,23 +90,36 @@ impl Codex {
 
     fn command(&self, bin: &Path) -> std::process::Command {
         let mut cmd = process::command(bin);
-        if let Some(home) = &self.home {
-            let _ = std::fs::create_dir_all(home);
+        if let Some(home) = self.active_home() {
+            let _ = std::fs::create_dir_all(&home);
             cmd.env(HOME_VAR, home);
+        } else {
+            cmd.env_remove(HOME_VAR);
         }
         cmd
     }
 
     fn env(&self, env: &ChildEnv) -> ChildEnv {
         let mut env = env.clone();
-        if let Some(home) = &self.home {
-            let _ = std::fs::create_dir_all(home);
+        if let Some(home) = self.active_home() {
+            let _ = std::fs::create_dir_all(&home);
             env.set(HOME_VAR, home.as_os_str());
+        } else {
+            env.remove(std::ffi::OsStr::new(HOME_VAR));
         }
         env
     }
 
     fn logged_in(&self, bin: &Path) -> bool {
+        let mut cache = self
+            .signed_in_cache
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        if let Some((at, ok)) = *cache
+            && at.elapsed() < CACHE_TTL
+        {
+            return ok;
+        }
         let mut lines = String::new();
         let mut cmd = self.command(bin);
         cmd.args(["login", "status"]);
@@ -99,7 +133,37 @@ impl Codex {
                 lines.push_str(&l);
             },
         );
-        exit.is_ok_and(|e| e.code == 0) && lines.to_ascii_lowercase().contains("logged in")
+        let ok =
+            exit.is_ok_and(|e| e.code == 0) && lines.to_ascii_lowercase().contains("logged in");
+        *cache = Some((Instant::now(), ok));
+        ok
+    }
+
+    /// Whether the user has an existing login in `~/.codex` (without `CODEX_HOME`).
+    fn user_logged_in(&self, bin: &Path) -> bool {
+        let mut cache = self.user_cache.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some((at, ok)) = *cache
+            && at.elapsed() < CACHE_TTL
+        {
+            return ok;
+        }
+        let mut lines = String::new();
+        let mut cmd = process::command(bin);
+        cmd.env_remove(HOME_VAR);
+        cmd.args(["login", "status"]);
+        let exit = process::run_streaming(
+            cmd,
+            None,
+            &Cancel::new(),
+            Some(Duration::from_secs(20)),
+            &mut |_, l| {
+                lines.push_str(&l);
+            },
+        );
+        let ok =
+            exit.is_ok_and(|e| e.code == 0) && lines.to_ascii_lowercase().contains("logged in");
+        *cache = Some((Instant::now(), ok));
+        ok
     }
 }
 
@@ -291,10 +355,31 @@ impl Provider for Codex {
     }
 
     fn status(&self) -> crate::Status {
+        let bin = self.bin();
         crate::Status {
-            installed: self.bin().is_some(),
-            signed_in: Some(self.bin().is_some() && !self.models().is_empty()),
+            installed: bin.is_some(),
+            signed_in: Some(bin.as_deref().is_some_and(|b| self.logged_in(b))),
+            user_signed_in: Some(bin.as_deref().is_some_and(|b| self.user_logged_in(b))),
+            cli_home_mode: Some(*self.mode.read().unwrap_or_else(|p| p.into_inner())),
         }
+    }
+
+    fn reload(&self) {
+        *self.cache.lock().unwrap_or_else(|p| p.into_inner()) = None;
+        *self
+            .signed_in_cache
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = None;
+        *self.user_cache.lock().unwrap_or_else(|p| p.into_inner()) = None;
+    }
+
+    fn set_cli_home_mode(&self, mode: vf_protocol::CliHomeMode) {
+        *self.mode.write().unwrap_or_else(|p| p.into_inner()) = mode;
+        self.reload();
+    }
+
+    fn cli_home_mode(&self) -> Option<vf_protocol::CliHomeMode> {
+        Some(*self.mode.read().unwrap_or_else(|p| p.into_inner()))
     }
 
     fn models(&self) -> Vec<ModelInfo> {
@@ -423,6 +508,42 @@ mod home_tests {
         let home = std::env::temp_dir().join(format!("vf-codex-home-{}", std::process::id()));
         let codex = Codex::detect().with_home(home.clone());
         assert_eq!(codex.data_dir(), home);
+        let env = codex.env(&ChildEnv::from_vars([]));
+        assert_eq!(env.get(HOME_VAR), Some(home.as_os_str()));
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn user_mode_does_not_set_codex_home() {
+        let home = std::env::temp_dir().join(format!("vf-codex-user-{}", std::process::id()));
+        let codex = Codex::detect()
+            .with_home(home.clone())
+            .with_mode(vf_protocol::CliHomeMode::User);
+        let env = codex.env(&ChildEnv::from_vars([(HOME_VAR.into(), "existing".into())]));
+        assert_eq!(env.get(HOME_VAR), None);
+        let cmd = codex.command(Path::new("codex"));
+        assert!(
+            cmd.get_envs().any(|(k, v)| k == HOME_VAR && v.is_none()),
+            "CODEX_HOME must be explicitly removed in user mode"
+        );
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn switching_cli_home_mode_toggles_environment() {
+        let home = std::env::temp_dir().join(format!("vf-codex-toggle-{}", std::process::id()));
+        let codex = Codex::detect().with_home(home.clone());
+        assert_eq!(codex.cli_home_mode(), Some(vf_protocol::CliHomeMode::Agent));
+        let env = codex.env(&ChildEnv::from_vars([]));
+        assert_eq!(env.get(HOME_VAR), Some(home.as_os_str()));
+
+        codex.set_cli_home_mode(vf_protocol::CliHomeMode::User);
+        assert_eq!(codex.cli_home_mode(), Some(vf_protocol::CliHomeMode::User));
+        let env = codex.env(&ChildEnv::from_vars([]));
+        assert_eq!(env.get(HOME_VAR), None);
+
+        codex.set_cli_home_mode(vf_protocol::CliHomeMode::Agent);
+        assert_eq!(codex.cli_home_mode(), Some(vf_protocol::CliHomeMode::Agent));
         let env = codex.env(&ChildEnv::from_vars([]));
         assert_eq!(env.get(HOME_VAR), Some(home.as_os_str()));
         let _ = std::fs::remove_dir_all(&home);

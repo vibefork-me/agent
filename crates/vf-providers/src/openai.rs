@@ -278,6 +278,8 @@ impl Provider for OpenAiCompatible {
         crate::Status {
             installed: true,
             signed_in: Some(accepted),
+            user_signed_in: None,
+            cli_home_mode: None,
         }
     }
 
