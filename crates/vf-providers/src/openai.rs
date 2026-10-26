@@ -63,8 +63,11 @@ impl OpenAiCompatible {
 
     /// The API key, if present.
     pub fn key(&self) -> Option<Secret<String>> {
-        // An empty stored key is no key: the API would answer "Missing Authentication header".
-        (self.key_source)().filter(|k| !k.expose().trim().is_empty())
+        // A stored key may carry a byte order mark or spaces from the dialog that read it; an empty
+        // key is no key (the API would answer "Missing Authentication header").
+        (self.key_source)()
+            .map(|k| Secret::new(vf_core::clean_secret(k.expose())))
+            .filter(|k| !k.expose().is_empty())
     }
 
     /// Clears any cached model list.
@@ -315,6 +318,9 @@ impl Provider for OpenAiCompatible {
             }
         })??;
         if let Some(e) = v["error"]["message"].as_str() {
+            if v["error"]["code"].as_u64() == Some(401) {
+                return Err(format!("{e} ({})", key_shape(key.expose())));
+            }
             return Err(e.to_owned());
         }
         Ok(Answer {
@@ -508,6 +514,36 @@ mod tests {
     }
 }
 
+/// What a rejected key looks like, without its value: length, the usual prefix, characters outside
+/// printable ASCII. Enough to tell an empty, cut or mangled key from a revoked one.
+fn key_shape(key: &str) -> String {
+    let odd = key.chars().filter(|c| !c.is_ascii_graphic()).count();
+    format!(
+        "key: {} chars, sk-or- prefix: {}, unusual characters: {odd}",
+        key.chars().count(),
+        if key.starts_with("sk-or-") {
+            "yes"
+        } else {
+            "no"
+        }
+    )
+}
+
+#[cfg(test)]
+mod shape_tests {
+    use super::key_shape;
+
+    #[test]
+    fn the_shape_never_shows_the_key() {
+        let shape = key_shape("\u{feff}sk-or-v1-secretvalue");
+        assert_eq!(
+            shape,
+            "key: 21 chars, sk-or- prefix: no, unusual characters: 1"
+        );
+        assert!(!shape.contains("secretvalue"));
+    }
+}
+
 #[cfg(test)]
 mod key_tests {
     use super::*;
@@ -520,5 +556,21 @@ mod key_tests {
         assert!(p.key().is_none());
         assert!(p.models().is_empty());
         assert!(OpenAiCompatible::verify_key(OPENROUTER_URL, &Secret::new(String::new())).is_err());
+    }
+}
+
+#[cfg(test)]
+mod bom_tests {
+    use super::*;
+
+    #[test]
+    fn a_stored_key_with_a_byte_order_mark_is_cleaned() {
+        let p = OpenAiCompatible::dynamic("openrouter", OPENROUTER_URL, || {
+            Some(Secret::new("\u{feff}sk-or-v1-abc\r\n".to_owned()))
+        });
+        assert_eq!(
+            p.key().map(|k| k.expose().clone()).as_deref(),
+            Some("sk-or-v1-abc")
+        );
     }
 }

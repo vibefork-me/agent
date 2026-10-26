@@ -20,5 +20,5 @@ pub mod task;
 pub use catalog::Language;
 pub use path::{PathError, ProjectPath};
 pub use ports::{ConfirmDialog, dialog_field, dialog_text};
-pub use secret::Secret;
+pub use secret::{Secret, clean_secret};
 pub use task::{TaskState, TransitionError};
