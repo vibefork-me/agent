@@ -63,7 +63,8 @@ impl OpenAiCompatible {
 
     /// The API key, if present.
     pub fn key(&self) -> Option<Secret<String>> {
-        (self.key_source)()
+        // An empty stored key is no key: the API would answer "Missing Authentication header".
+        (self.key_source)().filter(|k| !k.expose().trim().is_empty())
     }
 
     /// Clears any cached model list.
@@ -80,9 +81,28 @@ impl OpenAiCompatible {
             .map_err(|e| e.to_string())
     }
 
-    /// Validates an API key by fetching models from `base_url` with Bearer auth.
+    /// Validates an API key: `GET /key` answers only to a real key (`/models` is public and accepts
+    /// anything), then fetches the free models.
     pub fn verify_key(base_url: &str, key: &Secret<String>) -> Result<Vec<ModelInfo>, String> {
-        let url = format!("{}/models", base_url.trim_end_matches('/'));
+        if key.expose().trim().is_empty() {
+            return Err("the key is empty".into());
+        }
+        let base = base_url.trim_end_matches('/');
+        block_on(async {
+            let res = Self::client()?
+                .get(format!("{base}/key"))
+                .bearer_auth(key.expose())
+                .header("x-title", "vibefork")
+                .send()
+                .await
+                .map_err(|_| "network error contacting OpenRouter".to_owned())?;
+            if res.status().is_success() {
+                Ok(())
+            } else {
+                Err("OpenRouter did not accept the key".to_owned())
+            }
+        })??;
+        let url = format!("{base}/models");
         let body: Value = block_on(async {
             let res = Self::client()?
                 .get(&url)
@@ -485,5 +505,20 @@ mod tests {
             .map(|m| m.model)
             .collect();
         assert_eq!(ids, ["a/b:free", "c/d"]);
+    }
+}
+
+#[cfg(test)]
+mod key_tests {
+    use super::*;
+
+    #[test]
+    fn an_empty_stored_key_is_no_key() {
+        let p = OpenAiCompatible::dynamic("openrouter", OPENROUTER_URL, || {
+            Some(Secret::new("  ".to_owned()))
+        });
+        assert!(p.key().is_none());
+        assert!(p.models().is_empty());
+        assert!(OpenAiCompatible::verify_key(OPENROUTER_URL, &Secret::new(String::new())).is_err());
     }
 }

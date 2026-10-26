@@ -591,7 +591,7 @@ fn openrouter_key_verification_and_dynamic_reload() {
     let port = listener.local_addr().unwrap().port();
     let server_url = format!("http://127.0.0.1:{port}");
     let _server = std::thread::spawn(move || {
-        for stream in listener.incoming().take(3) {
+        for stream in listener.incoming().take(8) {
             let Ok(mut stream) = stream else { break };
             let mut buf = [0u8; 1024];
             let _ = std::io::Read::read(&mut stream, &mut buf);
