@@ -50,11 +50,41 @@ fn listing(root: &Path, skip: &[PathBuf]) -> BTreeMap<PathBuf, (u64, Option<Syst
     out
 }
 
-/// Files the operating system itself changes in the background. Windows: `AppData\…\Microsoft`,
-/// Store apps (`AppData\Local\Packages`) and the registry hives. macOS: everything in `~/Library`
-/// except `Caches` and `Application Support` — where tools keep their data (`go-build`, `pip`,
-/// `Yarn`, …) — and Apple's own entries there.
-fn os_noise(home: &Path, path: &Path) -> bool {
+/// Folders tools keep their data in under the OS-managed profile areas (`AppData\{Local,Roaming}`,
+/// `~/Library/{Caches,Application Support}`): a change there is always a leak.
+const TOOL_DIRS: &[&str] = &[
+    "Temp",
+    "npm",
+    "npm-cache",
+    "pip",
+    "pypoetry",
+    "uv",
+    "go",
+    "go-build",
+    "Yarn",
+    "pnpm",
+    "NuGet",
+    "deno",
+    "Coursier",
+    "ms-playwright",
+    "node-gyp",
+    "rustup",
+    "cargo",
+    "Gradle",
+    "Maven",
+    "Composer",
+    "bun",
+];
+
+/// The OS's and the preinstalled browsers' own folders: their background services may even create
+/// them during the test (Firefox's background agent on a fresh CI runner).
+const OS_VENDORS: &[&str] = &["Microsoft", "Packages", "Mozilla", "Google", "Apple"];
+
+/// Background changes of other programs in the OS-managed profile areas: under `AppData` on
+/// Windows and `~/Library` on macOS, a change inside a vendor folder that existed before the builds
+/// (a browser profile, a system service) is noise; a new vendor folder, the temp folder or a tool's
+/// folder is a leak. Elsewhere in the home folder every change counts.
+fn os_noise(home: &Path, path: &Path, existed: &dyn Fn(&Path) -> bool) -> bool {
     let Ok(rel) = path.strip_prefix(home) else {
         return false;
     };
@@ -63,29 +93,33 @@ fn os_noise(home: &Path, path: &Path) -> bool {
         .map(|c| c.as_os_str().to_string_lossy().into_owned())
         .collect();
     let at = |i: usize| parts.get(i).map(String::as_str).unwrap_or_default();
+    let vendor = |n: usize| -> Option<PathBuf> {
+        (parts.len() > n).then(|| parts[..n].iter().fold(home.to_path_buf(), |p, c| p.join(c)))
+    };
+    let background = |n: usize| {
+        let name = at(n - 1);
+        let os_or_browser = OS_VENDORS.iter().any(|v| v.eq_ignore_ascii_case(name))
+            || name.starts_with("com.apple.");
+        !TOOL_DIRS.iter().any(|t| t.eq_ignore_ascii_case(name))
+            && (os_or_browser || vendor(n).is_some_and(|v| existed(&v)))
+    };
     if cfg!(windows) {
-        return (at(0) == "AppData" && at(2) == "Microsoft")
-            || (at(0) == "AppData" && at(1) == "Local" && at(2) == "Packages")
-            || at(0).to_ascii_lowercase().starts_with("ntuser.dat");
+        if at(0).to_ascii_lowercase().starts_with("ntuser.dat") {
+            return true;
+        }
+        return at(0) == "AppData"
+            && matches!(at(1), "Local" | "Roaming" | "LocalLow")
+            && background(3);
+    }
+    // macOS media libraries (the TV and Music apps update them on their own).
+    if cfg!(target_os = "macos") && matches!(at(0), "Movies" | "Music" | "Pictures") {
+        return true;
     }
     if cfg!(target_os = "macos") && at(0) == "Library" {
-        let tools_area = matches!(at(1), "Caches" | "Application Support");
-        // Apple's own entries, including system apps without a `com.apple.` prefix.
-        let apple = at(2).starts_with("com.apple.")
-            || matches!(
-                at(2),
-                "CloudKit"
-                    | "AddressBook"
-                    | "CallHistoryDB"
-                    | "CallHistoryTransactions"
-                    | "Knowledge"
-                    | "FileProvider"
-                    | "CloudDocs"
-                    | "Dock"
-                    | "AppStore"
-                    | "iCloud"
-            );
-        return !tools_area || apple;
+        if !matches!(at(1), "Caches" | "Application Support") {
+            return true;
+        }
+        return background(3);
     }
     false
 }
@@ -180,6 +214,11 @@ fn builds_leave_nothing_in_the_home_folder() {
             .filter_map(|v| std::env::var_os(v).map(PathBuf::from)),
     );
     let before = listing(&home, &skip);
+    // Vendor folders in the OS-managed profile areas before the builds.
+    let existed_dirs: std::collections::BTreeSet<PathBuf> = before
+        .keys()
+        .flat_map(|p| p.ancestors().map(Path::to_path_buf).collect::<Vec<_>>())
+        .collect();
 
     for project in ["rust", "go", "node"] {
         let mut msgs = vec![];
@@ -193,7 +232,10 @@ fn builds_leave_nothing_in_the_home_folder() {
     let after = listing(&home, &skip);
     let leaks: Vec<String> = after
         .iter()
-        .filter(|(path, meta)| before.get(*path) != Some(*meta) && !os_noise(&home, path))
+        .filter(|(path, meta)| {
+            before.get(*path) != Some(*meta)
+                && !os_noise(&home, path, &|dir| existed_dirs.contains(dir))
+        })
         .map(|(path, _)| path.display().to_string())
         .collect();
     let _ = std::fs::remove_dir_all(&base);
