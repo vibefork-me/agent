@@ -1,0 +1,26 @@
+[package]
+name = "vf-eval"
+description = "Evaluation and benchmark tool for AI models and stage prompts (vibefork-eval). Not shipped to users."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "vibefork-eval"
+path = "src/main.rs"
+
+[dependencies]
+vf-core.workspace = true
+vf-protocol.workspace = true
+vf-orchestrator.workspace = true
+vf-providers.workspace = true
+vf-platform.workspace = true
+vf-engine.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true
