@@ -64,6 +64,32 @@
         }
       ]
     },
+    "AiDisconnectRequest": {
+      "description": "Request of `POST /v1/ai/disconnect`.",
+      "properties": {
+        "provider": {
+          "description": "Provider to disconnect (`custom`, `openrouter`).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider"
+      ],
+      "type": "object"
+    },
+    "AiDisconnectResponse": {
+      "description": "Response of `POST /v1/ai/disconnect`.",
+      "properties": {
+        "ok": {
+          "description": "Disconnect succeeded.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ok"
+      ],
+      "type": "object"
+    },
     "AiKind": {
       "description": "What a way to connect AI costs the user.",
       "oneOf": [
@@ -80,6 +106,13 @@
             "free"
           ],
           "type": "string"
+        },
+        {
+          "description": "Custom OpenAI-compatible API.",
+          "enum": [
+            "custom"
+          ],
+          "type": "string"
         }
       ]
     },
@@ -89,6 +122,13 @@
         "connected": {
           "$ref": "#/components/schemas/AiConnected",
           "description": "Signed in or a key is set."
+        },
+        "host": {
+          "description": "Host label for custom endpoints (e.g. \"localhost:11434\").",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "id": {
           "description": "`claude`, `codex`, `openrouter`.",

@@ -9,10 +9,10 @@ use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use vf_auth::{AuthError, SessionInfo};
 use vf_protocol::http::{
-    AiConnectRequest, AiConnectResponse, ChallengeRequest, ChallengeResponse, CliHomeMode,
-    DescribeRequest, ErrorBody, Hello, ImportRequest, Me, PairStartRequest, PairStartResponse,
-    PairStatusResponse, RevokeRequest, RevokeResponse, RollbackRequest, SaveRequest,
-    SessionRequest, SessionResponse,
+    AiConnectRequest, AiConnectResponse, AiDisconnectRequest, AiDisconnectResponse,
+    ChallengeRequest, ChallengeResponse, CliHomeMode, DescribeRequest, ErrorBody, Hello,
+    ImportRequest, Me, PairStartRequest, PairStartResponse, PairStatusResponse, RevokeRequest,
+    RevokeResponse, RollbackRequest, SaveRequest, SessionRequest, SessionResponse,
 };
 use vf_protocol::{Backend, BackendError};
 
@@ -282,10 +282,12 @@ pub(crate) async fn ai_connect(
         return no_session();
     }
     let is_openrouter = req.provider == "openrouter";
+    let is_custom = req.provider == "custom";
     let name = match req.provider.as_str() {
         "claude" => "Claude",
         "codex" => "ChatGPT (Codex)",
         "openrouter" => "OpenRouter",
+        "custom" => "OpenAI-compatible API",
         _ => {
             return error_with_code(
                 StatusCode::BAD_REQUEST,
@@ -296,10 +298,10 @@ pub(crate) async fn ai_connect(
     };
 
     if let Some(target_mode) = req.mode {
-        if is_openrouter {
+        if is_openrouter || is_custom {
             return error_with_code(
                 StatusCode::BAD_REQUEST,
-                "openrouter does not support cli home modes",
+                "this provider does not support cli home modes",
                 Some("invalid_provider_mode"),
             );
         }
@@ -367,6 +369,141 @@ pub(crate) async fn ai_connect(
     let auth = state.auth.clone();
     let o = origin.0.clone();
     let lang = auth.dialog().language();
+
+    if is_custom {
+        // Step 1: Prompt for endpoint URL
+        let auth = state.auth.clone();
+        let o = origin.0.clone();
+        let endpoint_prompt = vf_core::catalog::custom_openai_endpoint_prompt(lang);
+        let endpoint_val = tokio::task::spawn_blocking(move || auth.ask_text(&o, endpoint_prompt))
+            .await
+            .unwrap_or(None);
+
+        let Some(raw_endpoint) = endpoint_val.filter(|s| !s.trim().is_empty()) else {
+            state
+                .connecting
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .remove(&req.provider);
+            return Json(AiConnectResponse { started: false }).into_response();
+        };
+
+        // Validate endpoint (scheme http loopback vs https)
+        let clean_endpoint = match vf_core::validate_custom_openai_endpoint(&raw_endpoint) {
+            Ok(e) => e,
+            Err(reason) => {
+                state
+                    .connecting
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .remove(&req.provider);
+                return error_with_code(StatusCode::BAD_REQUEST, reason, Some("invalid_endpoint"));
+            }
+        };
+
+        // Step 2: Show confirmation dialog with full endpoint and warning
+        let auth = state.auth.clone();
+        let o = origin.0.clone();
+        let confirm_title = vf_core::catalog::confirm_action_title(lang);
+        let confirm_text = vf_core::catalog::custom_openai_confirm_text(lang, &o, &clean_endpoint);
+        let confirmed = tokio::task::spawn_blocking(move || {
+            auth.dialog().confirm(confirm_title, &confirm_text)
+        })
+        .await
+        .unwrap_or(false);
+
+        if !confirmed {
+            state
+                .connecting
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .remove(&req.provider);
+            return error_with_code(
+                StatusCode::FORBIDDEN,
+                "not confirmed",
+                Some("action_not_confirmed"),
+            );
+        }
+
+        // Step 3: Ask for API key (masked, optional for local server)
+        let auth = state.auth.clone();
+        let o = origin.0.clone();
+        let key_prompt = vf_core::catalog::custom_openai_key_prompt(lang);
+        let key_secret =
+            tokio::task::spawn_blocking(move || auth.ask_secret_optional(&o, key_prompt))
+                .await
+                .unwrap_or(None);
+
+        let Some(key) = key_secret else {
+            state
+                .connecting
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .remove(&req.provider);
+            return Json(AiConnectResponse { started: false }).into_response();
+        };
+
+        let key_str = key.expose().trim().to_owned();
+        let key_opt = if key_str.is_empty() {
+            None
+        } else {
+            Some(key_str)
+        };
+
+        // Step 4: Verify endpoint / fetch models
+        let ep = clean_endpoint.clone();
+        let k = key_opt.clone();
+        let b = state.backend.clone();
+        let verify_res =
+            tokio::task::spawn_blocking(move || b.verify_ai_custom(&ep, k.as_deref(), None))
+                .await
+                .unwrap_or_else(|e| Err(BackendError::Internal(e.to_string())));
+
+        let mut model_chosen: Option<String> = None;
+        if verify_res.is_err() {
+            // /models did not provide models, prompt for model identifier
+            let auth = state.auth.clone();
+            let o = origin.0.clone();
+            let model_prompt = vf_core::catalog::custom_openai_model_prompt(lang);
+            let model_val = tokio::task::spawn_blocking(move || auth.ask_text(&o, model_prompt))
+                .await
+                .unwrap_or(None);
+
+            let Some(m) = model_val.filter(|s| !s.trim().is_empty()) else {
+                state
+                    .connecting
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .remove(&req.provider);
+                return Json(AiConnectResponse { started: false }).into_response();
+            };
+            model_chosen = Some(m.trim().to_owned());
+        }
+
+        // Connect & save
+        let backend = state.backend.clone();
+        let ep = clean_endpoint;
+        let k = key_opt;
+        let m = model_chosen;
+        let res = tokio::task::spawn_blocking(move || {
+            backend.connect_ai_custom(&ep, k.as_deref(), m.as_deref())
+        })
+        .await
+        .unwrap_or_else(|e| Err(BackendError::Internal(e.to_string())));
+
+        state
+            .connecting
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&req.provider);
+
+        return match res {
+            Ok(()) => Json(AiConnectResponse { started: true }).into_response(),
+            Err(BackendError::BadRequest(m)) => error(StatusCode::BAD_REQUEST, &m),
+            Err(e) => error(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+        };
+    }
+
     let prompt = if is_openrouter {
         vf_core::catalog::action_connect_ai_key(lang, name)
     } else {
@@ -440,6 +577,29 @@ pub(crate) async fn ai_connect(
             .remove(&provider);
     });
     Json(AiConnectResponse { started: true }).into_response()
+}
+
+pub(crate) async fn ai_disconnect(
+    State(state): State<AppState>,
+    Extension(origin): Extension<EffectiveOrigin>,
+    headers: HeaderMap,
+    Json(req): Json<AiDisconnectRequest>,
+) -> Response {
+    if session_from(&state, &headers, &origin.0).is_none() {
+        return no_session();
+    }
+    let backend = state.backend.clone();
+    let provider = req.provider.clone();
+    let res = tokio::task::spawn_blocking(move || backend.disconnect_ai(&provider))
+        .await
+        .unwrap_or_else(|e| Err(BackendError::Internal(e.to_string())));
+
+    match res {
+        Ok(()) => Json(AiDisconnectResponse { ok: true }).into_response(),
+        Err(BackendError::BadRequest(m)) => error(StatusCode::BAD_REQUEST, &m),
+        Err(BackendError::NotFound(m)) => error(StatusCode::NOT_FOUND, &m),
+        Err(e) => error(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+    }
 }
 
 pub(crate) async fn models(

@@ -25,7 +25,7 @@ pub fn enable_test_store() {
 }
 
 /// Names of the secrets the agent keeps.
-pub const NAMES: &[&str] = &["openrouter", "github"];
+pub const NAMES: &[&str] = &["openrouter", "github", "custom_openai"];
 
 /// Errors of the secret store.
 #[derive(Debug, thiserror::Error)]
@@ -97,6 +97,22 @@ fn environment_openrouter_key() -> Option<Secret<String>> {
     #[cfg(any(test, all(debug_assertions, feature = "dev-env-secrets")))]
     {
         environment_secret(std::env::var("OPENROUTER_API_KEY").ok(), true)
+    }
+    #[cfg(not(any(test, all(debug_assertions, feature = "dev-env-secrets"))))]
+    {
+        environment_secret(None, false)
+    }
+}
+
+/// The Custom OpenAI key: from secret store, or env variable in dev/test.
+pub fn custom_openai_key() -> Option<Secret<String>> {
+    get("custom_openai").or_else(environment_custom_openai_key)
+}
+
+fn environment_custom_openai_key() -> Option<Secret<String>> {
+    #[cfg(any(test, all(debug_assertions, feature = "dev-env-secrets")))]
+    {
+        environment_secret(std::env::var("CUSTOM_OPENAI_API_KEY").ok(), true)
     }
     #[cfg(not(any(test, all(debug_assertions, feature = "dev-env-secrets"))))]
     {

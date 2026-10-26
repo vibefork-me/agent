@@ -45,6 +45,8 @@ fn definitions() -> Map<String, Value> {
         CliHomeMode,
         AiConnectRequest,
         AiConnectResponse,
+        AiDisconnectRequest,
+        AiDisconnectResponse,
         JournalResponse,
         RollbackRequest,
         RollbackResponse,

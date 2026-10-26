@@ -20,6 +20,21 @@ pub trait ConfirmDialog: Send + Sync {
         let _ = (title, text);
         None
     }
+
+    /// Prompts the user for a text value (e.g. endpoint URL, model name) with input unmasked.
+    /// Returns `None` on cancel, timeout or when no dialog can be shown.
+    fn ask_text(&self, title: &str, text: &str) -> Option<String> {
+        let _ = (title, text);
+        None
+    }
+
+    /// Prompts the user for a secret with input masked, allowing empty input if the user clicked OK
+    /// (for local servers where no API key is needed).
+    /// Returns `None` on cancel, timeout or when no dialog can be shown.
+    fn ask_secret_optional(&self, title: &str, text: &str) -> Option<Secret<String>> {
+        let _ = (title, text);
+        None
+    }
 }
 
 /// Characters that change how text is laid out or hide text: bidi controls, zero-width characters,

@@ -547,6 +547,9 @@ pub struct AiProvider {
     /// Current CLI home mode (agent or user).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<CliHomeMode>,
+    /// Host label for custom endpoints (e.g. "localhost:11434").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
 }
 
 /// Where a CLI keeps its sign-in, settings, and sessions.
@@ -568,6 +571,8 @@ pub enum AiKind {
     Subscription,
     /// Free models.
     Free,
+    /// Custom OpenAI-compatible API.
+    Custom,
 }
 
 /// Whether a way to connect AI is set up.
@@ -600,4 +605,19 @@ pub struct AiConnectRequest {
 pub struct AiConnectResponse {
     /// The sign-in was started (false: one is already running).
     pub started: bool,
+}
+
+/// Request of `POST /v1/ai/disconnect`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AiDisconnectRequest {
+    /// Provider to disconnect (`custom`, `openrouter`).
+    pub provider: String,
+}
+
+/// Response of `POST /v1/ai/disconnect`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AiDisconnectResponse {
+    /// Disconnect succeeded.
+    pub ok: bool,
 }

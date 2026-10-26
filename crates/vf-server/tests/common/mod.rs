@@ -132,6 +132,32 @@ impl Backend for FakeBackend {
         }
         Ok(())
     }
+    fn connect_ai_custom(
+        &self,
+        _endpoint: &str,
+        _key: Option<&str>,
+        _model: Option<&str>,
+    ) -> Result<(), BackendError> {
+        Ok(())
+    }
+    fn disconnect_ai(&self, provider: &str) -> Result<(), BackendError> {
+        if provider == "custom" || provider == "openrouter" {
+            Ok(())
+        } else {
+            Err(BackendError::BadRequest("cannot disconnect".into()))
+        }
+    }
+    fn verify_ai_custom(
+        &self,
+        endpoint: &str,
+        _key: Option<&str>,
+        model: Option<&str>,
+    ) -> Result<Vec<String>, BackendError> {
+        if endpoint.contains("nomodels") && model.is_none() {
+            return Err(BackendError::BadRequest("no models".into()));
+        }
+        Ok(vec!["test-model".into()])
+    }
     fn save(&self, _: &SaveRequest) -> Result<SaveResponse, BackendError> {
         Ok(SaveResponse {
             step: SaveStep::Saved,

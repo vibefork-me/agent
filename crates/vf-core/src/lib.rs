@@ -9,6 +9,7 @@
 //! - [`sandbox`] — what a sandboxed process may touch, and the launcher prefix.
 
 pub mod catalog;
+pub mod endpoint;
 pub mod ids;
 pub mod path;
 pub mod ports;
@@ -18,6 +19,7 @@ pub mod secret;
 pub mod task;
 
 pub use catalog::Language;
+pub use endpoint::{endpoint_host_label, validate_custom_openai_endpoint};
 pub use path::{PathError, ProjectPath};
 pub use ports::{ConfirmDialog, dialog_field, dialog_text};
 pub use secret::{Secret, clean_secret};

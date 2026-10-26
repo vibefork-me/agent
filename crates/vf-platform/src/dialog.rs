@@ -34,6 +34,46 @@ impl ConfirmDialog for NativeConfirmDialog {
     fn ask_secret(&self, title: &str, text: &str) -> Option<Secret<String>> {
         ask_secret_with_lang(title, text, self.language())
     }
+
+    fn ask_text(&self, title: &str, text: &str) -> Option<String> {
+        ask_text_with_lang(title, text, self.language())
+    }
+
+    fn ask_secret_optional(&self, title: &str, text: &str) -> Option<Secret<String>> {
+        ask_secret_optional_with_lang(title, text, self.language())
+    }
+}
+
+/// Shows a text entry dialog with the input unmasked.
+/// Returns `None` on cancel, empty input, timeout or when no dialog can be shown.
+pub fn ask_text(title: &str, text: &str) -> Option<String> {
+    ask_text_with_lang(title, text, crate::system_language())
+}
+
+/// Shows a text entry dialog with a specified language.
+pub fn ask_text_with_lang(title: &str, text: &str, lang: vf_core::Language) -> Option<String> {
+    match spawn_text_dialog(&dialog_text(title), &dialog_text(text), lang) {
+        Ok(child) => wait_text(child),
+        Err(e) => {
+            tracing::warn!(error = %e, "cannot show a text dialog");
+            None
+        }
+    }
+}
+
+/// Shows a secret entry dialog allowing empty input.
+pub fn ask_secret_optional_with_lang(
+    title: &str,
+    text: &str,
+    lang: vf_core::Language,
+) -> Option<Secret<String>> {
+    match spawn_secret_dialog(&dialog_text(title), &dialog_text(text), lang) {
+        Ok(child) => wait_secret_optional(child),
+        Err(e) => {
+            tracing::warn!(error = %e, "cannot show a secret dialog");
+            None
+        }
+    }
 }
 
 /// Shows a secret entry dialog with the input masked.
@@ -112,6 +152,72 @@ public static extern bool SetForegroundWindow(IntPtr hWnd);
         .env("VF_BTN_BLOCK", vf_core::catalog::btn_block(lang))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn()
+}
+
+#[cfg(windows)]
+fn spawn_text_dialog(title: &str, text: &str, lang: vf_core::Language) -> std::io::Result<Child> {
+    use std::os::windows::process::CommandExt as _;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let script = "Add-Type -AssemblyName System.Windows.Forms; \
+        Add-Type -AssemblyName System.Drawing; \
+        $sig = @'
+[DllImport(\"user32.dll\")]
+public static extern bool SetForegroundWindow(IntPtr hWnd);
+'@; \
+        $u = Add-Type -MemberDefinition $sig -Name \"NativeUtilText\" -Namespace \"Win32\" -PassThru; \
+        $form = New-Object System.Windows.Forms.Form; \
+        $form.Text = $env:VF_DIALOG_TITLE; \
+        $form.FormBorderStyle = 'FixedDialog'; \
+        $form.MaximizeBox = $false; \
+        $form.MinimizeBox = $false; \
+        $form.HelpButton = $false; \
+        $form.StartPosition = 'CenterScreen'; \
+        $form.TopMost = $true; \
+        $label = New-Object System.Windows.Forms.Label; \
+        $label.AutoSize = $true; \
+        $label.MaximumSize = New-Object System.Drawing.Size(430, 0); \
+        $label.Location = New-Object System.Drawing.Point(24, 20); \
+        $label.Text = $env:VF_DIALOG_TEXT; \
+        $form.Controls.Add($label); \
+        $textY = $label.Bottom + 12; \
+        $text = New-Object System.Windows.Forms.TextBox; \
+        $text.Location = New-Object System.Drawing.Point(24, $textY); \
+        $text.Size = New-Object System.Drawing.Size(430, 24); \
+        $form.Controls.Add($text); \
+        $btnY = $text.Bottom + 16; \
+        $btnOk = New-Object System.Windows.Forms.Button; \
+        $btnOk.Text = $env:VF_BTN_OK; \
+        $btnOk.DialogResult = [System.Windows.Forms.DialogResult]::OK; \
+        $btnOk.Location = New-Object System.Drawing.Point(230, $btnY); \
+        $btnOk.Size = New-Object System.Drawing.Size(100, 28); \
+        $form.Controls.Add($btnOk); \
+        $form.AcceptButton = $btnOk; \
+        $btnCancel = New-Object System.Windows.Forms.Button; \
+        $btnCancel.Text = $env:VF_BTN_CANCEL; \
+        $btnCancel.DialogResult = [System.Windows.Forms.DialogResult]::Cancel; \
+        $btnCancel.Location = New-Object System.Drawing.Point(344, $btnY); \
+        $btnCancel.Size = New-Object System.Drawing.Size(110, 28); \
+        $form.Controls.Add($btnCancel); \
+        $form.CancelButton = $btnCancel; \
+        $form.ClientSize = New-Object System.Drawing.Size(480, ($btnY + 48)); \
+        $form.Add_Shown({ [Win32.NativeUtilText]::SetForegroundWindow($form.Handle); $form.Activate(); $form.BringToFront(); $text.Focus() }); \
+        if ($form.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { \
+            [Console]::Out.Write($text.Text); \
+            exit 0; \
+        } else { \
+            exit 1; \
+        }";
+    Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .env("VF_DIALOG_TITLE", title)
+        .env("VF_DIALOG_TEXT", text)
+        .env("VF_BTN_OK", vf_core::catalog::btn_ok(lang))
+        .env("VF_BTN_CANCEL", vf_core::catalog::btn_cancel(lang))
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .creation_flags(CREATE_NO_WINDOW)
         .spawn()
@@ -205,6 +311,27 @@ fn spawn_dialog(title: &str, text: &str, lang: vf_core::Language) -> std::io::Re
 }
 
 #[cfg(target_os = "macos")]
+fn spawn_text_dialog(title: &str, text: &str, lang: vf_core::Language) -> std::io::Result<Child> {
+    let btn_c = vf_core::catalog::btn_cancel(lang);
+    let btn_o = vf_core::catalog::btn_ok(lang);
+    let script = format!(
+        "on run argv\n\
+         set dialogResult to display dialog (item 2 of argv) with title (item 1 of argv) default answer \"\" buttons {{\"{btn_c}\", \"{btn_o}\"}} default button \"{btn_o}\" cancel button \"{btn_c}\"\n\
+         return text returned of dialogResult\n\
+         end run"
+    );
+    let mut cmd = Command::new("osascript");
+    for line in script.lines() {
+        cmd.args(["-e", line]);
+    }
+    cmd.args([title, text])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+}
+
+#[cfg(target_os = "macos")]
 fn spawn_secret_dialog(title: &str, text: &str, lang: vf_core::Language) -> std::io::Result<Child> {
     let btn_c = vf_core::catalog::btn_cancel(lang);
     let btn_o = vf_core::catalog::btn_ok(lang);
@@ -235,6 +362,20 @@ fn spawn_dialog(title: &str, text: &str, lang: vf_core::Language) -> std::io::Re
         .arg(format!("--text={text}"))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn spawn_text_dialog(title: &str, text: &str, lang: vf_core::Language) -> std::io::Result<Child> {
+    let ok_label = format!("--ok-label={}", vf_core::catalog::btn_ok(lang));
+    let cancel_label = format!("--cancel-label={}", vf_core::catalog::btn_cancel(lang));
+    Command::new("zenity")
+        .args(["--entry", &ok_label, &cancel_label])
+        .arg(format!("--title={title}"))
+        .arg(format!("--text={text}"))
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
 }
@@ -296,6 +437,57 @@ fn wait_secret(mut child: Child) -> Option<Secret<String>> {
     }
 }
 
+/// Reads unmasked text from the child process's stdout. Kills the dialog after [`DIALOG_TIMEOUT`].
+fn wait_text(mut child: Child) -> Option<String> {
+    let deadline = Instant::now() + DIALOG_TIMEOUT;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                if !status.success() {
+                    return None;
+                }
+                let mut stdout = child.stdout.take()?;
+                let mut buf = String::new();
+                std::io::Read::read_to_string(&mut stdout, &mut buf).ok()?;
+                let trimmed = vf_core::clean_secret(&buf);
+                if trimmed.is_empty() {
+                    return None;
+                }
+                return Some(trimmed);
+            }
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(100)),
+            _ => {
+                let _ = child.kill();
+                return None;
+            }
+        }
+    }
+}
+
+/// Reads the secret from the child process's stdout, allowing empty string on OK. Kills the dialog after [`DIALOG_TIMEOUT`].
+fn wait_secret_optional(mut child: Child) -> Option<Secret<String>> {
+    let deadline = Instant::now() + DIALOG_TIMEOUT;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                if !status.success() {
+                    return None;
+                }
+                let mut stdout = child.stdout.take()?;
+                let mut buf = String::new();
+                std::io::Read::read_to_string(&mut stdout, &mut buf).ok()?;
+                let trimmed = vf_core::clean_secret(&buf);
+                return Some(Secret::new(trimmed));
+            }
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(100)),
+            _ => {
+                let _ = child.kill();
+                return None;
+            }
+        }
+    }
+}
+
 /// Always Allow, without showing anything. **Only for automated tests**; compiled in only with the
 /// `insecure-auto-approve` feature.
 #[cfg(feature = "insecure-auto-approve")]
@@ -319,5 +511,20 @@ impl ConfirmDialog for AutoApproveDialog {
             .ok()
             .filter(|s| !s.trim().is_empty())
             .map(Secret::new)
+    }
+
+    fn ask_text(&self, title: &str, _text: &str) -> Option<String> {
+        tracing::warn!(%title, "auto-approved text (insecure-auto-approve build)");
+        std::env::var("VF_AUTO_APPROVE_TEXT")
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+    }
+
+    fn ask_secret_optional(&self, title: &str, _text: &str) -> Option<Secret<String>> {
+        tracing::warn!(%title, "auto-approved optional secret (insecure-auto-approve build)");
+        std::env::var("VF_AUTO_APPROVE_SECRET")
+            .ok()
+            .map(|s| Secret::new(s.trim().to_owned()))
+            .or_else(|| Some(Secret::new(String::new())))
     }
 }

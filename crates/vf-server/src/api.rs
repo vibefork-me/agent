@@ -116,6 +116,14 @@ pub const ROUTES: &[Route] = &[
         session: true,
     },
     Route {
+        method: "POST",
+        path: "/v1/ai/disconnect",
+        summary: "Disconnect an AI provider (custom OpenAI API, OpenRouter key)",
+        request: Some("AiDisconnectRequest"),
+        response: Some("AiDisconnectResponse"),
+        session: true,
+    },
+    Route {
         method: "GET",
         path: "/v1/models",
         summary: "Models available now: logged-in CLIs and configured API keys",

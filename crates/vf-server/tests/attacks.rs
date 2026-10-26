@@ -1269,3 +1269,169 @@ async fn import_rate_limit_returns_429_with_structured_error() {
     assert_eq!(v["resetMinutes"], json!(42));
     assert!(v["error"].as_str().unwrap().contains("try again in 42 min"));
 }
+
+struct CustomAiDialog {
+    allow_pair: bool,
+    allow_confirm: bool,
+    endpoint: Option<String>,
+    secret: Option<String>,
+    model: Option<String>,
+}
+
+impl ConfirmDialog for CustomAiDialog {
+    fn confirm(&self, title: &str, _text: &str) -> bool {
+        if title.contains("browser") || title.contains("браузер") {
+            self.allow_pair
+        } else {
+            self.allow_confirm
+        }
+    }
+
+    fn ask_text(&self, title: &str, _text: &str) -> Option<String> {
+        if title.contains("value") || _text.contains("URL") || _text.contains("адрес") {
+            self.endpoint.clone()
+        } else {
+            self.model.clone()
+        }
+    }
+
+    fn ask_secret_optional(&self, _title: &str, _text: &str) -> Option<Secret<String>> {
+        self.secret.as_ref().map(|s| Secret::new(s.clone()))
+    }
+}
+
+#[tokio::test]
+async fn custom_ai_endpoint_rejects_non_loopback_http() {
+    let dir = temp_dir();
+    let browser = Browser::new();
+    let dialog = Arc::new(CustomAiDialog {
+        allow_pair: true,
+        allow_confirm: true,
+        endpoint: Some("http://evil.com/v1".into()),
+        secret: Some("".into()),
+        model: Some("llama3".into()),
+    });
+    let app = router(
+        Config {
+            port: PORT,
+            allowed_origins: vec![UI.into()],
+            extra_origins: vec![],
+        },
+        Auth::load(dir.clone(), dialog).unwrap(),
+        Arc::new(RwLock::new(None)),
+        common::backend(),
+    );
+    let key_id = pair(&app, &browser, UI).await;
+    let token = login(&app, &browser, &key_id, UI).await;
+
+    let (status, v, _) = call(
+        &app,
+        Req {
+            token: Some(&token),
+            ..Req::post("/v1/ai/connect", UI, json!({ "provider": "custom" }))
+        },
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(v["code"], json!("invalid_endpoint"));
+    assert!(v["error"].as_str().unwrap().contains("loopback"));
+}
+
+#[tokio::test]
+async fn custom_ai_endpoint_cannot_be_injected_from_request_body() {
+    let dir = temp_dir();
+    let browser = Browser::new();
+    // Native dialog returns None for endpoint
+    let dialog = Arc::new(CustomAiDialog {
+        allow_pair: true,
+        allow_confirm: true,
+        endpoint: None,
+        secret: Some("".into()),
+        model: None,
+    });
+    let app = router(
+        Config {
+            port: PORT,
+            allowed_origins: vec![UI.into()],
+            extra_origins: vec![],
+        },
+        Auth::load(dir.clone(), dialog).unwrap(),
+        Arc::new(RwLock::new(None)),
+        common::backend(),
+    );
+    let key_id = pair(&app, &browser, UI).await;
+    let token = login(&app, &browser, &key_id, UI).await;
+
+    // Page attempts to pass endpoint in body
+    let (status, v, _) = call(
+        &app,
+        Req {
+            token: Some(&token),
+            ..Req::post(
+                "/v1/ai/connect",
+                UI,
+                json!({ "provider": "custom", "endpoint": "http://localhost:11434" }),
+            )
+        },
+    )
+    .await;
+    // Dialog returned None, so agent dialog was cancelled, returned started: false
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(v["started"], json!(false));
+}
+
+#[tokio::test]
+async fn custom_ai_endpoint_requires_confirmation_with_warning() {
+    let dir = temp_dir();
+    let browser = Browser::new();
+    // User clicks Block on warning confirmation
+    let dialog = Arc::new(CustomAiDialog {
+        allow_pair: true,
+        allow_confirm: false,
+        endpoint: Some("http://localhost:11434/v1".into()),
+        secret: Some("".into()),
+        model: Some("llama3".into()),
+    });
+    let app = router(
+        Config {
+            port: PORT,
+            allowed_origins: vec![UI.into()],
+            extra_origins: vec![],
+        },
+        Auth::load(dir.clone(), dialog).unwrap(),
+        Arc::new(RwLock::new(None)),
+        common::backend(),
+    );
+    let key_id = pair(&app, &browser, UI).await;
+    let token = login(&app, &browser, &key_id, UI).await;
+
+    let (status, v, _) = call(
+        &app,
+        Req {
+            token: Some(&token),
+            ..Req::post("/v1/ai/connect", UI, json!({ "provider": "custom" }))
+        },
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(v["code"], json!("action_not_confirmed"));
+}
+
+#[tokio::test]
+async fn custom_ai_disconnect_route() {
+    let app = app(true);
+    let browser = Browser::new();
+    let key_id = pair(&app, &browser, UI).await;
+    let token = login(&app, &browser, &key_id, UI).await;
+
+    let (status, v, _) = call(
+        &app,
+        Req {
+            token: Some(&token),
+            ..Req::post("/v1/ai/disconnect", UI, json!({ "provider": "custom" }))
+        },
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(v["ok"], json!(true));
+}

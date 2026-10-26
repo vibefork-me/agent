@@ -167,6 +167,13 @@ fn providers(s: &Settings) -> Vec<Arc<dyn Provider>> {
                 .with_home(s.storage.tools.join("cli-home").join("codex"))
                 .with_mode(codex_mode),
         ),
+        Arc::new(OpenAiCompatible::custom_dynamic(
+            {
+                let s = s.clone();
+                move || s.custom_openai_config().map(|c| (c.endpoint, c.model))
+            },
+            vf_platform::secrets::custom_openai_key,
+        )),
         Arc::new(OpenAiCompatible::openrouter_dynamic(|| {
             vf_platform::secrets::openrouter_key()
         })),

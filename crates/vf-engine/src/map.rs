@@ -253,6 +253,9 @@ fn candidates(inventory: &[ModelInfo]) -> Vec<(&'static str, String, Duration)> 
     if has("codex", None) {
         out.push(("codex", String::new(), TIMEOUT));
     }
+    for custom in inventory.iter().filter(|m| m.provider == "custom") {
+        out.push(("custom", custom.model.clone(), API_TIMEOUT));
+    }
     for free in free_in_order(inventory).into_iter().take(FREE_TRIES) {
         out.push(("openrouter", free, API_TIMEOUT));
     }
