@@ -174,10 +174,16 @@ fn builds_leave_nothing_in_the_home_folder() {
     );
     write(
         &projects.join("node"),
-        &[(
-            "package.json",
-            r#"{"name":"canary","version":"1.0.0","scripts":{"build":"npm install --no-audit --no-fund is-number@7 && node -e \"require('fs').mkdirSync('dist',{recursive:true});require('fs').writeFileSync('dist/out.txt',String(require('is-number')(7)))\""}}"#,
-        )],
+        &[
+            (
+                "package.json",
+                r#"{"name":"canary","version":"1.0.0","dependencies":{"is-number":"7.0.0"},"scripts":{"build":"node -e \"require('fs').mkdirSync('dist',{recursive:true});require('fs').writeFileSync('dist/out.txt',String(require('is-number')(7)))\""}}"#,
+            ),
+            (
+                "package-lock.json",
+                r#"{"name":"canary","version":"1.0.0","lockfileVersion":3,"requires":true,"packages":{"":{"name":"canary","version":"1.0.0","dependencies":{"is-number":"7.0.0"}},"node_modules/is-number":{"version":"7.0.0","resolved":"https://registry.npmjs.org/is-number/-/is-number-7.0.0.tgz","integrity":"sha512-41Cifkg6e8TylSpdtTpeLVMqvSBEVzTttHvERD741+pnZ8ANv0004MRL43QKPDlK9cGvNp6NZWZUBlbGXYxxng==","engines":{"node":">=0.12.0"}}}}"#,
+            ),
+        ],
     );
 
     let settings = Settings {

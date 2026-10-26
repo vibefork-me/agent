@@ -96,6 +96,11 @@ pub fn profile(e: Ecosystem) -> Needs {
             disk: GB,
             minutes: 2,
         },
+        Ecosystem::Python => Needs {
+            memory: 2 * GB,
+            disk: GB,
+            minutes: 2,
+        },
     }
 }
 
