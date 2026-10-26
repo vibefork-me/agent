@@ -1000,6 +1000,13 @@
             "description": "The task or `[step n/m] title`.",
             "type": "string"
           },
+          "promptVersion": {
+            "description": "Prompt version used, if applicable (e.g. `plan:1`, `loop:1`).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "provider": {
             "description": "Provider (`planner` for plan records).",
             "type": "string"

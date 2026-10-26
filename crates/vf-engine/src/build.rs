@@ -169,6 +169,7 @@ impl Engine {
             ms: None,
             cost_usd: None,
             usage: None,
+            prompt_version: None,
         };
         self.journal
             .append(project, &entry)

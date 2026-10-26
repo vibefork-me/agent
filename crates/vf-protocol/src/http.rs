@@ -386,6 +386,9 @@ pub struct JournalEntry {
     /// Token usage.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage: Option<Usage>,
+    /// Prompt version used, if applicable (e.g. `plan:1`, `loop:1`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_version: Option<String>,
 }
 
 /// Request of `POST /v1/rollback`: reset the project to a checkpoint of its journal.

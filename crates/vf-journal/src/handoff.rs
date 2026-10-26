@@ -41,13 +41,7 @@ pub fn handoff_preamble(entries: &[JournalEntry]) -> String {
             s
         })
         .collect();
-    format!(
-        "You are continuing work on this project that was started in another session (possibly another AI model).\n\
-         History of earlier tasks (most recent last):\n{}\n\n\
-         The current state of the code is in this folder (see `git log` / `git show` for the checkpoints above). \
-         Do not redo finished work.\n\nNew task:\n",
-        lines.join("\n")
-    )
+    vf_core::prompts::get(vf_core::prompts::Stage::Handoff).render_handoff(&lines.join("\n"))
 }
 
 #[cfg(test)]
@@ -73,6 +67,7 @@ mod tests {
             ms: None,
             cost_usd: None,
             usage: None,
+            prompt_version: None,
         }
     }
 

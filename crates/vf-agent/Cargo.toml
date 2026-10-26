@@ -16,6 +16,7 @@ path = "src/main.rs"
 # Test builds only: with VF_AUTO_APPROVE=1 every confirm dialog is approved without being shown.
 insecure-auto-approve = ["vf-platform/insecure-auto-approve"]
 dev-extra-origins = ["vf-platform/dev-extra-origins"]
+dev-prompts-dir = ["vf-platform/dev-prompts-dir"]
 
 [dependencies]
 vf-cli.workspace = true

@@ -6,6 +6,7 @@ pub mod dialog;
 pub mod install;
 pub mod journal;
 pub mod projects;
+pub mod prompts;
 pub mod secrets;
 pub mod settings;
 pub mod storage;

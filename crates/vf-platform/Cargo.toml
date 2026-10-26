@@ -13,6 +13,8 @@ publish.workspace = true
 insecure-auto-approve = []
 # Development only: honour `extraOrigins` / `VF_EXTRA_ORIGINS`. Release builds must not enable it (checked in CI).
 dev-extra-origins = []
+# Development only: honour `VF_PROMPTS_DIR`. Release builds must not enable it (checked in CI).
+dev-prompts-dir = []
 # Enables reading provider credentials from environment variables in development builds.
 dev-env-secrets = []
 # Tests only: an in-memory secret store instead of the OS one. Release builds must not enable it (checked in CI).

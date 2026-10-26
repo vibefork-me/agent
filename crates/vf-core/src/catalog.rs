@@ -448,10 +448,9 @@ pub fn lang_code(lang: &str) -> Option<&str> {
     }
 }
 
-/// System instruction for model responses: plain language for a non-programmer,
-/// answering in the user's language.
-pub fn system_instruction(lang: &str) -> String {
-    let lang_rule = match lang_code(lang) {
+/// Language instruction for model responses.
+pub fn lang_rule(lang: &str) -> String {
+    match lang_code(lang) {
         Some(code) if code.eq_ignore_ascii_case("ru") || code.eq_ignore_ascii_case("russian") => {
             "Answer in Russian.".to_string()
         }
@@ -460,10 +459,13 @@ pub fn system_instruction(lang: &str) -> String {
         }
         Some(code) => format!("Answer in language `{code}`."),
         None => "Answer in English.".to_string(),
-    };
-    format!(
-        "The user is not a programmer: explain briefly what this means for them, without code or technical jargon. Provide technical details only if explicitly requested. {lang_rule}"
-    )
+    }
+}
+
+/// System instruction for model responses: plain language for a non-programmer,
+/// answering in the user's language.
+pub fn system_instruction(lang: &str) -> String {
+    crate::prompts::get(crate::prompts::Stage::Audience).render_audience(lang)
 }
 
 #[cfg(test)]
