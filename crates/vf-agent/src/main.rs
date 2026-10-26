@@ -174,6 +174,9 @@ fn providers(s: &Settings) -> Vec<Arc<dyn Provider>> {
             },
             vf_platform::secrets::custom_openai_key,
         )),
+        Arc::new(OpenAiCompatible::gemini_dynamic(
+            vf_platform::secrets::gemini_key,
+        )),
         Arc::new(OpenAiCompatible::openrouter_dynamic(|| {
             vf_platform::secrets::openrouter_key()
         })),

@@ -276,6 +276,9 @@ impl Engine {
         if let Some(custom) = inventory.iter().find(|m| m.provider == "custom") {
             candidates.push(("custom", custom.model.clone(), API_PLANNER_TIMEOUT));
         }
+        if let Some(gemini) = inventory.iter().find(|m| m.provider == "gemini") {
+            candidates.push(("gemini", gemini.model.clone(), API_PLANNER_TIMEOUT));
+        }
         if let Some(free) = inventory.iter().find(|m| m.provider == "openrouter") {
             candidates.push(("openrouter", free.model.clone(), API_PLANNER_TIMEOUT));
         }

@@ -286,7 +286,7 @@ impl Backend for Engine {
     }
 
     fn ai(&self) -> Result<AiResponse, BackendError> {
-        let order = ["claude", "codex", "custom", "openrouter"];
+        let order = ["claude", "codex", "custom", "gemini", "openrouter"];
         let mut providers: Vec<AiProvider> = Vec::new();
         for id in order {
             let Some(p) = self.provider(id) else {
@@ -310,7 +310,7 @@ impl Backend for Engine {
                 installing,
                 id: id.into(),
                 kind: match id {
-                    "openrouter" => AiKind::Free,
+                    "openrouter" | "gemini" => AiKind::Free,
                     "custom" => AiKind::Custom,
                     _ => AiKind::Subscription,
                 },
@@ -380,7 +380,7 @@ impl Backend for Engine {
     }
 
     fn connect_ai_key(&self, provider: &str, key: &str) -> Result<(), BackendError> {
-        if provider != "openrouter" {
+        if provider != "openrouter" && provider != "gemini" {
             return Err(BackendError::BadRequest("unknown provider for key".into()));
         }
         let p = self
@@ -388,7 +388,7 @@ impl Backend for Engine {
             .ok_or_else(|| BackendError::NotFound("no such provider".into()))?;
         let secret = Secret::new(key.to_owned());
         p.connect_key(&secret).map_err(BackendError::BadRequest)?;
-        vf_platform::secrets::set("openrouter", key)
+        vf_platform::secrets::set(provider, key)
             .map_err(|e| BackendError::Internal(format!("cannot save secret: {e}")))?;
         p.reload();
         Ok(())
@@ -449,9 +449,9 @@ impl Backend for Engine {
             }
             return Ok(());
         }
-        if provider == "openrouter" {
-            let _ = vf_platform::secrets::remove("openrouter");
-            if let Some(p) = self.provider("openrouter") {
+        if provider == "openrouter" || provider == "gemini" {
+            let _ = vf_platform::secrets::remove(provider);
+            if let Some(p) = self.provider(provider) {
                 p.reload();
             }
             return Ok(());

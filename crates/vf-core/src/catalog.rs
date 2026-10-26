@@ -184,6 +184,18 @@ pub fn openrouter_key_prompt(lang: Language) -> &'static str {
     }
 }
 
+/// Prompt for entering Google AI Studio (Gemini) API key with free tier training warning.
+pub fn gemini_key_prompt(lang: Language) -> &'static str {
+    match lang {
+        Language::En => {
+            "enter Google AI Studio (Gemini) API key (get one at aistudio.google.com):\n\nNote: Google free tier terms allow using inputs to train models."
+        }
+        Language::Ru => {
+            "введите API-ключ Google AI Studio (получите на aistudio.google.com):\n\nВнимание: по условиям Google бесплатный уровень может использовать запросы для обучения моделей."
+        }
+    }
+}
+
 /// Text entry dialog title.
 pub fn ask_text_title(lang: Language) -> &'static str {
     match lang {
@@ -573,6 +585,7 @@ mod tests {
             assert!(!ask_secret_title(lang).is_empty());
             assert!(!ask_secret_text(lang, "site", "prompt").is_empty());
             assert!(!openrouter_key_prompt(lang).is_empty());
+            assert!(!gemini_key_prompt(lang).is_empty());
             assert!(!btn_allow(lang).is_empty());
             assert!(!btn_block(lang).is_empty());
             assert!(!btn_ok(lang).is_empty());
