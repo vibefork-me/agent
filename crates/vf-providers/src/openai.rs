@@ -27,6 +27,9 @@ pub struct OpenAiCompatible {
     base_url: String,
     key_source: Box<dyn Fn() -> Option<Secret<String>> + Send + Sync>,
     cache: Mutex<Option<(Instant, Vec<ModelInfo>)>>,
+    /// Whether the API accepted the current key (`GET /key`): when checked, a fingerprint of the
+    /// key (not the key), the answer.
+    accepted: Mutex<Option<(Instant, u64, bool)>>,
 }
 
 impl OpenAiCompatible {
@@ -58,6 +61,7 @@ impl OpenAiCompatible {
             base_url: base_url.trim_end_matches('/').to_owned(),
             key_source: Box::new(key_source),
             cache: Mutex::new(None),
+            accepted: Mutex::new(None),
         }
     }
 
@@ -70,10 +74,39 @@ impl OpenAiCompatible {
             .filter(|k| !k.expose().is_empty())
     }
 
-    /// Clears any cached model list.
+    /// Clears any cached model list and key check.
     pub fn clear_cache(&self) {
         let mut cache = self.cache.lock().unwrap_or_else(|p| p.into_inner());
         *cache = None;
+        *self.accepted.lock().unwrap_or_else(|p| p.into_inner()) = None;
+    }
+
+    /// Whether the API accepts this key, checked with `GET /key` at most every [`MODELS_TTL`].
+    /// A network failure is not a verdict: the key counts as accepted until the API says no.
+    fn accepted(&self, key: &Secret<String>) -> bool {
+        use std::hash::{Hash as _, Hasher as _};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        key.expose().hash(&mut h);
+        let print = h.finish();
+        let mut cache = self.accepted.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some((at, p, ok)) = *cache
+            && p == print
+            && at.elapsed() < MODELS_TTL
+        {
+            return ok;
+        }
+        let ok = match key_accepted(&self.base_url, key) {
+            Ok(ok) => ok,
+            Err(e) => {
+                tracing::warn!(error = %e, provider = self.id, "key not checked");
+                return true;
+            }
+        };
+        if !ok {
+            tracing::warn!(provider = self.id, shape = %key_shape(key.expose()), "the API does not accept the key");
+        }
+        *cache = Some((Instant::now(), print, ok));
+        ok
     }
 
     fn client() -> Result<reqwest::Client, String> {
@@ -91,20 +124,9 @@ impl OpenAiCompatible {
             return Err("the key is empty".into());
         }
         let base = base_url.trim_end_matches('/');
-        block_on(async {
-            let res = Self::client()?
-                .get(format!("{base}/key"))
-                .bearer_auth(key.expose())
-                .header("x-title", "vibefork")
-                .send()
-                .await
-                .map_err(|_| "network error contacting OpenRouter".to_owned())?;
-            if res.status().is_success() {
-                Ok(())
-            } else {
-                Err("OpenRouter did not accept the key".to_owned())
-            }
-        })??;
+        if !key_accepted(base, key)? {
+            return Err("OpenRouter did not accept the key".to_owned());
+        }
         let url = format!("{base}/models");
         let body: Value = block_on(async {
             let res = Self::client()?
@@ -247,10 +269,11 @@ impl Provider for OpenAiCompatible {
     }
 
     fn status(&self) -> crate::Status {
-        let has_key = self.key().is_some();
+        // Signed in = a key the API accepts, not just any stored value.
+        let accepted = self.key().is_some_and(|k| self.accepted(&k));
         crate::Status {
             installed: true,
-            signed_in: Some(has_key),
+            signed_in: Some(accepted),
         }
     }
 
@@ -265,7 +288,7 @@ impl Provider for OpenAiCompatible {
     }
 
     fn models(&self) -> Vec<ModelInfo> {
-        let Some(key) = self.key() else {
+        let Some(key) = self.key().filter(|k| self.accepted(k)) else {
             return Vec::new();
         };
         let mut cache = self.cache.lock().unwrap_or_else(|p| p.into_inner());
@@ -512,6 +535,22 @@ mod tests {
             .collect();
         assert_eq!(ids, ["a/b:free", "c/d"]);
     }
+}
+
+/// `GET /key`: whether the API accepts the key (`Err` when the API could not be reached).
+fn key_accepted(base_url: &str, key: &Secret<String>) -> Result<bool, String> {
+    let base = base_url.trim_end_matches('/');
+    block_on(async {
+        let res = OpenAiCompatible::client()?
+            .get(format!("{base}/key"))
+            .bearer_auth(key.expose())
+            .header("x-title", "vibefork")
+            .timeout(Duration::from_secs(20))
+            .send()
+            .await
+            .map_err(|_| "network error contacting OpenRouter".to_owned())?;
+        Ok(res.status().is_success())
+    })?
 }
 
 /// What a rejected key looks like, without its value: length, the usual prefix, characters outside
