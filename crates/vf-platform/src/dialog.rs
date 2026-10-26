@@ -280,7 +280,8 @@ fn wait_secret(mut child: Child) -> Option<Secret<String>> {
                 let mut stdout = child.stdout.take()?;
                 let mut buf = String::new();
                 std::io::Read::read_to_string(&mut stdout, &mut buf).ok()?;
-                let trimmed = buf.trim().to_owned();
+                // Windows PowerShell may prefix its output with a byte order mark.
+                let trimmed = vf_core::clean_secret(&buf);
                 if trimmed.is_empty() {
                     return None;
                 }
