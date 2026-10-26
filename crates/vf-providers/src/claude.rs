@@ -22,8 +22,12 @@ pub struct Claude {
     bin: std::sync::RwLock<Option<PathBuf>>,
     /// When the sign-in was last checked, and its result.
     signed_in: std::sync::Mutex<Option<(std::time::Instant, bool)>>,
-    /// `CLAUDE_CONFIG_DIR`: sign-in, settings and sessions; `None` — the user's `~/.claude`.
-    home: Option<PathBuf>,
+    /// When the user's personal sign-in was last checked, and its result.
+    user_signed_in: std::sync::Mutex<Option<(std::time::Instant, bool)>>,
+    /// `CLAUDE_CONFIG_DIR`: sign-in, settings and sessions in agent mode.
+    agent_home: Option<PathBuf>,
+    /// Mode: agent or user.
+    mode: std::sync::RwLock<vf_protocol::CliHomeMode>,
 }
 
 impl Claude {
@@ -40,32 +44,86 @@ impl Claude {
         Self {
             bin: std::sync::RwLock::new(bin),
             signed_in: std::sync::Mutex::new(None),
-            home: None,
+            user_signed_in: std::sync::Mutex::new(None),
+            agent_home: None,
+            mode: std::sync::RwLock::new(vf_protocol::CliHomeMode::Agent),
         }
     }
 
-    /// Keeps the CLI's sign-in, settings and sessions in `home` instead of `~/.claude`.
+    /// Keeps the CLI's sign-in, settings and sessions in `home` in agent mode instead of `~/.claude`.
     pub fn with_home(mut self, home: PathBuf) -> Self {
-        self.home = Some(home);
+        self.agent_home = Some(home);
         self
+    }
+
+    /// Sets the CLI home mode (agent or user).
+    pub fn with_mode(self, mode: vf_protocol::CliHomeMode) -> Self {
+        *self.mode.write().unwrap_or_else(|p| p.into_inner()) = mode;
+        self
+    }
+
+    fn active_home(&self) -> Option<PathBuf> {
+        let mode = *self.mode.read().unwrap_or_else(|p| p.into_inner());
+        match mode {
+            vf_protocol::CliHomeMode::Agent => self.agent_home.clone(),
+            vf_protocol::CliHomeMode::User => None,
+        }
     }
 
     fn command(&self, bin: &Path) -> std::process::Command {
         let mut cmd = process::command(bin);
-        if let Some(home) = &self.home {
-            let _ = std::fs::create_dir_all(home);
+        if let Some(home) = self.active_home() {
+            let _ = std::fs::create_dir_all(&home);
             cmd.env(HOME_VAR, home);
+        } else {
+            cmd.env_remove(HOME_VAR);
         }
         cmd
     }
 
     fn env(&self, env: &ChildEnv) -> ChildEnv {
         let mut env = env.clone();
-        if let Some(home) = &self.home {
-            let _ = std::fs::create_dir_all(home);
+        if let Some(home) = self.active_home() {
+            let _ = std::fs::create_dir_all(&home);
             env.set(HOME_VAR, home.as_os_str());
+        } else {
+            env.remove(std::ffi::OsStr::new(HOME_VAR));
         }
         env
+    }
+
+    /// Whether the user has an existing login in `~/.claude` (without `CLAUDE_CONFIG_DIR`).
+    fn is_user_signed_in(&self) -> bool {
+        let Some(bin) = self.bin() else {
+            return false;
+        };
+        let mut cache = self
+            .user_signed_in
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        if let Some((at, ok)) = *cache
+            && at.elapsed() < std::time::Duration::from_secs(60)
+        {
+            return ok;
+        }
+        let mut out = String::new();
+        let mut cmd = process::command(&bin);
+        cmd.env_remove(HOME_VAR);
+        cmd.args(["auth", "status", "--json"]);
+        let exit = process::run_streaming(
+            cmd,
+            None,
+            &Cancel::new(),
+            Some(std::time::Duration::from_secs(20)),
+            &mut |stream, l| {
+                if matches!(stream, process::Stream::Stdout) {
+                    out.push_str(&l);
+                }
+            },
+        );
+        let ok = exit.is_ok_and(|e| e.code == 0) && signed_in_from_status(&out);
+        *cache = Some((std::time::Instant::now(), ok));
+        ok
     }
 
     /// Whether the user is signed in (`claude auth status`), cached for a minute.
@@ -274,7 +332,26 @@ impl Provider for Claude {
         crate::Status {
             installed: self.bin().is_some(),
             signed_in: Some(self.is_signed_in()),
+            user_signed_in: Some(self.is_user_signed_in()),
+            cli_home_mode: Some(*self.mode.read().unwrap_or_else(|p| p.into_inner())),
         }
+    }
+
+    fn reload(&self) {
+        *self.signed_in.lock().unwrap_or_else(|p| p.into_inner()) = None;
+        *self
+            .user_signed_in
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = None;
+    }
+
+    fn set_cli_home_mode(&self, mode: vf_protocol::CliHomeMode) {
+        *self.mode.write().unwrap_or_else(|p| p.into_inner()) = mode;
+        self.reload();
+    }
+
+    fn cli_home_mode(&self) -> Option<vf_protocol::CliHomeMode> {
+        Some(*self.mode.read().unwrap_or_else(|p| p.into_inner()))
     }
 
     fn connect(&self, timeout: std::time::Duration) -> Result<(), String> {
@@ -368,5 +445,50 @@ mod home_tests {
     fn without_a_home_the_environment_is_unchanged() {
         let env = Claude::detect().env(&ChildEnv::from_vars([]));
         assert_eq!(env.get(HOME_VAR), None);
+    }
+
+    #[test]
+    fn user_mode_does_not_set_claude_config_dir() {
+        let home = std::env::temp_dir().join(format!("vf-claude-user-{}", std::process::id()));
+        let claude = Claude::detect()
+            .with_home(home.clone())
+            .with_mode(vf_protocol::CliHomeMode::User);
+        let env = claude.env(&ChildEnv::from_vars([(
+            HOME_VAR.into(),
+            "existing_value".into(),
+        )]));
+        assert_eq!(env.get(HOME_VAR), None);
+        let cmd = claude.command(Path::new("claude"));
+        assert!(
+            cmd.get_envs().any(|(k, v)| k == HOME_VAR && v.is_none()),
+            "CLAUDE_CONFIG_DIR must be explicitly removed in user mode"
+        );
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn switching_cli_home_mode_toggles_environment() {
+        let home = std::env::temp_dir().join(format!("vf-claude-toggle-{}", std::process::id()));
+        let claude = Claude::detect().with_home(home.clone());
+        assert_eq!(
+            claude.cli_home_mode(),
+            Some(vf_protocol::CliHomeMode::Agent)
+        );
+        let env = claude.env(&ChildEnv::from_vars([]));
+        assert_eq!(env.get(HOME_VAR), Some(home.as_os_str()));
+
+        claude.set_cli_home_mode(vf_protocol::CliHomeMode::User);
+        assert_eq!(claude.cli_home_mode(), Some(vf_protocol::CliHomeMode::User));
+        let env = claude.env(&ChildEnv::from_vars([]));
+        assert_eq!(env.get(HOME_VAR), None);
+
+        claude.set_cli_home_mode(vf_protocol::CliHomeMode::Agent);
+        assert_eq!(
+            claude.cli_home_mode(),
+            Some(vf_protocol::CliHomeMode::Agent)
+        );
+        let env = claude.env(&ChildEnv::from_vars([]));
+        assert_eq!(env.get(HOME_VAR), Some(home.as_os_str()));
+        let _ = std::fs::remove_dir_all(&home);
     }
 }

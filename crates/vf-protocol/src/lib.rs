@@ -12,6 +12,7 @@ pub mod ws;
 
 pub use backend::{Backend, BackendError, Cancel, TaskRequest};
 pub use event::{Event, Usage};
+pub use http::CliHomeMode;
 pub use model::{CostClass, ModelInfo};
 
 /// Current API version prefix.

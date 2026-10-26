@@ -63,6 +63,14 @@ pub struct ConfigFile {
     /// Storage paths; missing ones use defaults.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub storage: Option<StorageConfig>,
+    /// CLI home mode per provider ("agent" or "user").
+    #[serde(
+        default,
+        rename = "cliHome",
+        alias = "cli_home",
+        skip_serializing_if = "std::collections::BTreeMap::is_empty"
+    )]
+    pub cli_home: std::collections::BTreeMap<String, vf_protocol::CliHomeMode>,
 }
 
 /// Storage paths in `config.json`.
@@ -212,6 +220,32 @@ impl Settings {
             artifacts: Some(storage.artifacts.clone()),
         });
         write_config(&self.state_dir, &file)
+    }
+
+    /// CLI home mode for a provider (default `Agent`).
+    pub fn cli_home_mode(&self, provider: &str) -> vf_protocol::CliHomeMode {
+        let file = read_config(&self.state_dir);
+        file.cli_home.get(provider).copied().unwrap_or_default()
+    }
+
+    /// Stores the CLI home mode for a provider in `config.json`.
+    pub fn save_cli_home_mode(
+        &self,
+        provider: &str,
+        mode: vf_protocol::CliHomeMode,
+    ) -> std::io::Result<()> {
+        Self::save_cli_home_mode_at(&self.state_dir, provider, mode)
+    }
+
+    /// Stores the CLI home mode for a provider in `state_dir/config.json`.
+    pub fn save_cli_home_mode_at(
+        state_dir: &Path,
+        provider: &str,
+        mode: vf_protocol::CliHomeMode,
+    ) -> std::io::Result<()> {
+        let mut file = read_config(state_dir);
+        file.cli_home.insert(provider.to_owned(), mode);
+        write_config(state_dir, &file)
     }
 }
 
@@ -406,6 +440,42 @@ mod tests {
         assert!(write_update_notice(&dir, "1.2.4").is_ok());
         clear_update_notice(&dir);
         assert_eq!(read_update_notice(&dir), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cli_home_persists_and_defaults_to_agent() {
+        let dir = temp_dir("cli-home");
+        let settings = Settings {
+            state_dir: dir.clone(),
+            port: 1,
+            extra_origins: Vec::new(),
+            ignored_extra_origins: Vec::new(),
+            ui_bundle_url: String::new(),
+            storage: Storage {
+                projects: dir.join("p"),
+                tools: dir.join("t"),
+                caches: dir.join("c"),
+                artifacts: dir.join("a"),
+            },
+            update_url: String::new(),
+            auto_update: true,
+            simulate_clean_machine: false,
+        };
+        assert_eq!(
+            settings.cli_home_mode("claude"),
+            vf_protocol::CliHomeMode::Agent
+        );
+        assert!(
+            settings
+                .save_cli_home_mode("claude", vf_protocol::CliHomeMode::User)
+                .is_ok()
+        );
+        assert_eq!(
+            settings.cli_home_mode("claude"),
+            vf_protocol::CliHomeMode::User
+        );
+        let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

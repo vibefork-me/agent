@@ -110,6 +110,17 @@ impl Backend for FakeBackend {
     fn connect_ai(&self, _: &str) -> Result<(), BackendError> {
         Ok(())
     }
+    fn set_cli_home_mode(
+        &self,
+        provider: &str,
+        _: vf_protocol::CliHomeMode,
+    ) -> Result<(), BackendError> {
+        if provider == "claude" || provider == "codex" {
+            Ok(())
+        } else {
+            Err(BackendError::BadRequest("unknown provider".into()))
+        }
+    }
     fn connect_ai_key(&self, provider: &str, key: &str) -> Result<(), BackendError> {
         if provider != "openrouter" {
             return Err(BackendError::BadRequest("unknown provider for key".into()));

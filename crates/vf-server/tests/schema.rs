@@ -42,6 +42,7 @@ fn definitions() -> Map<String, Value> {
         AiProvider,
         AiKind,
         AiConnected,
+        CliHomeMode,
         AiConnectRequest,
         AiConnectResponse,
         JournalResponse,

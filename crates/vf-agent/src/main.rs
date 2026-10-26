@@ -154,9 +154,19 @@ fn engine(s: &Settings) -> Engine {
 /// Providers found on this machine: CLIs on PATH and API keys in the secret store. The CLIs keep
 /// their sign-in and settings in the agent's tools folder, not in the user's home.
 fn providers(s: &Settings) -> Vec<Arc<dyn Provider>> {
+    let claude_mode = s.cli_home_mode("claude");
+    let codex_mode = s.cli_home_mode("codex");
     vec![
-        Arc::new(Claude::detect().with_home(s.storage.tools.join("cli-home").join("claude"))),
-        Arc::new(Codex::detect().with_home(s.storage.tools.join("cli-home").join("codex"))),
+        Arc::new(
+            Claude::detect()
+                .with_home(s.storage.tools.join("cli-home").join("claude"))
+                .with_mode(claude_mode),
+        ),
+        Arc::new(
+            Codex::detect()
+                .with_home(s.storage.tools.join("cli-home").join("codex"))
+                .with_mode(codex_mode),
+        ),
         Arc::new(OpenAiCompatible::openrouter_dynamic(|| {
             vf_platform::secrets::openrouter_key()
         })),

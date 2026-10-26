@@ -144,6 +144,22 @@ pub fn action_connect_ai_key(lang: Language, provider_name: &str) -> String {
     }
 }
 
+/// Action prompt: switch AI provider to user's personal CLI home.
+pub fn action_connect_ai_user_home(lang: Language, provider_name: &str) -> String {
+    match lang {
+        Language::En => {
+            format!(
+                "Allow Vibefork to use your {provider_name} login? Agent sessions will appear in your {provider_name} history."
+            )
+        }
+        Language::Ru => {
+            format!(
+                "Разрешить Vibefork работать с вашим входом в {provider_name}? Сессии агента появятся в вашей истории {provider_name}."
+            )
+        }
+    }
+}
+
 /// Secret dialog title.
 pub fn ask_secret_title(lang: Language) -> &'static str {
     match lang {
@@ -487,6 +503,7 @@ mod tests {
             assert!(!action_save(lang).is_empty());
             assert!(!action_connect_ai_subscription(lang, "Claude").is_empty());
             assert!(!action_connect_ai_key(lang, "OpenRouter").is_empty());
+            assert!(!action_connect_ai_user_home(lang, "Claude Code").is_empty());
             assert!(!ask_secret_title(lang).is_empty());
             assert!(!ask_secret_text(lang, "site", "prompt").is_empty());
             assert!(!openrouter_key_prompt(lang).is_empty());

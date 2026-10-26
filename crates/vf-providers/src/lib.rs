@@ -134,10 +134,20 @@ pub trait Provider: Send + Sync {
         Status {
             installed: ok,
             signed_in: Some(ok),
+            user_signed_in: None,
+            cli_home_mode: None,
         }
     }
     /// Reloads or invalidates any cached state (e.g. models or credentials).
     fn reload(&self) {}
+    /// Changes the CLI home mode (agent or user).
+    fn set_cli_home_mode(&self, mode: vf_protocol::CliHomeMode) {
+        let _ = mode;
+    }
+    /// Returns the current CLI home mode, if applicable.
+    fn cli_home_mode(&self) -> Option<vf_protocol::CliHomeMode> {
+        None
+    }
 }
 
 /// Whether a provider is set up.
@@ -147,6 +157,10 @@ pub struct Status {
     pub installed: bool,
     /// The user is signed in or a key is present; `None` — unknown.
     pub signed_in: Option<bool>,
+    /// Whether the user has an existing personal login in their personal home.
+    pub user_signed_in: Option<bool>,
+    /// Current CLI home mode (agent or user).
+    pub cli_home_mode: Option<vf_protocol::CliHomeMode>,
 }
 
 /// Collects what a run reports through its events.
