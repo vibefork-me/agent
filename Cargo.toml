@@ -47,6 +47,7 @@ vf-updater = { path = "crates/vf-updater" }
 vf-cli = { path = "crates/vf-cli" }
 vf-engine = { path = "crates/vf-engine" }
 vf-github = { path = "crates/vf-github" }
+vf-eval = { path = "crates/vf-eval" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"          # vf-platform and vf-sandbox opt out with "deny" + per-site justification

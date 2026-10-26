@@ -3830,6 +3830,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "vf-eval"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "vf-core",
+ "vf-engine",
+ "vf-orchestrator",
+ "vf-platform",
+ "vf-protocol",
+ "vf-providers",
+]
+
+[[package]]
 name = "vf-git"
 version = "0.0.0"
 dependencies = [
