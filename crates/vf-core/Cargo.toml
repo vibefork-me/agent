@@ -12,8 +12,5 @@ publish.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 
-[features]
-dev-prompts-dir = []
-
 [lints]
 workspace = true

@@ -48,15 +48,11 @@ jobs:
       - name: Dev-only origins (feature on)
         run: cargo test -p vf-platform --features dev-extra-origins
       - name: Dev prompts dir (feature on)
-        run: cargo test -p vf-core --features dev-prompts-dir
+        run: cargo test -p vf-platform --features dev-prompts-dir
       - name: Default build has no dev or insecure features
         run: |
-          if cargo tree -p vf-agent -e features -i vf-platform | grep -E 'vf-platform feature "(dev-extra-origins|insecure-auto-approve|test-store)"'; then
+          if cargo tree -p vf-agent -e features -i vf-platform | grep -E 'vf-platform feature "(dev-extra-origins|dev-prompts-dir|insecure-auto-approve|test-store)"'; then
             echo "a default vf-agent build enables a development-only feature" >&2
-            exit 1
-          fi
-          if cargo tree -p vf-agent -e features -i vf-core | grep -E 'vf-core feature "dev-prompts-dir"'; then
-            echo "a default vf-agent build enables a development-only feature (dev-prompts-dir)" >&2
             exit 1
           fi
 

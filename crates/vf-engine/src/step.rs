@@ -308,10 +308,12 @@ impl Engine {
             Some(s) => format!("step {}/{}: {}", s.n, s.of, s.title),
             None => req.prompt.lines().next().unwrap_or_default().to_owned(),
         };
+        let audience_tag = vf_platform::prompts::get(vf_core::prompts::Stage::Audience).tag();
         let prompt_version = if id == "openai" {
-            Some(vf_core::prompts::get(vf_core::prompts::Stage::Loop).tag())
+            let loop_tag = vf_platform::prompts::get(vf_core::prompts::Stage::Loop).tag();
+            Some(format!("{loop_tag},{audience_tag}"))
         } else {
-            None
+            Some(audience_tag)
         };
         let report = StepReport {
             provider: id.to_owned(),

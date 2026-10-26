@@ -284,7 +284,7 @@ impl Engine {
         let env = ChildEnv::from_current();
         let cancel = Cancel::new();
         let mut tried = Vec::new();
-        let map_prompt = vf_core::prompts::get(vf_core::prompts::Stage::Map);
+        let map_prompt = vf_platform::prompts::get(vf_core::prompts::Stage::Map);
         for (provider, model, timeout) in list {
             let Some(p) = self.provider(provider) else {
                 continue;
