@@ -20,6 +20,7 @@ async fn bundle_server(
     version: &str,
     expires_at: Option<i64>,
     cert_purpose: Option<&str>,
+    cert_expires_at: Option<i64>,
     file_requests: Arc<AtomicUsize>,
 ) -> String {
     let content = b"bundle bytes".to_vec();
@@ -55,7 +56,7 @@ async fn bundle_server(
                 &base64::engine::general_purpose::STANDARD,
                 signer.verifying_key().to_bytes(),
             ),
-            expires_at: i64::MAX,
+            expires_at: cert_expires_at.unwrap_or(i64::MAX),
             purpose: purpose.to_owned(),
         };
         let cert_json = serde_json::to_vec(&cert).unwrap();
@@ -82,12 +83,14 @@ fn temp_dir(tag: &str) -> std::path::PathBuf {
 #[tokio::test]
 async fn expired_download_is_rejected_but_expired_cache_still_loads() {
     let root = SigningKey::generate(&mut OsRng);
+    let subkey = SigningKey::generate(&mut OsRng);
     let network_file_requests = counter();
     let expired_url = bundle_server(
         &root,
-        &root,
+        &subkey,
         "1.0.0",
         Some(0),
+        Some("bundle"),
         None,
         network_file_requests.clone(),
     )
@@ -110,7 +113,26 @@ async fn expired_download_is_rejected_but_expired_cache_still_loads() {
     };
     let manifest_json = serde_json::to_vec(&manifest).unwrap();
     std::fs::write(cache_dir.join("manifest.json"), &manifest_json).unwrap();
-    std::fs::write(cache_dir.join("manifest.sig"), sign(&manifest_json, &root)).unwrap();
+    std::fs::write(
+        cache_dir.join("manifest.sig"),
+        sign(&manifest_json, &subkey),
+    )
+    .unwrap();
+    let cert = SubkeyCert {
+        public_key: base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            subkey.verifying_key().to_bytes(),
+        ),
+        expires_at: i64::MAX,
+        purpose: "bundle".into(),
+    };
+    let cert_json = serde_json::to_vec(&cert).unwrap();
+    std::fs::write(cache_dir.join("subkey.cert.json"), &cert_json).unwrap();
+    std::fs::write(
+        cache_dir.join("subkey.cert.sig"),
+        sign_subkey_cert(&cert_json, &root),
+    )
+    .unwrap();
     std::fs::write(cache_dir.join("index.html"), b"cached").unwrap();
     std::fs::write(cache.join("current"), "1.0.0").unwrap();
     assert_eq!(
@@ -125,10 +147,19 @@ async fn expired_download_is_rejected_but_expired_cache_still_loads() {
 #[tokio::test]
 async fn bundle_download_rejects_rollback_and_does_not_refetch_equal_version() {
     let root = SigningKey::generate(&mut OsRng);
+    let subkey = SigningKey::generate(&mut OsRng);
     let cache = temp_dir("rollback");
     let initial_requests = counter();
-    let initial_url =
-        bundle_server(&root, &root, "2.0.0", None, None, initial_requests.clone()).await;
+    let initial_url = bundle_server(
+        &root,
+        &subkey,
+        "2.0.0",
+        None,
+        Some("bundle"),
+        None,
+        initial_requests.clone(),
+    )
+    .await;
     assert_eq!(
         UiBundle::download(&initial_url, &root.verifying_key(), &cache)
             .await
@@ -139,7 +170,16 @@ async fn bundle_download_rejects_rollback_and_does_not_refetch_equal_version() {
     assert_eq!(initial_requests.load(Ordering::SeqCst), 1);
 
     let old_requests = counter();
-    let old_url = bundle_server(&root, &root, "1.9.0", None, None, old_requests.clone()).await;
+    let old_url = bundle_server(
+        &root,
+        &subkey,
+        "1.9.0",
+        None,
+        Some("bundle"),
+        None,
+        old_requests.clone(),
+    )
+    .await;
     assert!(matches!(
         UiBundle::download(&old_url, &root.verifying_key(), &cache).await,
         Err(vf_updater::bundle::BundleError::Signature(
@@ -149,7 +189,16 @@ async fn bundle_download_rejects_rollback_and_does_not_refetch_equal_version() {
     assert_eq!(old_requests.load(Ordering::SeqCst), 0);
 
     let equal_requests = counter();
-    let equal_url = bundle_server(&root, &root, "2.0.0", None, None, equal_requests.clone()).await;
+    let equal_url = bundle_server(
+        &root,
+        &subkey,
+        "2.0.0",
+        None,
+        Some("bundle"),
+        None,
+        equal_requests.clone(),
+    )
+    .await;
     assert_eq!(
         UiBundle::download(&equal_url, &root.verifying_key(), &cache)
             .await
@@ -159,7 +208,16 @@ async fn bundle_download_rejects_rollback_and_does_not_refetch_equal_version() {
     );
     assert_eq!(equal_requests.load(Ordering::SeqCst), 0);
 
-    let newer_url = bundle_server(&root, &root, "2.1.0", None, None, counter()).await;
+    let newer_url = bundle_server(
+        &root,
+        &subkey,
+        "2.1.0",
+        None,
+        Some("bundle"),
+        None,
+        counter(),
+    )
+    .await;
     assert_eq!(
         UiBundle::download(&newer_url, &root.verifying_key(), &cache)
             .await
@@ -174,7 +232,16 @@ async fn bundle_download_rejects_rollback_and_does_not_refetch_equal_version() {
 async fn subkey_signed_bundle_and_certificate_load_from_cache() {
     let root = SigningKey::generate(&mut OsRng);
     let subkey = SigningKey::generate(&mut OsRng);
-    let url = bundle_server(&root, &subkey, "3.0.0", None, Some("bundle"), counter()).await;
+    let url = bundle_server(
+        &root,
+        &subkey,
+        "3.0.0",
+        None,
+        Some("bundle"),
+        None,
+        counter(),
+    )
+    .await;
     let cache = temp_dir("subkey");
     assert!(
         UiBundle::download(&url, &root.verifying_key(), &cache)
@@ -197,11 +264,66 @@ async fn subkey_signed_bundle_and_certificate_load_from_cache() {
 async fn ui_rejects_a_release_purpose_subkey() {
     let root = SigningKey::generate(&mut OsRng);
     let subkey = SigningKey::generate(&mut OsRng);
-    let url = bundle_server(&root, &subkey, "1.0.0", None, Some("release"), counter()).await;
+    let url = bundle_server(
+        &root,
+        &subkey,
+        "1.0.0",
+        None,
+        Some("release"),
+        None,
+        counter(),
+    )
+    .await;
     assert!(matches!(
         UiBundle::download(&url, &root.verifying_key(), &temp_dir("purpose")).await,
         Err(vf_updater::bundle::BundleError::Signature(
             SignatureError::SubkeyCertMismatch
         ))
     ));
+}
+
+#[tokio::test]
+async fn bundle_without_subkey_cert_is_rejected() {
+    let root = SigningKey::generate(&mut OsRng);
+    let url = bundle_server(&root, &root, "1.0.0", None, None, None, counter()).await;
+    let cache = temp_dir("no-cert");
+    let res = UiBundle::download(&url, &root.verifying_key(), &cache).await;
+    assert!(
+        matches!(
+            res,
+            Err(vf_updater::bundle::BundleError::Signature(
+                SignatureError::SubkeyCertMissing
+            ))
+        ),
+        "A UI bundle without a certified subkey must be rejected, got: {res:?}"
+    );
+    let _ = std::fs::remove_dir_all(cache);
+}
+
+#[tokio::test]
+async fn bundle_with_expired_subkey_cert_is_rejected() {
+    let root = SigningKey::generate(&mut OsRng);
+    let subkey = SigningKey::generate(&mut OsRng);
+    let url = bundle_server(
+        &root,
+        &subkey,
+        "1.0.0",
+        None,
+        Some("bundle"),
+        Some(0), // expired cert in 1970
+        counter(),
+    )
+    .await;
+    let cache = temp_dir("expired-cert");
+    let res = UiBundle::download(&url, &root.verifying_key(), &cache).await;
+    assert!(
+        matches!(
+            res,
+            Err(vf_updater::bundle::BundleError::Signature(
+                SignatureError::SubkeyCertExpired
+            ))
+        ),
+        "A UI bundle with an expired subkey cert must be rejected, got: {res:?}"
+    );
+    let _ = std::fs::remove_dir_all(cache);
 }
