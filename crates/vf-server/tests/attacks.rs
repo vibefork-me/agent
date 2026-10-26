@@ -153,12 +153,16 @@ struct Browser {
 
 impl Browser {
     fn new() -> Self {
+        let mut b = [0u8; 32];
+        rand::RngCore::fill_bytes(&mut OsRng, &mut b);
+        b[0] &= 0x7f;
+        b[31] |= 0x01;
         Self {
-            key: SigningKey::random(&mut OsRng),
+            key: SigningKey::from_slice(&b).unwrap(),
         }
     }
     fn jwk(&self) -> Value {
-        let point = self.key.verifying_key().to_encoded_point(false);
+        let point = self.key.verifying_key().to_sec1_point(false);
         json!({ "kty": "EC", "crv": "P-256", "x": URL_SAFE_NO_PAD.encode(point.x().unwrap()), "y": URL_SAFE_NO_PAD.encode(point.y().unwrap()) })
     }
     fn sign(&self, nonce: &str) -> String {
