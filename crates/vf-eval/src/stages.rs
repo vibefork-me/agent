@@ -151,14 +151,70 @@ pub(crate) fn run_stage(
                                 let parts = v["parts"].as_array();
                                 let links = v["links"].as_array();
                                 if let (Some(p), Some(_)) = (parts, links) {
-                                    if p.len() >= 2 && p.len() <= 12 {
-                                        (true, true, None)
-                                    } else {
+                                    if p.len() < 2 || p.len() > 12 {
                                         (
                                             true,
                                             false,
                                             Some(format!("Invalid parts count: {}", p.len())),
                                         )
+                                    } else {
+                                        let mut path_err = None;
+                                        for part in p {
+                                            let paths_arr = match part["paths"].as_array() {
+                                                Some(arr) => arr,
+                                                None => {
+                                                    path_err = Some(
+                                                        "Missing 'paths' array in part".to_string(),
+                                                    );
+                                                    break;
+                                                }
+                                            };
+                                            if paths_arr.is_empty() {
+                                                path_err =
+                                                    Some("Empty 'paths' array in part".to_string());
+                                                break;
+                                            }
+                                            for path_val in paths_arr {
+                                                let p_str = match path_val.as_str() {
+                                                    Some(s) => s.trim(),
+                                                    None => {
+                                                        path_err = Some(
+                                                            "Non-string item in 'paths' array"
+                                                                .to_string(),
+                                                        );
+                                                        break;
+                                                    }
+                                                };
+                                                // Verify path doesn't escape project root
+                                                if p_str.starts_with('/')
+                                                    || p_str.starts_with('\\')
+                                                    || p_str.contains("..")
+                                                    || p_str.contains(':')
+                                                {
+                                                    path_err = Some(format!(
+                                                        "Path escapes project directory: '{p_str}'"
+                                                    ));
+                                                    break;
+                                                }
+                                                // Verify path exists in materialized project
+                                                let full_path = work_dir.join(p_str);
+                                                if !full_path.exists() {
+                                                    path_err = Some(format!(
+                                                        "Path '{p_str}' does not exist in project"
+                                                    ));
+                                                    break;
+                                                }
+                                            }
+                                            if path_err.is_some() {
+                                                break;
+                                            }
+                                        }
+
+                                        if let Some(e) = path_err {
+                                            (false, false, Some(e))
+                                        } else {
+                                            (true, true, None)
+                                        }
                                     }
                                 } else {
                                     (
@@ -210,11 +266,23 @@ pub(crate) fn run_stage(
                     let elapsed = t0.elapsed().as_millis() as u64;
                     let (format_ok, success, err) =
                         match vf_orchestrator::parse_rating(&ans.text, "eval") {
-                            Some(rating) => (
-                                true,
-                                matches!(rating.complexity.as_str(), "simple" | "medium" | "hard"),
-                                None,
-                            ),
+                            Some(rating) => {
+                                if matches!(
+                                    rating.complexity.as_str(),
+                                    "simple" | "medium" | "hard"
+                                ) {
+                                    (true, true, None)
+                                } else {
+                                    (
+                                        false,
+                                        false,
+                                        Some(format!(
+                                            "Invalid complexity value: '{}'",
+                                            rating.complexity
+                                        )),
+                                    )
+                                }
+                            }
                             None => (
                                 false,
                                 false,
@@ -355,7 +423,31 @@ pub(crate) fn run_stage(
                     let elapsed = t0.elapsed().as_millis() as u64;
                     let has_code_fence = ans.text.contains("```");
                     let non_empty = !ans.text.trim().is_empty();
-                    let success = non_empty && !has_code_fence;
+                    let cyrillic_chars = ans
+                        .text
+                        .chars()
+                        .filter(|c| ('\u{0400}'..='\u{04FF}').contains(c))
+                        .count();
+                    let has_expected_language = cyrillic_chars >= 5;
+
+                    let (success, err) = if !non_empty {
+                        (false, Some("Empty response".into()))
+                    } else if has_code_fence {
+                        (
+                            false,
+                            Some("Contains markdown code fence in audience response".into()),
+                        )
+                    } else if !has_expected_language {
+                        (
+                            false,
+                            Some(
+                                "Audience response language mismatch (expected Russian, got no Cyrillic)".into(),
+                            ),
+                        )
+                    } else {
+                        (true, None)
+                    };
+
                     StageRunResult {
                         stage,
                         project: project.id.into(),
@@ -364,13 +456,7 @@ pub(crate) fn run_stage(
                         latency_ms: elapsed,
                         cost_usd: ans.cost_usd,
                         raw_response: ans.text.chars().take(1000).collect(),
-                        error: if has_code_fence {
-                            Some("Contains markdown code fence in audience response".into())
-                        } else if !non_empty {
-                            Some("Empty response".into())
-                        } else {
-                            None
-                        },
+                        error: err,
                     }
                 }
                 Err(e) => StageRunResult {
