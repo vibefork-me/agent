@@ -18,11 +18,30 @@ pub fn download(url: &str, dest: &Path, sha256: &str, cancel: &Cancel) -> Result
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     let part = dest.with_extension("part");
-    fetch(url, &part, cancel)?;
-    let got = file_hash(&part)?;
-    if got != sha256 {
+    // A complete `.part` left by an interrupted run (downloaded, not yet renamed).
+    if part.exists() && file_hash(&part)? == sha256 {
+        return std::fs::rename(&part, dest).map_err(|e| e.to_string());
+    }
+    let resumed = part.exists();
+    let fetched = fetch(url, &part, cancel);
+    let good = fetched.is_ok() && file_hash(&part)? == sha256;
+    if !good {
+        if matches!(&fetched, Err(e) if e == "cancelled") {
+            return fetched;
+        }
+        // A stale or damaged `.part` (the server answers 416, or the joined file is wrong):
+        // start over once from the first byte.
         let _ = std::fs::remove_file(&part);
-        return Err(format!("checksum mismatch for {url}: {got}"));
+        if resumed {
+            fetch(url, &part, cancel)?;
+        } else {
+            fetched?;
+        }
+        let got = file_hash(&part)?;
+        if got != sha256 {
+            let _ = std::fs::remove_file(&part);
+            return Err(format!("checksum mismatch for {url}: {got}"));
+        }
     }
     std::fs::rename(&part, dest).map_err(|e| e.to_string())
 }
@@ -114,6 +133,20 @@ mod tests {
             )
             .is_err()
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_complete_part_file_is_used_without_the_network() {
+        let dir = std::env::temp_dir().join(format!("vf-dl-part-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let f = dir.join("x.bin");
+        assert!(std::fs::write(dir.join("x.part"), b"abc").is_ok());
+        let abc = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        // Port 9 never answers: success means the `.part` was taken as is (no Range request,
+        // which a server answers with 416 when the file is already complete).
+        assert!(download("http://127.0.0.1:9/never", &f, abc, &Cancel::new()).is_ok());
+        assert_eq!(std::fs::read(&f).ok().as_deref(), Some(&b"abc"[..]));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
