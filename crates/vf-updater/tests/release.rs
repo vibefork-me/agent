@@ -12,7 +12,13 @@ use vf_updater::Manifest;
 use vf_updater::release::{Release, asset_name, install, previous, rollback};
 use vf_updater::signing::{SubkeyCert, sha256_hex, sign, sign_subkey_cert};
 
-async fn channel(key: &SigningKey, version: &str, binary: Vec<u8>, served: Vec<u8>) -> String {
+async fn channel(
+    root: &SigningKey,
+    subkey: &SigningKey,
+    version: &str,
+    binary: Vec<u8>,
+    served: Vec<u8>,
+) -> String {
     let asset = asset_name("vibefork");
     let manifest = Manifest {
         version: version.into(),
@@ -20,10 +26,28 @@ async fn channel(key: &SigningKey, version: &str, binary: Vec<u8>, served: Vec<u
         expires_at: None,
     };
     let m = serde_json::to_vec(&manifest).unwrap();
-    let sig = sign(&m, key);
+    let sig = sign(&m, subkey);
+    let cert = SubkeyCert {
+        public_key: base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            subkey.verifying_key().to_bytes(),
+        ),
+        expires_at: i64::MAX,
+        purpose: "release".into(),
+    };
+    let cert_json = serde_json::to_vec(&cert).unwrap();
+    let cert_sig = sign_subkey_cert(&cert_json, root);
     let app = Router::new()
         .route("/stable/manifest.json", get(move || async move { m }))
         .route("/stable/manifest.sig", get(move || async move { sig }))
+        .route(
+            "/stable/subkey.cert.json",
+            get(move || async move { cert_json }),
+        )
+        .route(
+            "/stable/subkey.cert.sig",
+            get(move || async move { cert_sig }),
+        )
         .route(
             &format!("/stable/{asset}"),
             get(move || async move { served }),
@@ -83,9 +107,10 @@ async fn subkey_channel(root: &SigningKey, subkey: &SigningKey, purpose: &str) -
 
 #[tokio::test]
 async fn verified_binary_only() {
-    let key = SigningKey::generate(&mut OsRng);
-    let url = channel(&key, "9.9.9", b"good".to_vec(), b"good".to_vec()).await;
-    let r = Release::fetch(&url, &key.verifying_key()).await.unwrap();
+    let root = SigningKey::generate(&mut OsRng);
+    let subkey = SigningKey::generate(&mut OsRng);
+    let url = channel(&root, &subkey, "9.9.9", b"good".to_vec(), b"good".to_vec()).await;
+    let r = Release::fetch(&url, &root.verifying_key()).await.unwrap();
     assert_eq!(r.version(), "9.9.9");
     assert_eq!(r.download(&asset_name("vibefork")).await.unwrap(), b"good");
     assert!(
@@ -93,8 +118,8 @@ async fn verified_binary_only() {
         "not in the manifest"
     );
 
-    let tampered = channel(&key, "9.9.9", b"good".to_vec(), b"evil".to_vec()).await;
-    let r = Release::fetch(&tampered, &key.verifying_key())
+    let tampered = channel(&root, &subkey, "9.9.9", b"good".to_vec(), b"evil".to_vec()).await;
+    let r = Release::fetch(&tampered, &root.verifying_key())
         .await
         .unwrap();
     assert!(
@@ -105,7 +130,7 @@ async fn verified_binary_only() {
     let other = SigningKey::generate(&mut OsRng);
     assert!(
         Release::fetch(&url, &other.verifying_key()).await.is_err(),
-        "another key"
+        "another root key"
     );
 }
 
@@ -156,6 +181,103 @@ async fn release_fetch_uses_certified_release_subkey_and_checks_purpose() {
             vf_updater::SignatureError::SubkeyCertMismatch
         ))
     ));
+}
+
+#[tokio::test]
+async fn release_without_subkey_cert_is_rejected() {
+    let root = SigningKey::generate(&mut OsRng);
+    let asset = asset_name("vibefork");
+    let binary = b"directly signed without subkey cert";
+    let manifest = Manifest {
+        version: "1.0.0".into(),
+        files: BTreeMap::from([(asset.clone(), sha256_hex(binary))]),
+        expires_at: None,
+    };
+    let manifest_json = serde_json::to_vec(&manifest).unwrap();
+    let manifest_sig = sign(&manifest_json, &root);
+
+    let app = Router::new()
+        .route(
+            "/direct/manifest.json",
+            get(move || async move { manifest_json }),
+        )
+        .route(
+            "/direct/manifest.sig",
+            get(move || async move { manifest_sig }),
+        )
+        .route(
+            &format!("/direct/{asset}"),
+            get(move || async move { binary.to_vec() }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move { axum::serve(listener, app).await });
+    let url = format!("http://127.0.0.1:{port}/direct");
+
+    let res = Release::fetch(&url, &root.verifying_key()).await;
+    assert!(
+        matches!(
+            res,
+            Err(vf_updater::release::UpdateError::Signature(
+                vf_updater::SignatureError::SubkeyCertMissing
+            ))
+        ),
+        "A manifest signed directly with the root key without a subkey certificate must be rejected, got: {res:?}"
+    );
+}
+
+#[tokio::test]
+async fn release_with_expired_subkey_cert_is_rejected() {
+    let root = SigningKey::generate(&mut OsRng);
+    let subkey = SigningKey::generate(&mut OsRng);
+    let asset = asset_name("vibefork");
+    let binary = b"signed binary";
+    let manifest = Manifest {
+        version: "1.0.0".into(),
+        files: BTreeMap::from([(asset.clone(), sha256_hex(binary))]),
+        expires_at: None,
+    };
+    let manifest_json = serde_json::to_vec(&manifest).unwrap();
+    let manifest_sig = sign(&manifest_json, &subkey);
+    let cert = SubkeyCert {
+        public_key: base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            subkey.verifying_key().to_bytes(),
+        ),
+        expires_at: 0, // expired in 1970
+        purpose: "release".into(),
+    };
+    let cert_json = serde_json::to_vec(&cert).unwrap();
+    let cert_sig = sign_subkey_cert(&cert_json, &root);
+    let app = Router::new()
+        .route(
+            "/exp/manifest.json",
+            get(move || async move { manifest_json }),
+        )
+        .route(
+            "/exp/manifest.sig",
+            get(move || async move { manifest_sig }),
+        )
+        .route(
+            "/exp/subkey.cert.json",
+            get(move || async move { cert_json }),
+        )
+        .route("/exp/subkey.cert.sig", get(move || async move { cert_sig }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move { axum::serve(listener, app).await });
+    let url = format!("http://127.0.0.1:{port}/exp");
+
+    let res = Release::fetch(&url, &root.verifying_key()).await;
+    assert!(
+        matches!(
+            res,
+            Err(vf_updater::release::UpdateError::Signature(
+                vf_updater::SignatureError::SubkeyCertExpired
+            ))
+        ),
+        "An expired subkey certificate must be rejected, got: {res:?}"
+    );
 }
 
 #[test]
