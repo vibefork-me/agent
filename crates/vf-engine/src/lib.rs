@@ -286,7 +286,7 @@ impl Backend for Engine {
     }
 
     fn ai(&self) -> Result<AiResponse, BackendError> {
-        let order = ["claude", "codex", "openrouter"];
+        let order = ["claude", "codex", "custom", "openrouter"];
         let mut providers: Vec<AiProvider> = Vec::new();
         for id in order {
             let Some(p) = self.provider(id) else {
@@ -299,13 +299,20 @@ impl Backend for Engine {
                 .lock()
                 .unwrap_or_else(|p| p.into_inner())
                 .contains(id);
+            let host = if id == "custom" {
+                vf_platform::settings::read_config(&self.state_dir)
+                    .custom_openai
+                    .map(|c| vf_core::endpoint_host_label(&c.endpoint))
+            } else {
+                None
+            };
             providers.push(AiProvider {
                 installing,
                 id: id.into(),
-                kind: if id == "openrouter" {
-                    AiKind::Free
-                } else {
-                    AiKind::Subscription
+                kind: match id {
+                    "openrouter" => AiKind::Free,
+                    "custom" => AiKind::Custom,
+                    _ => AiKind::Subscription,
                 },
                 installed: s.installed,
                 connected: match (s.installed, s.signed_in) {
@@ -323,6 +330,7 @@ impl Backend for Engine {
                 } else {
                     None
                 },
+                host,
             });
         }
         let ready = providers.iter().any(|p| p.connected != AiConnected::No);
@@ -384,6 +392,73 @@ impl Backend for Engine {
             .map_err(|e| BackendError::Internal(format!("cannot save secret: {e}")))?;
         p.reload();
         Ok(())
+    }
+
+    fn verify_ai_custom(
+        &self,
+        endpoint: &str,
+        key: Option<&str>,
+        model: Option<&str>,
+    ) -> Result<Vec<String>, BackendError> {
+        let clean_endpoint = vf_core::validate_custom_openai_endpoint(endpoint)
+            .map_err(|e| BackendError::BadRequest(e.to_string()))?;
+
+        vf_providers::openai::OpenAiCompatible::verify_custom_endpoint(&clean_endpoint, key, model)
+            .map_err(BackendError::BadRequest)
+    }
+
+    fn connect_ai_custom(
+        &self,
+        endpoint: &str,
+        key: Option<&str>,
+        model: Option<&str>,
+    ) -> Result<(), BackendError> {
+        let clean_endpoint = vf_core::validate_custom_openai_endpoint(endpoint)
+            .map_err(|e| BackendError::BadRequest(e.to_string()))?;
+
+        vf_providers::openai::OpenAiCompatible::verify_custom_endpoint(&clean_endpoint, key, model)
+            .map_err(BackendError::BadRequest)?;
+
+        if let Some(k) = key.filter(|k| !k.trim().is_empty()) {
+            vf_platform::secrets::set("custom_openai", k)
+                .map_err(|e| BackendError::Internal(format!("cannot save secret: {e}")))?;
+        } else {
+            let _ = vf_platform::secrets::remove("custom_openai");
+        }
+
+        let cfg = vf_platform::settings::CustomOpenAiConfig {
+            endpoint: clean_endpoint,
+            model: model.filter(|m| !m.trim().is_empty()).map(str::to_owned),
+        };
+        vf_platform::settings::Settings::save_custom_openai_config_at(&self.state_dir, Some(&cfg))
+            .map_err(|e| BackendError::Internal(format!("cannot save config: {e}")))?;
+
+        if let Some(p) = self.provider("custom") {
+            p.reload();
+        }
+        Ok(())
+    }
+
+    fn disconnect_ai(&self, provider: &str) -> Result<(), BackendError> {
+        if provider == "custom" {
+            vf_platform::settings::Settings::save_custom_openai_config_at(&self.state_dir, None)
+                .map_err(|e| BackendError::Internal(format!("cannot update config: {e}")))?;
+            let _ = vf_platform::secrets::remove("custom_openai");
+            if let Some(p) = self.provider("custom") {
+                p.reload();
+            }
+            return Ok(());
+        }
+        if provider == "openrouter" {
+            let _ = vf_platform::secrets::remove("openrouter");
+            if let Some(p) = self.provider("openrouter") {
+                p.reload();
+            }
+            return Ok(());
+        }
+        Err(BackendError::BadRequest(
+            "this provider cannot be disconnected".into(),
+        ))
     }
 
     fn models(&self) -> Result<ModelsResponse, BackendError> {

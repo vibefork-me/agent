@@ -147,8 +147,9 @@ fn provider_rank(provider: &str, prefer: &[&str]) -> i32 {
     match provider {
         "claude" => 0,
         "codex" => 1,
-        "openrouter" => 2,
-        _ => 3,
+        "custom" => 2,
+        "openrouter" => 3,
+        _ => 4,
     }
 }
 

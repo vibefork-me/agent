@@ -282,6 +282,24 @@ impl Auth {
         self.dialog.ask_secret(title, &text)
     }
 
+    /// Asks the user for a text input in the native dialog unmasked. Blocks.
+    pub fn ask_text(&self, origin: &str, prompt: &str) -> Option<String> {
+        let lang = self.dialog.language();
+        let prompt = vf_core::dialog_field(prompt, 200);
+        let title = vf_core::catalog::ask_text_title(lang);
+        let text = vf_core::catalog::ask_text_text(lang, origin, &prompt);
+        self.dialog.ask_text(title, &text)
+    }
+
+    /// Asks the user for a secret in the native dialog with input masked, allowing empty input. Blocks.
+    pub fn ask_secret_optional(&self, origin: &str, prompt: &str) -> Option<Secret<String>> {
+        let lang = self.dialog.language();
+        let prompt = vf_core::dialog_field(prompt, 200);
+        let title = vf_core::catalog::ask_secret_title(lang);
+        let text = vf_core::catalog::ask_secret_text(lang, origin, &prompt);
+        self.dialog.ask_secret_optional(title, &text)
+    }
+
     /// The native confirm dialog.
     pub fn dialog(&self) -> &Arc<dyn ConfirmDialog> {
         &self.dialog

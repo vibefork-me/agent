@@ -24,7 +24,9 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(180);
 /// An OpenAI-compatible API with a key.
 pub struct OpenAiCompatible {
     id: &'static str,
-    base_url: String,
+    base_url: Option<String>,
+    base_url_source: Option<Box<dyn Fn() -> Option<String> + Send + Sync>>,
+    model_source: Option<Box<dyn Fn() -> Option<String> + Send + Sync>>,
     key_source: Box<dyn Fn() -> Option<Secret<String>> + Send + Sync>,
     cache: Mutex<Option<(Instant, Vec<ModelInfo>)>>,
     /// Whether the API accepted the current key (`GET /key`): when checked, a fingerprint of the
@@ -45,6 +47,26 @@ impl OpenAiCompatible {
         Self::dynamic("openrouter", OPENROUTER_URL, key_source)
     }
 
+    /// Custom OpenAI-compatible provider with dynamic configuration.
+    /// `config_source` returns `Option<(endpoint_url, optional_model)>`.
+    pub fn custom_dynamic(
+        config_source: impl Fn() -> Option<(String, Option<String>)> + Send + Sync + 'static,
+        key_source: impl Fn() -> Option<Secret<String>> + Send + Sync + 'static,
+    ) -> Self {
+        let config_source = std::sync::Arc::new(config_source);
+        let cs1 = config_source.clone();
+        let cs2 = config_source;
+        Self {
+            id: "custom",
+            base_url: None,
+            base_url_source: Some(Box::new(move || cs1().map(|c| c.0))),
+            model_source: Some(Box::new(move || cs2().and_then(|c| c.1))),
+            key_source: Box::new(key_source),
+            cache: Mutex::new(None),
+            accepted: Mutex::new(None),
+        }
+    }
+
     /// Any compatible API.
     pub fn new(id: &'static str, base_url: &str, key: Option<Secret<String>>) -> Self {
         Self::dynamic(id, base_url, move || key.clone())
@@ -58,11 +80,27 @@ impl OpenAiCompatible {
     ) -> Self {
         Self {
             id,
-            base_url: base_url.trim_end_matches('/').to_owned(),
+            base_url: Some(base_url.trim_end_matches('/').to_owned()),
+            base_url_source: None,
+            model_source: None,
             key_source: Box::new(key_source),
             cache: Mutex::new(None),
             accepted: Mutex::new(None),
         }
+    }
+
+    /// Returns the effective base URL, if configured.
+    pub fn base_url(&self) -> Option<String> {
+        if let Some(src) = &self.base_url_source {
+            src().map(|u| u.trim_end_matches('/').to_owned())
+        } else {
+            self.base_url.clone()
+        }
+    }
+
+    /// Configured default model identifier, if any.
+    pub fn configured_model(&self) -> Option<String> {
+        self.model_source.as_ref().and_then(|s| s())
     }
 
     /// The API key, if present.
@@ -95,7 +133,11 @@ impl OpenAiCompatible {
         {
             return ok;
         }
-        let ok = match key_accepted(&self.base_url, key) {
+        let base_url = match self.base_url() {
+            Some(u) => u,
+            None => return false,
+        };
+        let ok = match key_accepted(&base_url, key) {
             Ok(ok) => ok,
             Err(e) => {
                 tracing::warn!(error = %e, provider = self.id, "key not checked");
@@ -147,8 +189,94 @@ impl OpenAiCompatible {
         Ok(free_tool_models("openrouter", &body))
     }
 
+    /// Verifies a custom OpenAI-compatible endpoint.
+    /// Tries `GET {endpoint}/models`. If that yields models, returns them.
+    /// If `/models` fails or yields no models, and a `model` identifier is given,
+    /// verifies with a minimal chat completion (`POST {endpoint}/chat/completions`).
+    pub fn verify_custom_endpoint(
+        endpoint: &str,
+        key: Option<&str>,
+        model: Option<&str>,
+    ) -> Result<Vec<String>, String> {
+        let base = endpoint.trim_end_matches('/');
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(Duration::from_secs(10))
+            .build()
+            .map_err(|e| e.to_string())?;
+
+        let models_url = format!("{base}/models");
+        let models_res: Result<Value, String> = block_on(async {
+            let mut req = client.get(&models_url).header("x-title", "vibefork");
+            if let Some(k) = key.filter(|k| !k.trim().is_empty()) {
+                req = req.bearer_auth(k);
+            }
+            let res = req.send().await.map_err(|e| e.to_string())?;
+            if !res.status().is_success() {
+                return Err(format!("HTTP {}", res.status()));
+            }
+            res.json::<Value>().await.map_err(|e| e.to_string())
+        })?;
+
+        let mut models = Vec::new();
+        if let Ok(v) = models_res {
+            let list = v["data"].as_array().or_else(|| v["models"].as_array());
+            if let Some(arr) = list {
+                for item in arr {
+                    let id = item["id"]
+                        .as_str()
+                        .or_else(|| item["name"].as_str())
+                        .or_else(|| item["model"].as_str());
+                    if let Some(id) = id {
+                        models.push(id.to_owned());
+                    }
+                }
+            }
+        }
+
+        if !models.is_empty() {
+            return Ok(models);
+        }
+
+        // If no models from /models, we require a model identifier and test a chat completion
+        let Some(m) = model.filter(|m| !m.trim().is_empty()) else {
+            return Err(
+                "Endpoint does not return any models from /models; a model identifier is required."
+                    .into(),
+            );
+        };
+
+        let chat_url = format!("{base}/chat/completions");
+        let test_body = json!({
+            "model": m,
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 1
+        });
+
+        block_on(async {
+            let mut req = client
+                .post(&chat_url)
+                .header("x-title", "vibefork")
+                .json(&test_body);
+            if let Some(k) = key.filter(|k| !k.trim().is_empty()) {
+                req = req.bearer_auth(k);
+            }
+            let res = req
+                .send()
+                .await
+                .map_err(|e| format!("Failed to reach endpoint: {e}"))?;
+            let status = res.status();
+            if !status.is_success() {
+                let err_text = res.text().await.unwrap_or_default();
+                return Err(format!("Endpoint returned HTTP {status}: {err_text}"));
+            }
+            Ok(vec![m.to_owned()])
+        })?
+    }
+
     fn fetch_models_with_key(&self, key: &Secret<String>) -> Result<Vec<ModelInfo>, String> {
-        let url = format!("{}/models", self.base_url);
+        let base_url = self.base_url().ok_or("no base URL configured")?;
+        let url = format!("{base_url}/models");
         let body: Value = block_on(async {
             let res = Self::client()?
                 .get(&url)
@@ -164,6 +292,62 @@ impl OpenAiCompatible {
             res.json::<Value>().await.map_err(|e| e.to_string())
         })??;
         Ok(free_tool_models(self.id, &body))
+    }
+
+    fn fetch_custom_models(&self, base_url: &str) -> Vec<ModelInfo> {
+        let key = self.key();
+        let configured_model = self.configured_model();
+        let url = format!("{base_url}/models");
+        let body: Result<Value, String> = block_on(async {
+            let mut req = Self::client()?.get(&url).header("x-title", "vibefork");
+            if let Some(k) = key.as_ref().filter(|k| !k.expose().trim().is_empty()) {
+                req = req.bearer_auth(k.expose());
+            }
+            let res = req.send().await.map_err(|e| e.to_string())?;
+            if !res.status().is_success() {
+                return Err(format!("HTTP {}", res.status()));
+            }
+            res.json::<Value>().await.map_err(|e| e.to_string())
+        })
+        .unwrap_or_else(Err);
+
+        let mut models = Vec::new();
+        if let Ok(v) = body {
+            let list = v["data"].as_array().or_else(|| v["models"].as_array());
+            if let Some(arr) = list {
+                for item in arr {
+                    let id = item["id"]
+                        .as_str()
+                        .or_else(|| item["name"].as_str())
+                        .or_else(|| item["model"].as_str());
+                    if let Some(id) = id {
+                        models.push(ModelInfo {
+                            provider: self.id.into(),
+                            model: id.into(),
+                            tier: 2,
+                            cost: CostClass::Paid,
+                            label: format!("Custom {id}"),
+                        });
+                    }
+                }
+            }
+        }
+
+        if let Some(cfg) = configured_model
+            && !models.iter().any(|m| m.model == cfg)
+        {
+            models.insert(
+                0,
+                ModelInfo {
+                    provider: self.id.into(),
+                    model: cfg.clone(),
+                    tier: 2,
+                    cost: CostClass::Paid,
+                    label: format!("Custom {cfg}"),
+                },
+            );
+        }
+        models
     }
 }
 
@@ -210,21 +394,18 @@ fn block_on<F: Future>(f: F) -> Result<F::Output, String> {
 async fn chat(
     client: &reqwest::Client,
     url: &str,
-    key: &Secret<String>,
+    key: Option<&Secret<String>>,
     body: &Value,
 ) -> Result<Value, String> {
     let mut attempt = 0;
     loop {
         attempt += 1;
         let result = async {
-            let res = client
-                .post(url)
-                .bearer_auth(key.expose())
-                .header("x-title", "vibefork")
-                .json(body)
-                .send()
-                .await
-                .map_err(|e| (true, e.to_string()))?;
+            let mut req = client.post(url).header("x-title", "vibefork").json(body);
+            if let Some(k) = key.filter(|k| !k.expose().trim().is_empty()) {
+                req = req.bearer_auth(k.expose());
+            }
+            let res = req.send().await.map_err(|e| (true, e.to_string()))?;
             let status = res.status();
             let v: Value = res.json().await.map_err(|e| (true, e.to_string()))?;
             if !status.is_success() || !v["error"].is_null() {
@@ -273,6 +454,15 @@ impl Provider for OpenAiCompatible {
     }
 
     fn status(&self) -> crate::Status {
+        if self.id == "custom" {
+            let connected = self.base_url().is_some();
+            return crate::Status {
+                installed: true,
+                signed_in: Some(connected),
+                user_signed_in: None,
+                cli_home_mode: None,
+            };
+        }
         // Signed in = a key the API accepts, not just any stored value.
         let accepted = self.key().is_some_and(|k| self.accepted(&k));
         crate::Status {
@@ -288,12 +478,28 @@ impl Provider for OpenAiCompatible {
     }
 
     fn connect_key(&self, key: &Secret<String>) -> Result<(), String> {
-        let _ = Self::verify_key(&self.base_url, key)?;
+        let base_url = self.base_url().ok_or("no base URL configured")?;
+        let _ = Self::verify_key(&base_url, key)?;
         self.reload();
         Ok(())
     }
 
     fn models(&self) -> Vec<ModelInfo> {
+        if self.id == "custom" {
+            let Some(base_url) = self.base_url() else {
+                return Vec::new();
+            };
+            let mut cache = self.cache.lock().unwrap_or_else(|p| p.into_inner());
+            if let Some((at, models)) = cache.as_ref()
+                && at.elapsed() < MODELS_TTL
+            {
+                return models.clone();
+            }
+            let models = self.fetch_custom_models(&base_url);
+            *cache = Some((Instant::now(), models.clone()));
+            return models;
+        }
+
         let Some(key) = self.key().filter(|k| self.accepted(k)) else {
             return Vec::new();
         };
@@ -320,7 +526,11 @@ impl Provider for OpenAiCompatible {
     }
 
     fn ask(&self, req: &AskRequest<'_>, cancel: &Cancel) -> Result<Answer, String> {
-        let key = self.key().ok_or("no API key")?;
+        let base_url = self.base_url().ok_or("no base URL configured")?;
+        let key = self.key();
+        if self.id == "openrouter" && key.is_none() {
+            return Err("no API key".into());
+        }
         let mut messages = Vec::new();
         if let Some(system) = req.system {
             messages.push(json!({ "role": "system", "content": system }));
@@ -331,22 +541,23 @@ impl Provider for OpenAiCompatible {
             body["max_tokens"] = json!(max);
         }
         let client = Self::client()?;
-        let url = format!("{}/chat/completions", self.base_url);
+        let url = format!("{base_url}/chat/completions");
         // Temporary upstream failures (rate limits of free models) are retried, as in a task.
         let v = block_on(async {
             tokio::select! {
-                r = tokio::time::timeout(req.timeout, chat(&client, &url, &key, &body)) => {
+                r = tokio::time::timeout(req.timeout, chat(&client, &url, key.as_ref(), &body)) => {
                     r.map_err(|_| format!("no answer in {}s", req.timeout.as_secs()))?
                 }
                 () = cancelled(cancel) => Err("cancelled".into()),
             }
         })?
         .map_err(|e| {
-            if e.contains("Missing Authentication") || e.contains("User not found") {
-                format!("{e} ({})", key_shape(key.expose()))
-            } else {
-                e
+            if let Some(k) = &key
+                && (e.contains("Missing Authentication") || e.contains("User not found"))
+            {
+                return format!("{e} ({})", key_shape(k.expose()));
             }
+            e
         })?;
         let text = v["choices"][0]["message"]["content"]
             .as_str()
@@ -379,7 +590,17 @@ impl Provider for OpenAiCompatible {
             },
             &mut tracker,
         );
-        let Some(key) = self.key() else {
+        let Some(base_url) = self.base_url() else {
+            emit(
+                Event::Error {
+                    text: "no base URL configured".into(),
+                },
+                &mut tracker,
+            );
+            return tracker.finish(1, false);
+        };
+        let key = self.key();
+        if self.id == "openrouter" && key.is_none() {
             emit(
                 Event::Error {
                     text: "no API key".into(),
@@ -387,7 +608,7 @@ impl Provider for OpenAiCompatible {
                 &mut tracker,
             );
             return tracker.finish(1, false);
-        };
+        }
         let client = match Self::client() {
             Ok(c) => c,
             Err(e) => {
@@ -395,7 +616,7 @@ impl Provider for OpenAiCompatible {
                 return tracker.finish(1, false);
             }
         };
-        let url = format!("{}/chat/completions", self.base_url);
+        let url = format!("{base_url}/chat/completions");
         let definitions = tools::definitions();
         let mut messages = vec![
             json!({ "role": "system", "content": system_prompt(req.system) }),
@@ -411,7 +632,7 @@ impl Provider for OpenAiCompatible {
             let body = json!({ "model": req.model, "messages": messages, "tools": definitions, "tool_choice": "auto", "temperature": 0.2 });
             let response = block_on(async {
                 tokio::select! {
-                    r = chat(&client, &url, &key, &body) => r.map(Some),
+                    r = chat(&client, &url, key.as_ref(), &body) => r.map(Some),
                     () = cancelled(cancel) => Ok(None),
                 }
             });

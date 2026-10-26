@@ -128,6 +128,37 @@ pub trait Backend: Send + Sync {
             "this provider does not use an API key".into(),
         ))
     }
+    /// Checks custom endpoint reachability and returns models if available from `/models`.
+    fn verify_ai_custom(
+        &self,
+        endpoint: &str,
+        key: Option<&str>,
+        model: Option<&str>,
+    ) -> Result<Vec<String>, BackendError> {
+        let _ = (endpoint, key, model);
+        Err(BackendError::BadRequest(
+            "custom OpenAI-compatible API not supported".into(),
+        ))
+    }
+    /// Connects a custom OpenAI-compatible API endpoint with optional key and optional model.
+    fn connect_ai_custom(
+        &self,
+        endpoint: &str,
+        key: Option<&str>,
+        model: Option<&str>,
+    ) -> Result<(), BackendError> {
+        let _ = (endpoint, key, model);
+        Err(BackendError::BadRequest(
+            "custom OpenAI-compatible API not supported".into(),
+        ))
+    }
+    /// Disconnects a provider (e.g. `custom`, `openrouter`).
+    fn disconnect_ai(&self, provider: &str) -> Result<(), BackendError> {
+        let _ = provider;
+        Err(BackendError::BadRequest(
+            "this provider cannot be disconnected".into(),
+        ))
+    }
     /// Runs a task to the end, reporting progress through `out`; the last message is
     /// [`ServerMessage::Done`], [`ServerMessage::Cancelled`] or [`ServerMessage::Error`].
     fn run_task(&self, task: TaskRequest, out: &mut dyn FnMut(ServerMessage), cancel: &Cancel);

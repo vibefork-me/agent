@@ -184,6 +184,72 @@ pub fn openrouter_key_prompt(lang: Language) -> &'static str {
     }
 }
 
+/// Text entry dialog title.
+pub fn ask_text_title(lang: Language) -> &'static str {
+    match lang {
+        Language::En => "Vibefork: enter value",
+        Language::Ru => "Vibefork: ввод значения",
+    }
+}
+
+/// Text entry dialog prompt template.
+pub fn ask_text_text(lang: Language, origin: &str, prompt: &str) -> String {
+    match lang {
+        Language::En => format!("{origin} asks for:\n\n{prompt}"),
+        Language::Ru => format!("{origin} запрашивает:\n\n{prompt}"),
+    }
+}
+
+/// Prompt for entering custom OpenAI-compatible API endpoint URL.
+pub fn custom_openai_endpoint_prompt(lang: Language) -> &'static str {
+    match lang {
+        Language::En => "enter OpenAI-compatible API base URL (e.g. http://localhost:11434/v1):",
+        Language::Ru => {
+            "введите адрес OpenAI-совместимого API (например, http://localhost:11434/v1):"
+        }
+    }
+}
+
+/// Confirmation text showing full custom endpoint with security warning.
+pub fn custom_openai_confirm_text(lang: Language, origin: &str, endpoint: &str) -> String {
+    match lang {
+        Language::En => format!(
+            "{origin} asks to connect a custom OpenAI-compatible API:\n\n{endpoint}\n\nProject code and requests will be sent to this address.\n\nAllow connecting to this server?"
+        ),
+        Language::Ru => format!(
+            "{origin} запрашивает подключение своего OpenAI-совместимого API:\n\n{endpoint}\n\nКод проекта и запросы будут отправляться на этот адрес.\n\nРазрешить подключение к этому серверу?"
+        ),
+    }
+}
+
+/// Prompt for entering custom OpenAI-compatible API key (optional for local servers).
+pub fn custom_openai_key_prompt(lang: Language) -> &'static str {
+    match lang {
+        Language::En => {
+            "enter API key for this server (leave empty if your local server does not require authentication):"
+        }
+        Language::Ru => {
+            "введите API-ключ для этого сервера (оставьте пустым, если локальный сервер не требует авторизации):"
+        }
+    }
+}
+
+/// Prompt for entering custom OpenAI model identifier.
+pub fn custom_openai_model_prompt(lang: Language) -> &'static str {
+    match lang {
+        Language::En => "enter model identifier (e.g. llama3, qwen2.5-coder):",
+        Language::Ru => "введите идентификатор модели (например, llama3, qwen2.5-coder):",
+    }
+}
+
+/// Action prompt: disconnect AI provider.
+pub fn action_disconnect_ai(lang: Language, provider_name: &str) -> String {
+    match lang {
+        Language::En => format!("disconnect {provider_name}"),
+        Language::Ru => format!("отключить {provider_name}"),
+    }
+}
+
 /// Native button label: Allow.
 pub fn btn_allow(lang: Language) -> &'static str {
     match lang {

@@ -9,11 +9,17 @@ export type AiConnectResponse = { started: boolean };
 /** Whether a way to connect AI is set up. */
 export type AiConnected = "yes" | "no" | "unknown";
 
+/** Request of `POST /v1/ai/disconnect`. */
+export type AiDisconnectRequest = { provider: string };
+
+/** Response of `POST /v1/ai/disconnect`. */
+export type AiDisconnectResponse = { ok: boolean };
+
 /** What a way to connect AI costs the user. */
-export type AiKind = "subscription" | "free";
+export type AiKind = "subscription" | "free" | "custom";
 
 /** One way to connect AI. */
-export type AiProvider = { connected: AiConnected; id: string; installed: boolean; installing: boolean; kind: AiKind; mode?: CliHomeMode | null; userSignedIn?: boolean | null };
+export type AiProvider = { connected: AiConnected; host?: string | null; id: string; installed: boolean; installing: boolean; kind: AiKind; mode?: CliHomeMode | null; userSignedIn?: boolean | null };
 
 /** `GET /v1/ai`: whether AI is connected — the editor is not usable without it. */
 export type AiResponse = { providers: (AiProvider)[]; ready: boolean };

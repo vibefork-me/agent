@@ -71,6 +71,25 @@ pub struct ConfigFile {
         skip_serializing_if = "std::collections::BTreeMap::is_empty"
     )]
     pub cli_home: std::collections::BTreeMap<String, vf_protocol::CliHomeMode>,
+    /// Custom OpenAI-compatible endpoint settings.
+    #[serde(
+        default,
+        rename = "customOpenAi",
+        alias = "custom_openai",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub custom_openai: Option<CustomOpenAiConfig>,
+}
+
+/// Configuration for custom OpenAI-compatible API endpoint.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CustomOpenAiConfig {
+    /// Base URL of the API.
+    pub endpoint: String,
+    /// Default or configured model name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 /// Storage paths in `config.json`.
@@ -247,7 +266,32 @@ impl Settings {
         file.cli_home.insert(provider.to_owned(), mode);
         write_config(state_dir, &file)
     }
+
+    /// Reads custom OpenAI configuration from `config.json`.
+    pub fn custom_openai_config(&self) -> Option<CustomOpenAiConfig> {
+        read_config(&self.state_dir).custom_openai
+    }
+
+    /// Saves or clears custom OpenAI configuration in `config.json`.
+    pub fn save_custom_openai_config(
+        &self,
+        config: Option<&CustomOpenAiConfig>,
+    ) -> std::io::Result<()> {
+        Self::save_custom_openai_config_at(&self.state_dir, config)
+    }
+
+    /// Saves or clears custom OpenAI configuration in `state_dir/config.json`.
+    pub fn save_custom_openai_config_at(
+        state_dir: &Path,
+        config: Option<&CustomOpenAiConfig>,
+    ) -> std::io::Result<()> {
+        let mut file = read_config(state_dir);
+        file.custom_openai = config.cloned();
+        write_config(state_dir, &file)
+    }
 }
+
+pub use vf_core::{endpoint_host_label, validate_custom_openai_endpoint};
 
 /// Reads `config.json`; a missing or broken file counts as empty.
 pub fn read_config(state_dir: &Path) -> ConfigFile {
@@ -508,5 +552,53 @@ mod tests {
             assert!(active.is_empty());
             assert_eq!(ignored, configured);
         }
+    }
+
+    #[test]
+    fn custom_openai_endpoint_validation_and_host_label() {
+        // Valid loopback http
+        assert_eq!(
+            validate_custom_openai_endpoint("http://localhost:11434/v1/"),
+            Ok("http://localhost:11434/v1".to_owned())
+        );
+        assert_eq!(
+            validate_custom_openai_endpoint("http://127.0.0.1:1234/v1"),
+            Ok("http://127.0.0.1:1234/v1".to_owned())
+        );
+        assert_eq!(
+            validate_custom_openai_endpoint("http://[::1]:11434"),
+            Ok("http://[::1]:11434".to_owned())
+        );
+
+        // Valid remote https
+        assert_eq!(
+            validate_custom_openai_endpoint("https://api.together.xyz/v1/"),
+            Ok("https://api.together.xyz/v1".to_owned())
+        );
+        assert_eq!(
+            validate_custom_openai_endpoint("https://api.openai.com/v1"),
+            Ok("https://api.openai.com/v1".to_owned())
+        );
+
+        // Invalid: non-loopback http rejected
+        assert!(validate_custom_openai_endpoint("http://api.together.xyz/v1").is_err());
+        assert!(validate_custom_openai_endpoint("http://192.168.1.50:11434").is_err());
+        assert!(validate_custom_openai_endpoint("http://example.com").is_err());
+
+        // Invalid scheme or missing host
+        assert!(validate_custom_openai_endpoint("ftp://localhost:11434").is_err());
+        assert!(validate_custom_openai_endpoint("localhost:11434").is_err());
+        assert!(validate_custom_openai_endpoint("https://").is_err());
+
+        // Host label
+        assert_eq!(
+            endpoint_host_label("http://localhost:11434/v1"),
+            "localhost:11434"
+        );
+        assert_eq!(
+            endpoint_host_label("https://api.together.xyz/v1/chat"),
+            "api.together.xyz"
+        );
+        assert_eq!(endpoint_host_label("http://[::1]:8080/v1"), "[::1]:8080");
     }
 }
