@@ -336,6 +336,30 @@ impl Provider for Codex {
         "codex"
     }
 
+    fn logout(&self) -> Result<(), String> {
+        // Only the agent's own folder: without it `logout` would sign the user out of their CLI.
+        if self.active_home().is_none() {
+            return Err("the user's own sign-in is not signed out by the agent".into());
+        }
+        let bin = self.bin().ok_or("Codex is not installed")?;
+        let mut cmd = self.command(&bin);
+        cmd.arg("logout");
+        let exit = process::run_streaming(
+            cmd,
+            None,
+            &Cancel::new(),
+            Some(Duration::from_secs(30)),
+            &mut |_, _| {},
+        )
+        .map_err(|e| e.to_string())?;
+        self.reload();
+        if exit.code == 0 {
+            Ok(())
+        } else {
+            Err(format!("sign-out did not finish (code {})", exit.code))
+        }
+    }
+
     fn connect(&self, timeout: Duration) -> Result<(), String> {
         let bin = self.bin().ok_or("Codex is not installed")?;
         let mut cmd = self.command(&bin);

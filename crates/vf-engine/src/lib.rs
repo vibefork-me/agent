@@ -456,6 +456,17 @@ impl Backend for Engine {
             }
             return Ok(());
         }
+        if provider == "claude" || provider == "codex" {
+            let p = self
+                .provider(provider)
+                .ok_or_else(|| BackendError::NotFound("no such provider".into()))?;
+            // With the user's own sign-in the agent only stops using it; it never signs the user
+            // out of their own CLI. With its own sign-in it signs out.
+            if p.cli_home_mode() == Some(vf_protocol::CliHomeMode::User) {
+                return self.set_cli_home_mode(provider, vf_protocol::CliHomeMode::Agent);
+            }
+            return p.logout().map_err(BackendError::BadRequest);
+        }
         Err(BackendError::BadRequest(
             "this provider cannot be disconnected".into(),
         ))
