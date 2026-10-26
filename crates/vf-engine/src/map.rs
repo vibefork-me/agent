@@ -260,17 +260,30 @@ fn candidates(inventory: &[ModelInfo]) -> Vec<(&'static str, String, Duration)> 
 }
 
 /// Free models tried for the map, at most.
-const FREE_TRIES: usize = 3;
+const FREE_TRIES: usize = 4;
 
-/// Model families that answer JSON reliably come first; the API lists models newest first, and
-/// the newest free model can be anything.
-const FREE_FAMILIES: &[&str] = &["deepseek/", "qwen/", "meta-llama/", "google/", "mistralai/"];
+/// Free models that answer JSON reliably come first: OpenRouter's own router to an available free
+/// model, then large general models; the API lists models newest first, and the newest free model
+/// can be anything.
+const FREE_FAMILIES: &[&str] = &[
+    "openrouter/free",
+    "nvidia/nemotron-3-super",
+    "nvidia/nemotron-3.5-super",
+    "deepseek/",
+    "qwen/",
+    "meta-llama/",
+    "google/gemma",
+    "mistralai/",
+];
+
+/// Free models that are not for text answers (safety classifiers, audio).
+const NOT_FOR_TEXT: &[&str] = &["content-safety", "lyria", "guard"];
 
 /// Free OpenRouter models: known families first, the rest in the order the API gave.
 fn free_in_order(inventory: &[ModelInfo]) -> Vec<String> {
     let mut free: Vec<&ModelInfo> = inventory
         .iter()
-        .filter(|m| m.provider == "openrouter")
+        .filter(|m| m.provider == "openrouter" && !NOT_FOR_TEXT.iter().any(|n| m.model.contains(n)))
         .collect();
     free.sort_by_key(|m| {
         FREE_FAMILIES
@@ -324,7 +337,8 @@ impl Engine {
                 prompt: &text,
                 model: &model,
                 env: &env,
-                max_tokens: Some(2000),
+                // Room for reasoning models to think and still write the map.
+                max_tokens: Some(4000),
                 timeout,
             };
             let by = format!(
@@ -430,14 +444,15 @@ mod tests {
         };
         let inv = [
             m("recursive/flint-v1.0:free"),
-            m("qwen/qwen3:free"),
-            m("deepseek/r1:free"),
+            m("google/gemma-4-31b-it:free"),
+            m("nvidia/nemotron-3.5-content-safety:free"),
+            m("openrouter/free"),
         ];
         assert_eq!(
             free_in_order(&inv),
             [
-                "deepseek/r1:free",
-                "qwen/qwen3:free",
+                "openrouter/free",
+                "google/gemma-4-31b-it:free",
                 "recursive/flint-v1.0:free"
             ]
         );

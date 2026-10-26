@@ -228,10 +228,14 @@ async fn chat(
             let status = res.status();
             let v: Value = res.json().await.map_err(|e| (true, e.to_string()))?;
             if !status.is_success() || !v["error"].is_null() {
-                let message = v["error"]["message"]
+                let mut message = v["error"]["message"]
                     .as_str()
                     .map(str::to_owned)
                     .unwrap_or_else(|| format!("HTTP {status}"));
+                // OpenRouter puts the upstream provider's own words here ("rate-limited", …).
+                if let Some(raw) = v["error"]["metadata"]["raw"].as_str() {
+                    message = format!("{message}: {}", clip(raw.trim(), 200));
+                }
                 let temporary = status.as_u16() == 429
                     || status.is_server_error()
                     || message.contains("Provider returned error");
@@ -324,33 +328,34 @@ impl Provider for OpenAiCompatible {
         if let Some(max) = req.max_tokens {
             body["max_tokens"] = json!(max);
         }
-        let request = Self::client()?
-            .post(format!("{}/chat/completions", self.base_url))
-            .bearer_auth(key.expose())
-            .header("x-title", "vibefork")
-            .timeout(req.timeout)
-            .json(&body)
-            .send();
+        let client = Self::client()?;
+        let url = format!("{}/chat/completions", self.base_url);
+        // Temporary upstream failures (rate limits of free models) are retried, as in a task.
         let v = block_on(async {
             tokio::select! {
-                r = async {
-                    let v: Value = request.await.map_err(|e| e.to_string())?.json().await.map_err(|e| e.to_string())?;
-                    Ok::<Value, String>(v)
-                } => r,
+                r = tokio::time::timeout(req.timeout, chat(&client, &url, &key, &body)) => {
+                    r.map_err(|_| format!("no answer in {}s", req.timeout.as_secs()))?
+                }
                 () = cancelled(cancel) => Err("cancelled".into()),
             }
-        })??;
-        if let Some(e) = v["error"]["message"].as_str() {
-            if v["error"]["code"].as_u64() == Some(401) {
-                return Err(format!("{e} ({})", key_shape(key.expose())));
+        })?
+        .map_err(|e| {
+            if e.contains("Missing Authentication") || e.contains("User not found") {
+                format!("{e} ({})", key_shape(key.expose()))
+            } else {
+                e
             }
-            return Err(e.to_owned());
+        })?;
+        let text = v["choices"][0]["message"]["content"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        if text.trim().is_empty() {
+            // Reasoning models may spend the whole limit on thinking and return no text.
+            return Err("empty answer".into());
         }
         Ok(Answer {
-            text: v["choices"][0]["message"]["content"]
-                .as_str()
-                .unwrap_or_default()
-                .to_owned(),
+            text,
             cost_usd: None,
         })
     }
