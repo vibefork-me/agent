@@ -308,6 +308,11 @@ impl Engine {
             Some(s) => format!("step {}/{}: {}", s.n, s.of, s.title),
             None => req.prompt.lines().next().unwrap_or_default().to_owned(),
         };
+        let prompt_version = if id == "openai" {
+            Some(vf_core::prompts::get(vf_core::prompts::Stage::Loop).tag())
+        } else {
+            None
+        };
         let report = StepReport {
             provider: id.to_owned(),
             model: req.model.to_owned(),
@@ -323,6 +328,7 @@ impl Engine {
             ms: result.ms.or(Some(started.elapsed().as_millis() as u64)),
             cost_usd: result.cost_usd,
             usage: result.usage.clone(),
+            prompt_version,
         };
         let base = start.base().to_owned();
         let finished = start.finish(repo, &self.journal, req.project, now_rfc3339(), report);

@@ -7,7 +7,7 @@ use std::time::Duration;
 use vf_git::Repo;
 use vf_journal::{JournalStore as _, Vcs as _};
 use vf_orchestrator::{
-    CLASSIFIER_SYSTEM, Complexity, PlanStep, classifier_candidates, heuristic_rating,
+    Complexity, PlanStep, classifier_candidates, heuristic_rating,
     model_for_step, parse_plan, parse_rating, pick_model, plan_preamble, plan_prompt, wants_plan,
 };
 use vf_protocol::http::JournalEntry;
@@ -69,10 +69,11 @@ impl Engine {
         if let Some(p) = self.provider("openrouter") {
             let env = ChildEnv::from_current();
             let prompt: String = t.prompt.chars().take(4000).collect();
+            let classifier_prompt = vf_core::prompts::get(vf_core::prompts::Stage::Classify);
             for model in classifier_candidates(&free) {
                 let req = AskRequest {
                     dir: t.dir,
-                    system: Some(CLASSIFIER_SYSTEM),
+                    system: Some(&classifier_prompt.template),
                     prompt: &prompt,
                     model: &model,
                     env: &env,
@@ -167,6 +168,7 @@ impl Engine {
             ms: None,
             cost_usd,
             usage: None,
+            prompt_version: Some(vf_core::prompts::get(vf_core::prompts::Stage::Plan).tag()),
         };
         if let Err(e) = self.journal.append(t.project, &entry) {
             tracing::warn!(error = %e, "plan not journaled");

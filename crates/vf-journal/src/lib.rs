@@ -84,6 +84,8 @@ pub struct StepReport {
     pub cost_usd: Option<f64>,
     /// Token usage.
     pub usage: Option<Usage>,
+    /// Prompt version used, if applicable (e.g. `loop:1`).
+    pub prompt_version: Option<String>,
 }
 
 /// A started step: remembers where it began.
@@ -161,6 +163,7 @@ impl StepStart {
             ms: report.ms,
             cost_usd: report.cost_usd,
             usage: report.usage,
+            prompt_version: report.prompt_version,
         };
         store.append(project, &entry)?;
         Ok(StepOutcome { entry, diff })

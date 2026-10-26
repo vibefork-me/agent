@@ -215,16 +215,7 @@ async fn cancelled(cancel: &Cancel) {
 
 /// Renders the system prompt for the OpenAI-compatible loop with optional extra instructions.
 pub fn system_prompt(instruction: Option<&str>) -> String {
-    let os = std::env::consts::OS;
-    let base = format!(
-        "You are a careful coding agent working in a project folder on the user's machine ({os}).\n\
-         Use the tools to inspect files, make the change, then build/run to verify it works. Respect AGENTS.md if present.\n\
-         Make minimal, focused changes. When done, call finish with a short summary for a non-programmer."
-    );
-    match instruction {
-        Some(extra) if !extra.trim().is_empty() => format!("{base}\n{extra}"),
-        _ => base,
-    }
+    vf_core::prompts::get(vf_core::prompts::Stage::Loop).render_loop(instruction)
 }
 
 impl Provider for OpenAiCompatible {

@@ -12,6 +12,7 @@ pub mod catalog;
 pub mod ids;
 pub mod path;
 pub mod ports;
+pub mod prompts;
 pub mod sandbox;
 pub mod secret;
 pub mod task;

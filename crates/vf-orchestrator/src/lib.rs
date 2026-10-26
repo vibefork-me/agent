@@ -66,6 +66,11 @@ impl Complexity {
 // ---------- Auto ----------
 
 /// System prompt of the classifier.
+pub fn classifier_system() -> String {
+    vf_core::prompts::get(vf_core::prompts::Stage::Classify).template
+}
+
+/// Constant fallback system prompt of the classifier.
 pub const CLASSIFIER_SYSTEM: &str = "You rate coding tasks for routing. Reply with JSON only: \
 {\"complexity\":\"simple\"|\"medium\"|\"hard\",\"decompose\":true|false,\"reason\":\"<one short sentence>\"}. \
 simple = small local change in one or two files; medium = several files or some design; \
@@ -188,16 +193,7 @@ pub struct PlanStep {
 
 /// The planning prompt.
 pub fn plan_prompt(task: &str) -> String {
-    format!(
-        "You are planning work for cheaper AI models. Read the project (read-only) and split the task below into 2–5 sequential steps.\n\
-         Each step must be self-contained and testable, and rated by complexity:\n\
-         - \"simple\": small local change in one or two files;\n\
-         - \"medium\": several files or some design;\n\
-         - \"hard\": architecture, tricky logic, large refactor.\n\
-         Reply with JSON only, no prose:\n\
-         {{\"steps\":[{{\"title\":\"...\",\"prompt\":\"<full instruction for the model doing this step>\",\"complexity\":\"simple|medium|hard\"}}]}}\n\n\
-         Task:\n{task}"
-    )
+    vf_core::prompts::get(vf_core::prompts::Stage::Plan).render_plan(task)
 }
 
 /// Parses a planner answer: at most [`MAX_STEPS`] steps with a prompt.
