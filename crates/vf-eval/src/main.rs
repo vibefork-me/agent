@@ -372,6 +372,290 @@ mod tests {
     }
 
     #[test]
+    fn test_mock_evaluation_explain_file_modification_fails() {
+        let provider = mock::MockProvider::with_mode(mock::MockMode::FaultyExplainModifiesFile);
+        let project = &fixtures::FIXTURE_ITOA;
+        let temp = create_temp_workdir("test-explain-fail");
+        project.materialize(&temp).unwrap();
+
+        let res = run_stage(
+            EvalStage::Explain,
+            &provider,
+            "mock-faulty-explain",
+            project,
+            &temp,
+        );
+        assert!(
+            !res.success,
+            "Explain stage with file modification must fail"
+        );
+        let err = res.error.unwrap_or_default();
+        assert!(
+            err.contains("Files were modified during read-only explain stage"),
+            "Expected file modification error, got: {err}"
+        );
+
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn test_mock_evaluation_map_invalid_json_fails() {
+        let provider = mock::MockProvider::with_mode(mock::MockMode::FaultyMapInvalidJson);
+        let project = &fixtures::FIXTURE_ITOA;
+        let temp = create_temp_workdir("test-map-json-fail");
+        project.materialize(&temp).unwrap();
+
+        let res = run_stage(
+            EvalStage::Map,
+            &provider,
+            "mock-faulty-map-json",
+            project,
+            &temp,
+        );
+        assert!(
+            !res.format_ok,
+            "Map stage with invalid JSON must fail format check"
+        );
+        assert!(
+            !res.success,
+            "Map stage with invalid JSON must fail success check"
+        );
+        let err = res.error.unwrap_or_default();
+        assert!(
+            err.contains("JSON parse error"),
+            "Expected JSON parse error, got: {err}"
+        );
+
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn test_mock_evaluation_map_invalid_paths_fails() {
+        let provider = mock::MockProvider::with_mode(mock::MockMode::FaultyMapInvalidPaths);
+        let project = &fixtures::FIXTURE_ITOA;
+        let temp = create_temp_workdir("test-map-paths-fail");
+        project.materialize(&temp).unwrap();
+
+        let res = run_stage(
+            EvalStage::Map,
+            &provider,
+            "mock-faulty-map-paths",
+            project,
+            &temp,
+        );
+        assert!(
+            !res.format_ok,
+            "Map stage with non-existent paths must fail format check"
+        );
+        assert!(
+            !res.success,
+            "Map stage with non-existent paths must fail success check"
+        );
+        let err = res.error.unwrap_or_default();
+        assert!(
+            err.contains("does not exist in project"),
+            "Expected non-existent path error, got: {err}"
+        );
+
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn test_mock_evaluation_classify_invalid_structure_fails() {
+        let provider = mock::MockProvider::with_mode(mock::MockMode::FaultyClassifyInvalidJson);
+        let project = &fixtures::FIXTURE_ITOA;
+        let temp = create_temp_workdir("test-classify-fail");
+        project.materialize(&temp).unwrap();
+
+        let res = run_stage(
+            EvalStage::Classify,
+            &provider,
+            "mock-faulty-classify",
+            project,
+            &temp,
+        );
+        assert!(
+            !res.format_ok,
+            "Classify stage with invalid structure must fail format check"
+        );
+        assert!(
+            !res.success,
+            "Classify stage with invalid structure must fail success check"
+        );
+
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn test_mock_evaluation_classify_invalid_complexity_fails() {
+        let provider =
+            mock::MockProvider::with_mode(mock::MockMode::FaultyClassifyInvalidComplexity);
+        let project = &fixtures::FIXTURE_ITOA;
+        let temp = create_temp_workdir("test-classify-compl-fail");
+        project.materialize(&temp).unwrap();
+
+        let res = run_stage(
+            EvalStage::Classify,
+            &provider,
+            "mock-faulty-classify-complexity",
+            project,
+            &temp,
+        );
+        assert!(
+            !res.format_ok,
+            "Classify stage with invalid complexity must fail format check"
+        );
+        assert!(
+            !res.success,
+            "Classify stage with invalid complexity must fail success check"
+        );
+        let err = res.error.unwrap_or_default();
+        assert!(
+            err.contains("Invalid classification"),
+            "Expected invalid classification error, got: {err}"
+        );
+
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn test_mock_evaluation_plan_invalid_structure_fails() {
+        let provider = mock::MockProvider::with_mode(mock::MockMode::FaultyPlanInvalidJson);
+        let project = &fixtures::FIXTURE_ITOA;
+        let temp = create_temp_workdir("test-plan-fail");
+        project.materialize(&temp).unwrap();
+
+        let res = run_stage(
+            EvalStage::Plan,
+            &provider,
+            "mock-faulty-plan",
+            project,
+            &temp,
+        );
+        assert!(
+            !res.format_ok,
+            "Plan stage with invalid structure must fail format check"
+        );
+        assert!(
+            !res.success,
+            "Plan stage with invalid structure must fail success check"
+        );
+        let err = res.error.unwrap_or_default();
+        assert!(
+            err.contains("Plan parse error"),
+            "Expected plan parse error, got: {err}"
+        );
+
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn test_mock_evaluation_plan_invalid_step_count_fails() {
+        let provider = mock::MockProvider::with_mode(mock::MockMode::FaultyPlanInvalidStepCount);
+        let project = &fixtures::FIXTURE_ITOA;
+        let temp = create_temp_workdir("test-plan-steps-fail");
+        project.materialize(&temp).unwrap();
+
+        let res = run_stage(
+            EvalStage::Plan,
+            &provider,
+            "mock-faulty-plan-steps",
+            project,
+            &temp,
+        );
+        assert!(res.format_ok, "Plan format itself is valid JSON with steps");
+        assert!(
+            !res.success,
+            "Plan stage with 1 step must fail success check (requires 2..=5)"
+        );
+        let err = res.error.unwrap_or_default();
+        assert!(
+            err.contains("Step count 1 not in 2..=5"),
+            "Expected step count error, got: {err}"
+        );
+
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn test_mock_evaluation_audience_code_fence_fails() {
+        let provider = mock::MockProvider::with_mode(mock::MockMode::FaultyAudienceCodeFence);
+        let project = &fixtures::FIXTURE_ITOA;
+        let temp = create_temp_workdir("test-audience-code-fail");
+        project.materialize(&temp).unwrap();
+
+        let res = run_stage(
+            EvalStage::Audience,
+            &provider,
+            "mock-faulty-audience-code",
+            project,
+            &temp,
+        );
+        assert!(
+            !res.success,
+            "Audience stage with markdown code fence must fail success check"
+        );
+        let err = res.error.unwrap_or_default();
+        assert!(
+            err.contains("markdown code fence"),
+            "Expected code fence error, got: {err}"
+        );
+
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn test_mock_evaluation_audience_wrong_language_fails() {
+        let provider = mock::MockProvider::with_mode(mock::MockMode::FaultyAudienceWrongLanguage);
+        let project = &fixtures::FIXTURE_ITOA;
+        let temp = create_temp_workdir("test-audience-lang-fail");
+        project.materialize(&temp).unwrap();
+
+        let res = run_stage(
+            EvalStage::Audience,
+            &provider,
+            "mock-faulty-audience-lang",
+            project,
+            &temp,
+        );
+        assert!(
+            !res.success,
+            "Audience stage with English text instead of Russian must fail"
+        );
+        let err = res.error.unwrap_or_default();
+        assert!(
+            err.contains("language mismatch"),
+            "Expected language mismatch error, got: {err}"
+        );
+
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn test_mock_evaluation_loop_failure_detected() {
+        let provider = mock::MockProvider::with_mode(mock::MockMode::FaultyLoopFailure);
+        let project = &fixtures::FIXTURE_ITOA;
+        let temp = create_temp_workdir("test-loop-fail");
+        project.materialize(&temp).unwrap();
+
+        let res = run_stage(
+            EvalStage::Loop,
+            &provider,
+            "mock-faulty-loop",
+            project,
+            &temp,
+        );
+        assert!(!res.success, "Loop stage with non-zero exit code must fail");
+        let err = res.error.unwrap_or_default();
+        assert!(
+            err.contains("Loop failed with exit code 1"),
+            "Expected loop exit error, got: {err}"
+        );
+
+        let _ = fs::remove_dir_all(temp);
+    }
+
+    #[test]
     fn test_report_summary_and_compare() {
         let provider = mock::MockProvider::new();
         let project = &fixtures::FIXTURE_IS_SORTED;
