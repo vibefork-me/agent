@@ -348,13 +348,16 @@ impl Provider for Codex {
         }
         args.push("-".into());
         let stdout = collect(self.bin().as_deref(), "codex", &args, req, cancel)?;
-        let text = stdout
+        let events: Vec<Value> = stdout
             .lines()
             .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+            .collect();
+        let text = events
+            .iter()
             .filter(|e| e["item"]["type"] == "agent_message")
             .filter_map(|e| e["item"]["text"].as_str().map(str::to_owned))
             .next_back()
-            .ok_or("codex gave no answer")?;
+            .ok_or_else(|| no_answer(&events))?;
         Ok(Answer {
             text,
             cost_usd: None,
@@ -373,6 +376,41 @@ impl Provider for Codex {
             cancel,
             normalize,
         )
+    }
+}
+
+/// Why `codex exec` gave no answer: the last error it reported (`error`, `turn.failed`), if any.
+fn no_answer(events: &[Value]) -> String {
+    events
+        .iter()
+        .rev()
+        .find_map(|e| {
+            e["message"]
+                .as_str()
+                .or_else(|| e["error"]["message"].as_str())
+                .filter(|_| matches!(e["type"].as_str(), Some("error" | "turn.failed")))
+        })
+        .map_or_else(
+            || "codex gave no answer".to_owned(),
+            |m| format!("codex gave no answer: {}", clip(m, 300)),
+        )
+}
+
+#[cfg(test)]
+mod no_answer_tests {
+    use super::*;
+
+    #[test]
+    fn the_reported_error_is_kept() {
+        let events: Vec<Value> = [
+            r#"{"type":"thread.started"}"#,
+            r#"{"type":"turn.failed","error":{"message":"You must sign in"}}"#,
+        ]
+        .iter()
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .collect();
+        assert_eq!(no_answer(&events), "codex gave no answer: You must sign in");
+        assert_eq!(no_answer(&[]), "codex gave no answer");
     }
 }
 

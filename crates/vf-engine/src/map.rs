@@ -91,10 +91,14 @@ fn covers(path: &str, file: &str) -> bool {
 pub(crate) type Parsed = (Vec<Part>, Vec<(usize, usize)>);
 
 /// The map in a model's answer, checked against the project's files; `None` when unusable.
-pub(crate) fn parse(answer: &str, files: &[String]) -> Option<Parsed> {
-    let start = answer.find('{')?;
-    let end = answer.rfind('}')?;
-    let raw: RawMap = serde_json::from_str(answer.get(start..=end)?).ok()?;
+pub(crate) fn parse(answer: &str, files: &[String]) -> Result<Parsed, String> {
+    let json = answer
+        .find('{')
+        .zip(answer.rfind('}'))
+        .and_then(|(start, end)| answer.get(start..=end))
+        .ok_or("no JSON object")?;
+    let raw: RawMap = serde_json::from_str(json).map_err(|e| format!("not the map JSON: {e}"))?;
+    let named = raw.parts.len();
     let mut parts: Vec<Part> = Vec::new();
     for p in raw.parts.into_iter().take(MAX_PARTS) {
         let name = plain(&p.name, NAME_CHARS);
@@ -123,7 +127,10 @@ pub(crate) fn parse(answer: &str, files: &[String]) -> Option<Parsed> {
         });
     }
     if parts.len() < 2 {
-        return None;
+        return Err(format!(
+            "{named} parts named, {} with paths from the project (2 needed)",
+            parts.len()
+        ));
     }
     let index = |n: &str| parts.iter().position(|p| p.name == plain(n, NAME_CHARS));
     let mut links: Vec<(usize, usize)> = Vec::new();
@@ -135,7 +142,7 @@ pub(crate) fn parse(answer: &str, files: &[String]) -> Option<Parsed> {
             links.push((a, b));
         }
     }
-    Some((parts, links))
+    Ok((parts, links))
 }
 
 /// Nodes and edges of a model's map for the files now; a file belongs to the part with the
@@ -246,10 +253,32 @@ fn candidates(inventory: &[ModelInfo]) -> Vec<(&'static str, String, Duration)> 
     if has("codex", None) {
         out.push(("codex", String::new(), TIMEOUT));
     }
-    if let Some(free) = inventory.iter().find(|m| m.provider == "openrouter") {
-        out.push(("openrouter", free.model.clone(), API_TIMEOUT));
+    for free in free_in_order(inventory).into_iter().take(FREE_TRIES) {
+        out.push(("openrouter", free, API_TIMEOUT));
     }
     out
+}
+
+/// Free models tried for the map, at most.
+const FREE_TRIES: usize = 3;
+
+/// Model families that answer JSON reliably come first; the API lists models newest first, and
+/// the newest free model can be anything.
+const FREE_FAMILIES: &[&str] = &["deepseek/", "qwen/", "meta-llama/", "google/", "mistralai/"];
+
+/// Free OpenRouter models: known families first, the rest in the order the API gave.
+fn free_in_order(inventory: &[ModelInfo]) -> Vec<String> {
+    let mut free: Vec<&ModelInfo> = inventory
+        .iter()
+        .filter(|m| m.provider == "openrouter")
+        .collect();
+    free.sort_by_key(|m| {
+        FREE_FAMILIES
+            .iter()
+            .position(|f| m.model.starts_with(f))
+            .unwrap_or(FREE_FAMILIES.len())
+    });
+    free.into_iter().map(|m| m.model.clone()).collect()
 }
 
 impl Engine {
@@ -304,7 +333,7 @@ impl Engine {
             );
             match p.ask(&req, &cancel) {
                 Ok(a) => match parse(&a.text, files) {
-                    Some((parts, links)) => {
+                    Ok((parts, links)) => {
                         let map = ModelMap {
                             revision: revision.to_owned(),
                             by,
@@ -319,7 +348,12 @@ impl Engine {
                         std::fs::write(&path, json).map_err(|e| e.to_string())?;
                         return Ok(map);
                     }
-                    None => tried.push(format!("{by}: answer not understood")),
+                    Err(why) => {
+                        // Local log only: the start of the answer shows what the model sent.
+                        let head: String = a.text.chars().take(300).collect();
+                        tracing::info!(by = %by, reason = %why, answer = %head, "map answer not used");
+                        tried.push(format!("{by}: answer not understood ({why})"));
+                    }
                 },
                 Err(e) => tried.push(format!("{by}: {e}")),
             }
@@ -370,8 +404,43 @@ mod tests {
             "{\"parts\": 3}",
             r#"{"parts":[{"name":"All","paths":["src"]}]}"#,
         ] {
-            assert!(parse(a, &files()).is_none(), "{a}");
+            assert!(parse(a, &files()).is_err(), "{a}");
         }
+    }
+
+    #[test]
+    fn a_rejected_answer_says_why() {
+        let why = |a: &str| parse(a, &files()).err().unwrap_or_default();
+        assert_eq!(why("no json"), "no JSON object");
+        assert!(why("{\"parts\": 3}").starts_with("not the map JSON"));
+        assert_eq!(
+            why(r#"{"parts":[{"name":"All","paths":["src"]},{"name":"Ghost","paths":["nope"]}]}"#),
+            "2 parts named, 1 with paths from the project (2 needed)"
+        );
+    }
+
+    #[test]
+    fn known_free_families_are_tried_first() {
+        let m = |id: &str| ModelInfo {
+            provider: "openrouter".into(),
+            model: id.into(),
+            tier: 1,
+            cost: vf_protocol::CostClass::Free,
+            label: String::new(),
+        };
+        let inv = [
+            m("recursive/flint-v1.0:free"),
+            m("qwen/qwen3:free"),
+            m("deepseek/r1:free"),
+        ];
+        assert_eq!(
+            free_in_order(&inv),
+            [
+                "deepseek/r1:free",
+                "qwen/qwen3:free",
+                "recursive/flint-v1.0:free"
+            ]
+        );
     }
 
     #[test]
