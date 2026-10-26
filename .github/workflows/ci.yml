@@ -1,12 +1,15 @@
 name: ci
 
-# Linux: every push and PR. Windows and macOS: `main` and manual runs.
+# Linux: every push and PR. Windows and macOS (2× and 10× the Linux minutes): weekly on `main`
+# and manual runs.
 
 on:
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * 1"
 
 permissions:
   contents: read
@@ -58,7 +61,7 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@bb137d7af7e4fb67e5f82a49c4fce4fad40782fe # v2.0.20
 
   windows-macos:
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     strategy:
       fail-fast: false
       matrix:
