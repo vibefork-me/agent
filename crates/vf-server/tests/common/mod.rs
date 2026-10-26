@@ -122,13 +122,18 @@ impl Backend for FakeBackend {
         }
     }
     fn connect_ai_key(&self, provider: &str, key: &str) -> Result<(), BackendError> {
-        if provider != "openrouter" {
+        if provider != "openrouter" && provider != "gemini" {
             return Err(BackendError::BadRequest("unknown provider for key".into()));
         }
         if key == "bad-key" || key.contains("invalid") {
-            return Err(BackendError::BadRequest(
-                "invalid OpenRouter key: OpenRouter returned HTTP 401".into(),
-            ));
+            let name = if provider == "gemini" {
+                "Google AI Studio"
+            } else {
+                "OpenRouter"
+            };
+            return Err(BackendError::BadRequest(format!(
+                "invalid {name} key: {name} returned HTTP 401"
+            )));
         }
         Ok(())
     }
@@ -141,7 +146,7 @@ impl Backend for FakeBackend {
         Ok(())
     }
     fn disconnect_ai(&self, provider: &str) -> Result<(), BackendError> {
-        if provider == "custom" || provider == "openrouter" {
+        if provider == "custom" || provider == "openrouter" || provider == "gemini" {
             Ok(())
         } else {
             Err(BackendError::BadRequest("cannot disconnect".into()))

@@ -282,11 +282,14 @@ pub(crate) async fn ai_connect(
         return no_session();
     }
     let is_openrouter = req.provider == "openrouter";
+    let is_gemini = req.provider == "gemini";
     let is_custom = req.provider == "custom";
+    let is_key_based = is_openrouter || is_gemini;
     let name = match req.provider.as_str() {
         "claude" => "Claude",
         "codex" => "ChatGPT (Codex)",
         "openrouter" => "OpenRouter",
+        "gemini" => "Google AI Studio (Gemini)",
         "custom" => "OpenAI-compatible API",
         _ => {
             return error_with_code(
@@ -298,7 +301,7 @@ pub(crate) async fn ai_connect(
     };
 
     if let Some(target_mode) = req.mode {
-        if is_openrouter || is_custom {
+        if is_key_based || is_custom {
             return error_with_code(
                 StatusCode::BAD_REQUEST,
                 "this provider does not support cli home modes",
@@ -504,7 +507,7 @@ pub(crate) async fn ai_connect(
         };
     }
 
-    let prompt = if is_openrouter {
+    let prompt = if is_key_based {
         vf_core::catalog::action_connect_ai_key(lang, name)
     } else {
         vf_core::catalog::action_connect_ai_subscription(lang, name)
@@ -525,10 +528,14 @@ pub(crate) async fn ai_connect(
         );
     }
 
-    if is_openrouter {
+    if is_key_based {
         let auth = state.auth.clone();
         let o = origin.0.clone();
-        let secret_prompt = vf_core::catalog::openrouter_key_prompt(lang);
+        let secret_prompt = if is_gemini {
+            vf_core::catalog::gemini_key_prompt(lang)
+        } else {
+            vf_core::catalog::openrouter_key_prompt(lang)
+        };
         let secret = tokio::task::spawn_blocking(move || auth.ask_secret(&o, secret_prompt))
             .await
             .unwrap_or(None);

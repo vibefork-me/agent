@@ -14,6 +14,8 @@ use crate::{Answer, AskRequest, Output, Provider, RunRequest, RunResult, Tracker
 
 /// OpenRouter API.
 pub const OPENROUTER_URL: &str = "https://openrouter.ai/api/v1";
+/// Google AI Studio (Gemini) OpenAI-compatible API.
+pub const GEMINI_URL: &str = "https://generativelanguage.googleapis.com/v1beta/openai";
 /// Most model turns of one run.
 pub const MAX_STEPS: usize = 30;
 /// How long the model list is cached.
@@ -45,6 +47,18 @@ impl OpenAiCompatible {
         key_source: impl Fn() -> Option<Secret<String>> + Send + Sync + 'static,
     ) -> Self {
         Self::dynamic("openrouter", OPENROUTER_URL, key_source)
+    }
+
+    /// Google AI Studio (Gemini) with a key (none = no models).
+    pub fn gemini(key: Option<Secret<String>>) -> Self {
+        Self::new("gemini", GEMINI_URL, key)
+    }
+
+    /// Google AI Studio (Gemini) with dynamic key loading.
+    pub fn gemini_dynamic(
+        key_source: impl Fn() -> Option<Secret<String>> + Send + Sync + 'static,
+    ) -> Self {
+        Self::dynamic("gemini", GEMINI_URL, key_source)
     }
 
     /// Custom OpenAI-compatible provider with dynamic configuration.
@@ -137,7 +151,7 @@ impl OpenAiCompatible {
             Some(u) => u,
             None => return false,
         };
-        let ok = match key_accepted(&base_url, key) {
+        let ok = match key_accepted(self.id, &base_url, key) {
             Ok(ok) => ok,
             Err(e) => {
                 tracing::warn!(error = %e, provider = self.id, "key not checked");
@@ -162,12 +176,26 @@ impl OpenAiCompatible {
     /// Validates an API key: `GET /key` answers only to a real key (`/models` is public and accepts
     /// anything), then fetches the free models.
     pub fn verify_key(base_url: &str, key: &Secret<String>) -> Result<Vec<ModelInfo>, String> {
+        Self::verify_key_for("openrouter", base_url, key)
+    }
+
+    /// Validates an API key for a specified provider (`openrouter`, `gemini`), then fetches models.
+    pub fn verify_key_for(
+        id: &str,
+        base_url: &str,
+        key: &Secret<String>,
+    ) -> Result<Vec<ModelInfo>, String> {
         if key.expose().trim().is_empty() {
             return Err("the key is empty".into());
         }
         let base = base_url.trim_end_matches('/');
-        if !key_accepted(base, key)? {
-            return Err("OpenRouter did not accept the key".to_owned());
+        if !key_accepted(id, base, key)? {
+            let name = if id == "gemini" {
+                "Google AI Studio"
+            } else {
+                "OpenRouter"
+            };
+            return Err(format!("{name} did not accept the key"));
         }
         let url = format!("{base}/models");
         let body: Value = block_on(async {
@@ -177,16 +205,20 @@ impl OpenAiCompatible {
                 .header("x-title", "vibefork")
                 .send()
                 .await
-                .map_err(|_| "network error contacting OpenRouter".to_owned())?;
+                .map_err(|_| format!("network error contacting {id}"))?;
             let status = res.status();
             if !status.is_success() {
-                return Err(format!("OpenRouter returned HTTP {status}"));
+                return Err(format!("{id} returned HTTP {status}"));
             }
             res.json::<Value>()
                 .await
-                .map_err(|_| "invalid JSON response from OpenRouter".to_owned())
+                .map_err(|_| format!("invalid JSON response from {id}"))
         })??;
-        Ok(free_tool_models("openrouter", &body))
+        if id == "gemini" {
+            Ok(gemini_models(id, &body))
+        } else {
+            Ok(free_tool_models(id, &body))
+        }
     }
 
     /// Verifies a custom OpenAI-compatible endpoint.
@@ -276,22 +308,7 @@ impl OpenAiCompatible {
 
     fn fetch_models_with_key(&self, key: &Secret<String>) -> Result<Vec<ModelInfo>, String> {
         let base_url = self.base_url().ok_or("no base URL configured")?;
-        let url = format!("{base_url}/models");
-        let body: Value = block_on(async {
-            let res = Self::client()?
-                .get(&url)
-                .bearer_auth(key.expose())
-                .header("x-title", "vibefork")
-                .send()
-                .await
-                .map_err(|e| e.to_string())?;
-            let status = res.status();
-            if !status.is_success() {
-                return Err(format!("OpenRouter returned HTTP {status}"));
-            }
-            res.json::<Value>().await.map_err(|e| e.to_string())
-        })??;
-        Ok(free_tool_models(self.id, &body))
+        Self::verify_key_for(self.id, &base_url, key)
     }
 
     fn fetch_custom_models(&self, base_url: &str) -> Vec<ModelInfo> {
@@ -376,6 +393,42 @@ pub fn free_tool_models(provider: &str, body: &Value) -> Vec<ModelInfo> {
             })
         })
         .collect()
+}
+
+/// Free Gemini models from a Google AI Studio `/models` response.
+pub fn gemini_models(provider: &str, body: &Value) -> Vec<ModelInfo> {
+    let mut out = Vec::new();
+    if let Some(arr) = body["data"].as_array() {
+        for m in arr {
+            let Some(raw_id) = m["id"].as_str() else {
+                continue;
+            };
+            let id = raw_id.strip_prefix("models/").unwrap_or(raw_id);
+            if id.starts_with("gemini-2.0-flash")
+                || id.starts_with("gemini-1.5-flash")
+                || id.starts_with("gemini-2.5-flash")
+            {
+                out.push(ModelInfo {
+                    provider: provider.into(),
+                    model: id.into(),
+                    tier: 1,
+                    cost: CostClass::Free,
+                    label: format!("Google {id}"),
+                });
+            }
+        }
+    }
+    if out.is_empty() {
+        out.push(ModelInfo {
+            provider: provider.into(),
+            model: "gemini-2.0-flash".into(),
+            tier: 1,
+            cost: CostClass::Free,
+            label: "Google Gemini 2.0 Flash".into(),
+        });
+    }
+    out.sort_by_key(|m| if m.model.contains("2.0") { 0 } else { 1 });
+    out
 }
 
 /// Runs a future from a blocking thread (inside the agent's runtime, or a private one in tests).
@@ -479,7 +532,7 @@ impl Provider for OpenAiCompatible {
 
     fn connect_key(&self, key: &Secret<String>) -> Result<(), String> {
         let base_url = self.base_url().ok_or("no base URL configured")?;
-        let _ = Self::verify_key(&base_url, key)?;
+        let _ = Self::verify_key_for(self.id, &base_url, key)?;
         self.reload();
         Ok(())
     }
@@ -763,20 +816,37 @@ mod tests {
             .collect();
         assert_eq!(ids, ["a/b:free", "c/d"]);
     }
+
+    #[test]
+    fn gemini_models_parses_flash_models() {
+        let body = json!({ "data": [
+            { "id": "models/gemini-2.0-flash", "object": "model" },
+            { "id": "models/gemini-1.5-flash", "object": "model" },
+            { "id": "models/text-embedding-004", "object": "model" },
+        ]});
+        let models = gemini_models("gemini", &body);
+        let ids: Vec<String> = models.into_iter().map(|m| m.model).collect();
+        assert_eq!(ids, ["gemini-2.0-flash", "gemini-1.5-flash"]);
+    }
 }
 
-/// `GET /key`: whether the API accepts the key (`Err` when the API could not be reached).
-fn key_accepted(base_url: &str, key: &Secret<String>) -> Result<bool, String> {
+/// Whether the API accepts the key (`GET /key` for OpenRouter, `GET /models` for others).
+fn key_accepted(id: &str, base_url: &str, key: &Secret<String>) -> Result<bool, String> {
     let base = base_url.trim_end_matches('/');
+    let url = if id == "openrouter" {
+        format!("{base}/key")
+    } else {
+        format!("{base}/models")
+    };
     block_on(async {
         let res = OpenAiCompatible::client()?
-            .get(format!("{base}/key"))
+            .get(url)
             .bearer_auth(key.expose())
             .header("x-title", "vibefork")
             .timeout(Duration::from_secs(20))
             .send()
             .await
-            .map_err(|_| "network error contacting OpenRouter".to_owned())?;
+            .map_err(|_| format!("network error contacting {id}"))?;
         Ok(res.status().is_success())
     })?
 }

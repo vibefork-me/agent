@@ -1251,6 +1251,93 @@ async fn openrouter_connect_with_key_and_cancel_or_empty() {
 }
 
 #[tokio::test]
+async fn gemini_connect_with_key_and_disconnect() {
+    let browser = Browser::new();
+    let make = |secret: Option<String>| {
+        let auth = Auth::load(
+            temp_dir(),
+            Arc::new(DialogWithSecret {
+                allow: true,
+                secret,
+            }),
+        )
+        .unwrap();
+        router(
+            Config {
+                port: PORT,
+                allowed_origins: vec![UI.into()],
+                extra_origins: vec![],
+            },
+            auth,
+            Arc::new(RwLock::new(None)),
+            common::backend(),
+        )
+    };
+
+    // 1. Cancelled dialog -> started: false
+    let app_cancel = make(None);
+    let key_id = pair(&app_cancel, &browser, UI).await;
+    let token = login(&app_cancel, &browser, &key_id, UI).await;
+    let (status, v, _) = call(
+        &app_cancel,
+        Req {
+            token: Some(&token),
+            ..Req::post("/v1/ai/connect", UI, json!({ "provider": "gemini" }))
+        },
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(v["started"], json!(false));
+
+    // 2. Valid secret -> started: true
+    let app_valid = make(Some("valid-gemini-key".into()));
+    let key_id = pair(&app_valid, &browser, UI).await;
+    let token = login(&app_valid, &browser, &key_id, UI).await;
+    let (status, v, _) = call(
+        &app_valid,
+        Req {
+            token: Some(&token),
+            ..Req::post("/v1/ai/connect", UI, json!({ "provider": "gemini" }))
+        },
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(v["started"], json!(true));
+
+    // 3. Disconnect route
+    let (status, v, _) = call(
+        &app_valid,
+        Req {
+            token: Some(&token),
+            ..Req::post("/v1/ai/disconnect", UI, json!({ "provider": "gemini" }))
+        },
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(v["ok"], json!(true));
+
+    // 4. Invalid key -> 400 Bad Request
+    let app_invalid = make(Some("invalid-key".into()));
+    let key_id = pair(&app_invalid, &browser, UI).await;
+    let token = login(&app_invalid, &browser, &key_id, UI).await;
+    let (status, v, _) = call(
+        &app_invalid,
+        Req {
+            token: Some(&token),
+            ..Req::post("/v1/ai/connect", UI, json!({ "provider": "gemini" }))
+        },
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(
+        v["error"]
+            .as_str()
+            .unwrap()
+            .contains("invalid Google AI Studio key")
+    );
+}
+
+#[tokio::test]
 async fn import_rate_limit_returns_429_with_structured_error() {
     let app = app(true);
     let browser = Browser::new();

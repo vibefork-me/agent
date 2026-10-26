@@ -25,7 +25,7 @@ pub fn enable_test_store() {
 }
 
 /// Names of the secrets the agent keeps.
-pub const NAMES: &[&str] = &["openrouter", "github", "custom_openai"];
+pub const NAMES: &[&str] = &["openrouter", "github", "custom_openai", "gemini"];
 
 /// Errors of the secret store.
 #[derive(Debug, thiserror::Error)]
@@ -113,6 +113,22 @@ fn environment_custom_openai_key() -> Option<Secret<String>> {
     #[cfg(any(test, all(debug_assertions, feature = "dev-env-secrets")))]
     {
         environment_secret(std::env::var("CUSTOM_OPENAI_API_KEY").ok(), true)
+    }
+    #[cfg(not(any(test, all(debug_assertions, feature = "dev-env-secrets"))))]
+    {
+        environment_secret(None, false)
+    }
+}
+
+/// The Google AI Studio (Gemini) key: from secret store, or env variable in dev/test.
+pub fn gemini_key() -> Option<Secret<String>> {
+    get("gemini").or_else(environment_gemini_key)
+}
+
+fn environment_gemini_key() -> Option<Secret<String>> {
+    #[cfg(any(test, all(debug_assertions, feature = "dev-env-secrets")))]
+    {
+        environment_secret(std::env::var("GEMINI_API_KEY").ok(), true)
     }
     #[cfg(not(any(test, all(debug_assertions, feature = "dev-env-secrets"))))]
     {
