@@ -29,6 +29,11 @@ pub fn validate_custom_openai_endpoint(raw: &str) -> Result<String, &'static str
     if host_and_port.is_empty() {
         return Err("Endpoint URL is missing host");
     }
+    // `http://localhost:80@evil.example` goes to evil.example: no user info, no other delimiters
+    // that make the host something other than what is checked below.
+    if host_and_port.contains(['@', '\\', '?', '#']) || rest.contains('\\') {
+        return Err("Endpoint URL must not contain user info or special characters in the host");
+    }
 
     let host = if host_and_port.starts_with('[') {
         // IPv6 bracketed address e.g. [::1]:11434
@@ -118,6 +123,11 @@ mod tests {
         // Invalid: non-loopback http rejected
         assert!(validate_custom_openai_endpoint("http://api.together.xyz/v1").is_err());
         assert!(validate_custom_openai_endpoint("http://192.168.1.50:11434").is_err());
+        // The real host is after `@`: not loopback.
+        assert!(validate_custom_openai_endpoint("http://localhost:80@evil.example/v1").is_err());
+        assert!(validate_custom_openai_endpoint("http://127.0.0.1@evil.example").is_err());
+        assert!(validate_custom_openai_endpoint("http://localhost\\@evil.example").is_err());
+        assert!(validate_custom_openai_endpoint("https://user:pass@api.example/v1").is_err());
         assert!(validate_custom_openai_endpoint("http://example.com").is_err());
 
         // Invalid scheme or missing host
