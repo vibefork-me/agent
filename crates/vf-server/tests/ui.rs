@@ -75,10 +75,7 @@ async fn bundle_server(
         app.route("/b/manifest.json", get(move || async move { m }))
     };
     app = app.route("/b/manifest.sig", get(move || async move { sig }));
-    app = app.route(
-        "/b/subkey.cert.json",
-        get(move || async move { cert_json }),
-    );
+    app = app.route("/b/subkey.cert.json", get(move || async move { cert_json }));
     app = app.route("/b/subkey.cert.sig", get(move || async move { cert_sig }));
     for (path, content) in files {
         let body = match tamper {
