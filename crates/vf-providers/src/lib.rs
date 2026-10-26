@@ -118,6 +118,11 @@ pub trait Provider: Send + Sync {
         let _ = timeout;
         Err("this provider is connected another way".into())
     }
+    /// Signs out of the provider's CLI in the agent's own sign-in (agent mode only; the user's own
+    /// sign-in is never touched).
+    fn logout(&self) -> Result<(), String> {
+        Err("this provider is not signed out this way".into())
+    }
     /// Uses this binary of the provider's CLI from now on (one the agent installed).
     fn use_cli(&self, bin: PathBuf) {
         let _ = bin;
