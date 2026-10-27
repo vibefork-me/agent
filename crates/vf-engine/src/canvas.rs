@@ -1,5 +1,5 @@
 //! The session stream of a project: canvas events are numbered, kept in the project's event log and
-//! sent along with the messages they come from. Messages of the existing protocol that mean the same
+//! sent just before the messages they come from. Messages of the existing protocol that mean the same
 //! as a canvas event produce both, so an editor of either kind follows the work.
 
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -60,13 +60,13 @@ impl<'a> Stream<'a> {
         });
     }
 
-    /// Sends a message of the existing protocol, then the canvas events that mean the same.
+    /// Sends the canvas events that mean the same as a message of the existing protocol, then the
+    /// message: a final message (`done`, `cancelled`, `build_done`) stays the last one of the run.
     pub(crate) fn forward(&mut self, message: ServerMessage) {
-        let events = events_for(&message);
-        (self.out)(message);
-        for ev in events {
+        for ev in events_for(&message) {
             self.emit(ev);
         }
+        (self.out)(message);
     }
 }
 
@@ -220,7 +220,7 @@ mod tests {
         assert_eq!(
             kinds,
             [
-                "1:task", "plan", "2:plan", "started", "3:stage", "4:step", "stderr"
+                "1:task", "2:plan", "plan", "3:stage", "4:step", "started", "stderr"
             ]
         );
         assert_eq!(
