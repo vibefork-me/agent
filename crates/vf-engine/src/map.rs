@@ -441,6 +441,20 @@ pub(crate) fn map_events(map: &ModelMap) -> Vec<CanvasEvent> {
     events
 }
 
+/// A task prompt made of an offer: the title as the first line, then what would change.
+pub(crate) fn offer_prompt(offer: &MapOffer) -> String {
+    if offer.text.is_empty() {
+        offer.title.clone()
+    } else {
+        format!(
+            "{}
+
+{}",
+            offer.title, offer.text
+        )
+    }
+}
+
 /// Node id of the project root on the canvas.
 pub(crate) const ROOT: &str = "root";
 
@@ -459,6 +473,23 @@ impl Engine {
         self.state_dir
             .join("projects")
             .join(format!("{project}.map.json"))
+    }
+
+    /// The prompt of offer `index` of the project's kept map: its title, then its text.
+    pub(crate) fn kept_offer_prompt(
+        &self,
+        project: &str,
+        index: u32,
+    ) -> Result<String, vf_protocol::OfferRejected> {
+        let offers = self.load_map(project).map(|m| m.offers).unwrap_or_default();
+        if offers.is_empty() {
+            return Err(vf_protocol::OfferRejected::NoOffers);
+        }
+        let offer = usize::try_from(index)
+            .ok()
+            .and_then(|i| offers.get(i))
+            .ok_or(vf_protocol::OfferRejected::BadIndex)?;
+        Ok(offer_prompt(offer))
     }
 
     /// The model's map of a project, if one was written.

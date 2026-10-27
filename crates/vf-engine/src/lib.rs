@@ -595,6 +595,17 @@ impl Backend for Engine {
         });
     }
 
+    fn offer_prompt(
+        &self,
+        project: &str,
+        index: u32,
+    ) -> Result<String, vf_protocol::OfferRejected> {
+        if self.projects.resolve(project).is_err() {
+            return Err(vf_protocol::OfferRejected::NoOffers);
+        }
+        self.kept_offer_prompt(project, index)
+    }
+
     fn canvas(&self, project: &str, from: u64) -> Result<CanvasResponse, BackendError> {
         self.projects
             .resolve(project)

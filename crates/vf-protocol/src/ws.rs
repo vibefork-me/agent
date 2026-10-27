@@ -57,12 +57,24 @@ pub enum ClientMessage {
     Stop,
     /// Continue a paused task or build.
     Resume,
-    /// Start what an offer of the analysis suggests.
+    /// Run a task with what an offer of the analysis suggests (its title and text), like `task`.
     ChooseOffer {
         /// Project name.
         project: String,
-        /// Index in the last `offers` event.
+        /// Index in the last `offers` event of the project.
         index: u32,
+        /// `auto`, `plan`, or a provider, as in `task`.
+        #[serde(default)]
+        provider: Option<String>,
+        /// Model of the provider; empty = its default.
+        #[serde(default)]
+        model: Option<String>,
+        /// Continue with the history of the project.
+        #[serde(default, rename = "continue")]
+        continue_: bool,
+        /// Language of the UI/response (`en`, `ru`, …); default is the OS language.
+        #[serde(default)]
+        lang: Option<String>,
     },
     /// Undo the changes of one part.
     RollbackPart {

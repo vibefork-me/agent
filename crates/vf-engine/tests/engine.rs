@@ -18,7 +18,7 @@ use vf_platform::Settings;
 use vf_platform::settings::Storage;
 use vf_protocol::canvas::CanvasEvent;
 use vf_protocol::ws::ServerMessage;
-use vf_protocol::{Backend, Cancel, CostClass, Event, ModelInfo, TaskRequest};
+use vf_protocol::{Backend, Cancel, CostClass, Event, ModelInfo, OfferRejected, TaskRequest};
 use vf_providers::{Answer, AskRequest, Output, Provider, RunRequest, RunResult};
 
 /// Writes `n.txt`, commits it itself, writes `left.txt` uncommitted; records the prompts it got.
@@ -511,6 +511,38 @@ fn a_task_writes_its_session_stream_and_it_replays_from_any_event() {
     assert_ne!(
         all.first().map(|r| &r.session),
         all.last().map(|r| &r.session)
+    );
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+#[test]
+fn a_chosen_offer_is_the_prompt_of_a_kept_offer() {
+    let (base, engine, _) = setup();
+    // Never described: nothing to choose; an unknown project has nothing either.
+    assert_eq!(engine.offer_prompt("demo", 0), Err(OfferRejected::NoOffers));
+    assert_eq!(
+        engine.offer_prompt("../demo", 0),
+        Err(OfferRejected::NoOffers)
+    );
+    std::fs::create_dir_all(base.join("state/projects")).unwrap();
+    std::fs::write(
+        base.join("state/projects/demo.map.json"),
+        r#"{"revision":"r","by":"t","parts":[],"links":[],"offers":[
+            {"title":"Tags for notes","text":"Notes can be grouped by tag.","why":"Notes have no grouping."},
+            {"title":"Dark theme","text":"","why":"Only a light theme."}]}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        engine.offer_prompt("demo", 0).as_deref(),
+        Ok("Tags for notes
+
+Notes can be grouped by tag.")
+    );
+    assert_eq!(engine.offer_prompt("demo", 1).as_deref(), Ok("Dark theme"));
+    assert_eq!(engine.offer_prompt("demo", 2), Err(OfferRejected::BadIndex));
+    assert_eq!(
+        engine.offer_prompt("demo", u32::MAX),
+        Err(OfferRejected::BadIndex)
     );
     let _ = std::fs::remove_dir_all(&base);
 }
