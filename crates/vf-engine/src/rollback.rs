@@ -33,13 +33,13 @@ fn step_number(prompt: &str) -> Option<u32> {
     n.parse().ok()
 }
 
-/// The name of part `id` of `map` (`p1`, `p2`… or [`OTHER`]); `None` when the map has no such part.
+/// The name of part `id` of `map` (`p1`, `p2`…, a piece `p1.1`… or [`OTHER`]); `None` when the map
+/// has no such part.
 fn part_name(map: &ModelMap, id: &str) -> Option<String> {
     if id == OTHER {
         return Some("other files".into());
     }
-    let n: usize = id.strip_prefix('p')?.parse().ok()?;
-    map.parts.get(n.checked_sub(1)?).map(|p| p.name.clone())
+    map::node_name(map, id).map(str::to_owned)
 }
 
 impl Engine {
@@ -59,7 +59,9 @@ impl Engine {
             .ok_or_else(|| BackendError::NotFound("the project has no map of parts".into()))?;
         let name = part_name(&map, id)
             .ok_or_else(|| BackendError::NotFound("no such part on the map".into()))?;
-        let owned = |file: &str| map::part_of(&map, file).as_deref().unwrap_or(OTHER) == id;
+        // A part owns the files of its pieces too.
+        let owned =
+            |file: &str| map::is_within(map::part_of(&map, file).as_deref().unwrap_or(OTHER), id);
         let journal = self
             .journal
             .read(project)
@@ -220,10 +222,14 @@ mod tests {
     #[test]
     fn parts_are_named_by_their_map_id() {
         let map: ModelMap = serde_json::from_str(
-            r#"{"revision":"r","by":"t","parts":[{"name":"Notes","summary":"","paths":["notes"]}],"links":[]}"#,
+            r#"{"revision":"r","by":"t","parts":[{"name":"Notes","summary":"","paths":["notes"],
+              "parts":[{"name":"Search","summary":"","paths":["notes/search"]}]}],"links":[]}"#,
         )
         .unwrap();
         assert_eq!(part_name(&map, "p1").as_deref(), Some("Notes"));
+        assert_eq!(part_name(&map, "p1.1").as_deref(), Some("Search"));
+        assert!(part_name(&map, "p1.2").is_none());
+        assert!(part_name(&map, "p1.").is_none());
         assert!(part_name(&map, "p2").is_none());
         assert!(part_name(&map, "p0").is_none());
         assert!(part_name(&map, "notes").is_none());

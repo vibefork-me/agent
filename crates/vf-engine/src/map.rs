@@ -1,6 +1,7 @@
 //! The map of a project written by a model: a few parts in plain words for someone who does not
-//! code, each with the files it covers. The project's text reaches the model as data; the answer
-//! is accepted only in the expected shape, and paths outside the project's files are dropped.
+//! code, each with the files it covers; a large part may have smaller pieces inside it (two levels
+//! at most). The project's text reaches the model as data; the answer is accepted only in the
+//! expected shape, and paths outside the project's files are dropped.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -16,6 +17,15 @@ use crate::Engine;
 
 /// Most parts in a map.
 const MAX_PARTS: usize = 12;
+/// A part is split into smaller pieces only when it has more files than this: a smaller part reads
+/// at a glance, and it is the bar at which the folder map shows a top folder by its subfolders too.
+pub(crate) const SPLIT_ABOVE: usize = 40;
+/// Fewest pieces a part is split into: one piece would be the part itself.
+const MIN_PIECES: usize = 2;
+/// Most pieces inside one part: the canvas folds a branch of more than a few anyway.
+const MAX_PIECES: usize = 6;
+/// Most pieces in the whole map, so the map stays readable and the answer short.
+const MAX_ALL_PIECES: usize = 24;
 /// Insights kept per part.
 pub(crate) const MAX_INSIGHTS: usize = 2;
 /// Most file paths shown to the model.
@@ -41,6 +51,18 @@ pub(crate) struct Part {
     /// What the model understood about the part, in plain words (at most [`MAX_INSIGHTS`]).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) insights: Vec<String>,
+    /// Smaller pieces inside the part (ids `p<part>.<piece>`); only a part with more than
+    /// [`SPLIT_ABOVE`] files has them, maps written before pieces existed have none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) parts: Vec<Piece>,
+}
+
+/// A smaller piece inside a part, after checks: its files are some, not all, of the part's files.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct Piece {
+    pub(crate) name: String,
+    pub(crate) summary: String,
+    pub(crate) paths: Vec<String>,
 }
 
 /// Something the person could do with the project, as the model saw it while drawing the map.
@@ -80,6 +102,20 @@ struct RawPart {
     paths: Vec<String>,
     #[serde(default)]
     insights: Vec<String>,
+    /// Read item by item: pieces in an odd shape are dropped, the part is kept. Pieces of pieces
+    /// are not read (two levels at most).
+    #[serde(default)]
+    parts: Vec<serde_json::Value>,
+}
+
+#[derive(Deserialize)]
+struct RawPiece {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    summary: String,
+    #[serde(default)]
+    paths: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -124,6 +160,100 @@ fn plain(s: &str, max: usize) -> String {
 /// Whether `path` (a file or a folder, `/`-separated) covers `file`.
 fn covers(path: &str, file: &str) -> bool {
     file == path || file.strip_prefix(path).is_some_and(|r| r.starts_with('/'))
+}
+
+/// Paths as the model wrote them, cleaned, without repeats, only those `keep` accepts.
+fn clean_paths(raw: Vec<String>, keep: impl Fn(&str) -> bool) -> Vec<String> {
+    let mut paths: Vec<String> = Vec::new();
+    for raw in raw {
+        let path = raw
+            .trim()
+            .trim_start_matches("./")
+            .trim_end_matches('/')
+            .to_owned();
+        if !path.is_empty() && !paths.contains(&path) && keep(&path) {
+            paths.push(path);
+        }
+    }
+    paths
+}
+
+/// Node id of part `i` (from 0): `p1`, `p2`…
+pub(crate) fn part_id(i: usize) -> String {
+    format!("p{}", i + 1)
+}
+
+/// Node id of piece `j` of part `i` (both from 0): `p1.1`, `p1.2`…
+pub(crate) fn piece_id(i: usize, j: usize) -> String {
+    format!("p{}.{}", i + 1, j + 1)
+}
+
+/// The index of the top part with the longest path covering `file` (a file or a folder); `None`
+/// when no part covers it.
+fn top_owner(parts: &[Part], file: &str) -> Option<usize> {
+    parts
+        .iter()
+        .enumerate()
+        .flat_map(|(i, p)| p.paths.iter().map(move |path| (i, path)))
+        .filter(|(_, path)| covers(path, file))
+        .max_by_key(|(_, path)| path.len())
+        .map(|(i, _)| i)
+}
+
+/// The pieces of part `i` as the model wrote them, checked: only for a part with more than
+/// [`SPLIT_ABOVE`] files; each piece named, its paths inside the part (no other part claims them
+/// closer), its files some but not all of the part's; [`MIN_PIECES`] to `max` (at most
+/// [`MAX_PIECES`]) of them, none otherwise.
+fn pieces(
+    parts: &[Part],
+    i: usize,
+    raw: Vec<serde_json::Value>,
+    files: &[String],
+    max: usize,
+) -> Vec<Piece> {
+    let Some(part) = parts.get(i) else {
+        return Vec::new();
+    };
+    let max = max.min(MAX_PIECES);
+    let own: Vec<&String> = files
+        .iter()
+        .filter(|f| top_owner(parts, f) == Some(i))
+        .collect();
+    if own.len() <= SPLIT_ABOVE || max < MIN_PIECES {
+        return Vec::new();
+    }
+    let mut out: Vec<Piece> = Vec::new();
+    for p in raw
+        .into_iter()
+        .filter_map(|v| serde_json::from_value::<RawPiece>(v).ok())
+    {
+        if out.len() == max {
+            break;
+        }
+        let name = plain(&p.name, NAME_CHARS);
+        if name.is_empty() || name == part.name || out.iter().any(|x| x.name == name) {
+            continue;
+        }
+        let paths = clean_paths(p.paths, |path| {
+            top_owner(parts, path) == Some(i) && own.iter().any(|f| covers(path, f))
+        });
+        let covered = own
+            .iter()
+            .filter(|f| paths.iter().any(|path| covers(path, f)))
+            .count();
+        if covered == 0 || covered == own.len() {
+            continue;
+        }
+        out.push(Piece {
+            name,
+            summary: plain(&p.summary, SUMMARY_CHARS),
+            paths,
+        });
+    }
+    if out.len() < MIN_PIECES {
+        return Vec::new();
+    }
+    out
 }
 
 /// A model's answer after checks.
@@ -172,23 +302,14 @@ pub(crate) fn parse(answer: &str, files: &[String]) -> Result<Parsed, String> {
     let raw: RawMap = serde_json::from_str(json).map_err(|e| format!("not the map JSON: {e}"))?;
     let named = raw.parts.len();
     let mut parts: Vec<Part> = Vec::new();
+    // Pieces are checked once every part is known: a later part can claim some of their files.
+    let mut raw_pieces: Vec<Vec<serde_json::Value>> = Vec::new();
     for p in raw.parts.into_iter().take(MAX_PARTS) {
         let name = plain(&p.name, NAME_CHARS);
         if name.is_empty() || parts.iter().any(|x| x.name == name) {
             continue;
         }
-        let mut paths: Vec<String> = Vec::new();
-        for raw in p.paths {
-            let path = raw
-                .trim()
-                .trim_start_matches("./")
-                .trim_end_matches('/')
-                .to_owned();
-            if !path.is_empty() && !paths.contains(&path) && files.iter().any(|f| covers(&path, f))
-            {
-                paths.push(path);
-            }
-        }
+        let paths = clean_paths(p.paths, |path| files.iter().any(|f| covers(path, f)));
         if paths.is_empty() {
             continue;
         }
@@ -204,13 +325,23 @@ pub(crate) fn parse(answer: &str, files: &[String]) -> Result<Parsed, String> {
             summary: plain(&p.summary, SUMMARY_CHARS),
             paths,
             insights,
+            parts: Vec::new(),
         });
+        raw_pieces.push(p.parts);
     }
     if parts.len() < 2 {
         return Err(format!(
             "{named} parts named, {} with paths from the project (2 needed)",
             parts.len()
         ));
+    }
+    let mut left = MAX_ALL_PIECES;
+    for (i, raw) in raw_pieces.into_iter().enumerate() {
+        let found = pieces(&parts, i, raw, files, left);
+        left = left.saturating_sub(found.len());
+        if let Some(part) = parts.get_mut(i) {
+            part.parts = found;
+        }
     }
     let index = |n: &str| parts.iter().position(|p| p.name == plain(n, NAME_CHARS));
     let mut links: Vec<(usize, usize)> = Vec::new();
@@ -229,16 +360,49 @@ pub(crate) fn parse(answer: &str, files: &[String]) -> Result<Parsed, String> {
     })
 }
 
-/// The part of the map a file belongs to (`p1`, `p2`…): the one with the longest path covering it;
-/// `None` when no part covers it.
+/// The deepest part of the map a file belongs to (`p1`, `p2`… or a piece `p1.1`…): the one with the
+/// longest path covering it, a piece over a part when their paths are as long; `None` when no part
+/// covers it.
 pub(crate) fn part_of(map: &ModelMap, file: &str) -> Option<String> {
     map.parts
         .iter()
         .enumerate()
-        .flat_map(|(i, p)| p.paths.iter().map(move |path| (i, path)))
-        .filter(|(_, path)| covers(path, file))
-        .max_by_key(|(_, path)| path.len())
-        .map(|(i, _)| format!("p{}", i + 1))
+        .flat_map(|(i, p)| {
+            let own = p.paths.iter().map(move |path| (path, 0u8, i, None));
+            let pieces = p.parts.iter().enumerate().flat_map(move |(j, piece)| {
+                piece.paths.iter().map(move |path| (path, 1u8, i, Some(j)))
+            });
+            own.chain(pieces)
+        })
+        .filter(|(path, ..)| covers(path, file))
+        .max_by_key(|(path, depth, ..)| (path.len(), *depth))
+        .map(|(_, _, i, j)| j.map_or_else(|| part_id(i), |j| piece_id(i, j)))
+}
+
+/// Whether node `id` is part `within` or a piece inside it.
+pub(crate) fn is_within(id: &str, within: &str) -> bool {
+    id == within
+        || id
+            .strip_prefix(within)
+            .is_some_and(|rest| rest.starts_with('.'))
+}
+
+/// The name of part or piece `id` (`p1`, `p1.2`…); `None` when the map has no such node.
+pub(crate) fn node_name<'a>(map: &'a ModelMap, id: &str) -> Option<&'a str> {
+    let rest = id.strip_prefix('p')?;
+    let (part, piece) = match rest.split_once('.') {
+        Some((a, b)) => (a, Some(b)),
+        None => (rest, None),
+    };
+    let i: usize = part.parse().ok()?;
+    let part = map.parts.get(i.checked_sub(1)?)?;
+    match piece {
+        None => Some(&part.name),
+        Some(j) => {
+            let j: usize = j.parse().ok()?;
+            part.parts.get(j.checked_sub(1)?).map(|p| p.name.as_str())
+        }
+    }
 }
 
 /// Nodes and edges of a model's map for the files now; a file belongs to the part with the
@@ -257,38 +421,50 @@ pub(crate) fn build(
         c.0 += u32::from(file_set.contains(f));
         c.1 += u32::from(changed.contains(f));
     }
-    let mut nodes: Vec<GraphNode> = map
-        .parts
-        .iter()
-        .enumerate()
-        .map(|(i, p)| {
-            let id = format!("p{}", i + 1);
-            let (files, changed) = counts.get(&id).copied().unwrap_or_default();
-            GraphNode {
-                id,
-                label: p.name.clone(),
-                summary: (!p.summary.is_empty()).then(|| p.summary.clone()),
-                files,
-                changed,
-            }
-        })
-        .collect();
-    if let Some((files, changed)) = counts.get(OTHER).copied() {
-        nodes.push(GraphNode {
-            id: OTHER.into(),
-            label: String::new(),
-            summary: None,
-            files,
-            changed,
-        });
+    let count = |id: &str| counts.get(id).copied().unwrap_or_default();
+    let node =
+        |id: String, label: &str, summary: &str, parent: Option<String>, n: (u32, u32)| GraphNode {
+            id,
+            label: label.to_owned(),
+            summary: (!summary.is_empty()).then(|| summary.to_owned()),
+            parent,
+            files: n.0,
+            changed: n.1,
+        };
+    let mut nodes: Vec<GraphNode> = Vec::new();
+    for (i, p) in map.parts.iter().enumerate() {
+        let id = part_id(i);
+        // A part counts the files of its pieces too.
+        let mut total = count(&id);
+        let pieces: Vec<GraphNode> = p
+            .parts
+            .iter()
+            .enumerate()
+            .map(|(j, piece)| {
+                let n = count(&piece_id(i, j));
+                total = (total.0.saturating_add(n.0), total.1.saturating_add(n.1));
+                node(
+                    piece_id(i, j),
+                    &piece.name,
+                    &piece.summary,
+                    Some(id.clone()),
+                    n,
+                )
+            })
+            .collect();
+        nodes.push(node(id, &p.name, &p.summary, None, total));
+        nodes.extend(pieces);
+    }
+    if let Some(n) = counts.get(OTHER).copied() {
+        nodes.push(node(OTHER.into(), "", "", None, n));
     }
     let edges = map
         .links
         .iter()
         .filter(|(a, b)| *a < map.parts.len() && *b < map.parts.len())
         .map(|(a, b)| GraphEdge {
-            from: format!("p{}", a + 1),
-            to: format!("p{}", b + 1),
+            from: part_id(*a),
+            to: part_id(*b),
         })
         .collect();
     (nodes, edges)
@@ -390,13 +566,14 @@ fn free_in_order(inventory: &[ModelInfo]) -> Vec<String> {
 }
 
 /// What the analysis shows on the canvas once a map is drawn: every part (found, then looked at, with
-/// what the model understood about it), the links between parts, what the person could do with the
-/// project (when the model offered anything), then the summary stage. Part ids are
-/// those of the map graph (`p1`, `p2`…), under the project root `root`.
+/// what the model understood about it, then its smaller pieces), the links between parts, what the
+/// person could do with the project (when the model offered anything), then the summary stage. Ids
+/// are those of the map graph: parts `p1`, `p2`… under the project root `root`, pieces `p1.1`…
+/// under their part.
 pub(crate) fn map_events(map: &ModelMap) -> Vec<CanvasEvent> {
     let mut events = Vec::new();
     for (i, part) in map.parts.iter().enumerate() {
-        let id = format!("p{}", i + 1);
+        let id = part_id(i);
         events.push(CanvasEvent::Found {
             id: id.clone(),
             parent: ROOT.into(),
@@ -411,13 +588,22 @@ pub(crate) fn map_events(map: &ModelMap) -> Vec<CanvasEvent> {
                 text: text.clone(),
             });
         }
+        for (j, piece) in part.parts.iter().enumerate() {
+            events.push(CanvasEvent::Subsystem {
+                id: piece_id(i, j),
+                parent: id.clone(),
+                label: piece.name.clone(),
+                summary: piece.summary.clone(),
+                files: piece.paths.clone(),
+            });
+        }
     }
     events.push(CanvasEvent::Stage { id: Stage::Links });
     for (a, b) in &map.links {
         if *a < map.parts.len() && *b < map.parts.len() {
             events.push(CanvasEvent::Touch {
-                from: format!("p{}", a + 1),
-                to: format!("p{}", b + 1),
+                from: part_id(*a),
+                to: part_id(*b),
             });
         }
     }
@@ -528,8 +714,8 @@ impl Engine {
                 prompt: &text,
                 model: &model,
                 env: &env,
-                // Room for reasoning models to think and still write the map.
-                max_tokens: Some(4000),
+                // Room for reasoning models to think and still write the map with its pieces.
+                max_tokens: Some(6000),
                 timeout,
             };
             let by = format!(
@@ -677,6 +863,7 @@ mod tests {
             summary: format!("{name} does its job."),
             paths: vec![format!("src/{}", name.to_lowercase())],
             insights: insights.iter().map(|s| (*s).to_owned()).collect(),
+            parts: Vec::new(),
         };
         let map = ModelMap {
             revision: "r".into(),
@@ -793,8 +980,233 @@ mod tests {
         let old = r#"{"revision":"r","by":"t","parts":[{"name":"A","summary":"","paths":["src"]}],"links":[[0,0]]}"#;
         let map: ModelMap = serde_json::from_str(old).unwrap();
         assert!(map.offers.is_empty());
+        assert!(map.parts[0].parts.is_empty());
         let json = serde_json::to_string(&map).unwrap();
         assert!(!json.contains("offers"));
+        // A map without pieces is written as before: one `parts` list, at the top.
+        assert_eq!(json.matches("\"parts\"").count(), 1);
+    }
+
+    /// A synthetic notes app with one large part (`src/notes`, more than [`SPLIT_ABOVE`] files) and
+    /// small ones.
+    fn large_files() -> Vec<String> {
+        let mut f: Vec<String> = (0..20)
+            .map(|i| format!("src/notes/edit/page{i}.ts"))
+            .collect();
+        f.extend((0..15).map(|i| format!("src/notes/search/find{i}.ts")));
+        f.extend((0..10).map(|i| format!("src/notes/sync/send{i}.ts")));
+        f.extend((0..5).map(|i| format!("src/notes/tags/tag{i}.ts")));
+        f.extend(["src/save/disk.ts".into(), "src/save/cloud.ts".into()]);
+        f.extend(["docs/guide.md".into(), "README.md".into()]);
+        f
+    }
+
+    fn piece_names(part: &Part) -> Vec<&str> {
+        part.parts.iter().map(|p| p.name.as_str()).collect()
+    }
+
+    #[test]
+    fn a_large_part_gets_checked_pieces_and_a_small_one_none() {
+        let answer = r#"{"parts":[
+          {"name":"Notes","summary":"Writing notes.","paths":["src/notes"],"parts":[
+            {"name":"Editing","summary":"Typing a note.","paths":["src/notes/edit/","./src/notes/edit"],
+             "parts":[{"name":"Deeper","paths":["src/notes/edit/page1.ts"]}]},
+            {"name":"Everything","summary":"All of it.","paths":["src/notes"]},
+            {"name":"Elsewhere","summary":"Not inside.","paths":["src/save","docs"]},
+            {"name":"Notes","summary":"Same as the part.","paths":["src/notes/tags"]},
+            {"name":"Editing","summary":"Again.","paths":["src/notes/sync"]},
+            {"name":"","summary":"No name.","paths":["src/notes/sync"]},
+            "odd",
+            {"name":"Finding","summary":"Looking for a note.\nFast","paths":["src/notes/search","nowhere"]}
+          ]},
+          {"name":"Saving","summary":"Keeps notes.","paths":["src/save"],"parts":[
+            {"name":"Disk","paths":["src/save/disk.ts"]},{"name":"Cloud","paths":["src/save/cloud.ts"]}
+          ]},
+          {"name":"Help","summary":"How to use it.","paths":["docs","README.md"]}
+        ],"links":[]}"#;
+        let parts = parse(answer, &large_files()).unwrap().parts;
+        assert_eq!(piece_names(&parts[0]), ["Editing", "Finding"]);
+        assert_eq!(parts[0].parts[0].paths, ["src/notes/edit"]);
+        assert_eq!(parts[0].parts[1].paths, ["src/notes/search"]);
+        assert_eq!(parts[0].parts[1].summary, "Looking for a note. Fast");
+        // Two files are not a large part.
+        assert!(parts[1].parts.is_empty());
+        assert!(parts[2].parts.is_empty());
+    }
+
+    #[test]
+    fn pieces_are_limited_per_part_and_in_the_whole_map() {
+        let one = r#"{"parts":[
+          {"name":"Notes","paths":["src/notes"],"parts":[{"name":"Editing","paths":["src/notes/edit"]}]},
+          {"name":"Saving","paths":["src/save"]}
+        ]}"#;
+        // A single piece would be the part itself.
+        assert!(
+            parse(one, &large_files()).unwrap().parts[0]
+                .parts
+                .is_empty()
+        );
+
+        // Twelve large parts, each with eight pieces of two files.
+        let mut files = Vec::new();
+        let mut parts = Vec::new();
+        for p in 0..12 {
+            let mut pieces = Vec::new();
+            for q in 0..8 {
+                files.extend((0..6).map(|f| format!("part{p}/piece{q}/f{f}.ts")));
+                pieces.push(format!(
+                    r#"{{"name":"Piece {q}","paths":["part{p}/piece{q}"]}}"#
+                ));
+            }
+            parts.push(format!(
+                r#"{{"name":"Part {p}","paths":["part{p}"],"parts":[{}]}}"#,
+                pieces.join(",")
+            ));
+        }
+        let answer = format!(r#"{{"parts":[{}]}}"#, parts.join(","));
+        let parsed = parse(&answer, &files).unwrap().parts;
+        let per_part: Vec<usize> = parsed.iter().map(|p| p.parts.len()).collect();
+        assert_eq!(per_part, [6, 6, 6, 6, 0, 0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(per_part.iter().sum::<usize>(), MAX_ALL_PIECES);
+    }
+
+    #[test]
+    fn a_piece_keeps_only_files_no_other_part_claims_closer() {
+        let answer = r#"{"parts":[
+          {"name":"Notes","paths":["src/notes"],"parts":[
+            {"name":"Finding","paths":["src/notes/search"]},
+            {"name":"Sending","paths":["src/notes/sync"]}
+          ]},
+          {"name":"Sharing","paths":["src/notes/sync"]}
+        ]}"#;
+        let parts = parse(answer, &large_files()).unwrap().parts;
+        // `src/notes/sync` belongs to the part "Sharing": "Sending" has no files left, and one
+        // piece alone is not kept.
+        assert!(parts[0].parts.is_empty());
+    }
+
+    fn notes_map() -> ModelMap {
+        let piece = |name: &str, path: &str| Piece {
+            name: name.into(),
+            summary: format!("{name}."),
+            paths: vec![path.into()],
+        };
+        ModelMap {
+            revision: "r".into(),
+            by: "t".into(),
+            parts: vec![
+                Part {
+                    name: "Notes".into(),
+                    summary: "Writing notes.".into(),
+                    paths: vec!["src/notes".into()],
+                    insights: vec!["Notes are written in Markdown".into()],
+                    parts: vec![
+                        piece("Editing", "src/notes/edit"),
+                        piece("Finding", "src/notes/search"),
+                    ],
+                },
+                Part {
+                    name: "Saving".into(),
+                    summary: String::new(),
+                    paths: vec!["src/save".into(), "src/notes/search/index.ts".into()],
+                    insights: Vec::new(),
+                    parts: Vec::new(),
+                },
+            ],
+            links: vec![(0, 1)],
+            offers: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_file_belongs_to_the_deepest_part() {
+        let map = notes_map();
+        let of = |f: &str| part_of(&map, f);
+        assert_eq!(of("src/notes/edit/page1.ts").as_deref(), Some("p1.1"));
+        assert_eq!(of("src/notes/search/find1.ts").as_deref(), Some("p1.2"));
+        assert_eq!(of("src/notes/tags/tag1.ts").as_deref(), Some("p1"));
+        // A longer path of another part wins over a piece.
+        assert_eq!(of("src/notes/search/index.ts").as_deref(), Some("p2"));
+        assert_eq!(of("docs/guide.md"), None);
+        assert!(is_within("p1.2", "p1"));
+        assert!(is_within("p1", "p1"));
+        assert!(!is_within("p12", "p1"));
+        assert!(!is_within("p1", "p1.2"));
+        assert_eq!(node_name(&map, "p1.2"), Some("Finding"));
+        assert_eq!(node_name(&map, "p2.1"), None);
+        assert_eq!(node_name(&map, "p0.1"), None);
+    }
+
+    #[test]
+    fn the_graph_nests_pieces_under_their_part() {
+        let changed = vec![
+            "src/notes/edit/page1.ts".to_owned(),
+            "src/notes/tags/tag1.ts".to_owned(),
+        ];
+        let (nodes, edges) = build(&notes_map(), &large_files(), &changed);
+        let got: Vec<(&str, Option<&str>, u32, u32)> = nodes
+            .iter()
+            .map(|n| (n.id.as_str(), n.parent.as_deref(), n.files, n.changed))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("p1", None, 50, 2),
+                ("p1.1", Some("p1"), 20, 1),
+                ("p1.2", Some("p1"), 15, 0),
+                ("p2", None, 2, 0),
+                (OTHER, None, 2, 0),
+            ]
+        );
+        assert_eq!(nodes[1].label, "Editing");
+        assert_eq!(edges.len(), 1);
+    }
+
+    #[test]
+    fn pieces_follow_their_part_in_the_stream() {
+        let wire: Vec<String> = map_events(&notes_map())
+            .iter()
+            .map(|ev| {
+                let v = serde_json::to_value(ev).unwrap_or_default();
+                let field = |k: &str| v[k].as_str().unwrap_or_default().to_owned();
+                match field("type").as_str() {
+                    "found" | "subsystem" => {
+                        format!("{} {} in {}", field("type"), field("id"), field("parent"))
+                    }
+                    "touch" => format!("touch {}>{}", field("from"), field("to")),
+                    other => format!("{other} {}", field("id")),
+                }
+            })
+            .collect();
+        assert_eq!(
+            wire,
+            [
+                "found p1 in root",
+                "focus p1",
+                "insight p1",
+                "subsystem p1.1 in p1",
+                "subsystem p1.2 in p1",
+                "found p2 in root",
+                "focus p2",
+                "stage links",
+                "touch p1>p2",
+                "stage summary"
+            ]
+        );
+        let files = map_events(&notes_map())
+            .into_iter()
+            .find_map(|ev| match ev {
+                CanvasEvent::Subsystem { id, files, .. } if id == "p1.2" => Some(files),
+                _ => None,
+            })
+            .unwrap_or_default();
+        assert_eq!(files, ["src/notes/search"]);
+    }
+
+    #[test]
+    fn the_prompt_states_the_bar_for_pieces() {
+        let prompt = vf_core::prompts::get(vf_core::prompts::Stage::Map).template;
+        assert!(prompt.contains(&format!("more than {SPLIT_ABOVE} files")));
     }
 
     #[test]
@@ -824,12 +1236,14 @@ mod tests {
                     summary: String::new(),
                     paths: vec!["src".into()],
                     insights: Vec::new(),
+                    parts: Vec::new(),
                 },
                 Part {
                     name: "Saving".into(),
                     summary: "Keeps work.".into(),
                     paths: vec!["src/save".into()],
                     insights: Vec::new(),
+                    parts: Vec::new(),
                 },
             ],
             links: vec![(0, 1), (5, 0)],
