@@ -495,7 +495,11 @@ pub struct GraphNode {
     /// What the part does, one sentence (model's map only).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
-    /// Number of files in it (including deeper folders shown as their own parts).
+    /// The part this one is a smaller piece of (model's map only: `p1` for `p1.2`); absent — a top
+    /// part. Folders show their nesting by edges.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
+    /// Number of files in it (including deeper folders and pieces shown as their own parts).
     pub files: u32,
     /// Files in it added, changed or deleted since the project was taken.
     pub changed: u32,
