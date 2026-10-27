@@ -143,7 +143,7 @@ pub(crate) fn run_stage(
     match stage {
         EvalStage::Map => {
             let prompt_text = format!(
-                "Write the names, summaries, insights and offers in the language with code `ru`.\n\nPROJECT DATA\n\nFiles:\n{}\n\nREADME:\n{}",
+                "Write the names, summaries, insights and offers in Russian.\n\nPROJECT DATA\n\nFiles:\n{}\n\nREADME:\n{}",
                 files.join("\n"),
                 readme
             );
