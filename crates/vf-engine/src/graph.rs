@@ -85,6 +85,7 @@ pub(crate) fn build(files: &[String], changed: &[String]) -> (Vec<GraphNode>, Ve
                 .map_or_else(|| id.clone(), |(_, l)| l.to_owned()),
             id,
             summary: None,
+            parent: None,
             files,
             changed,
         })
