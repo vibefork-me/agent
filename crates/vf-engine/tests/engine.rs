@@ -17,7 +17,7 @@ use vf_engine::Engine;
 use vf_platform::Settings;
 use vf_platform::settings::Storage;
 use vf_protocol::canvas::CanvasEvent;
-use vf_protocol::ws::ServerMessage;
+use vf_protocol::ws::{ProgramStream, ServerMessage};
 use vf_protocol::{Backend, Cancel, CostClass, Event, ModelInfo, OfferRejected, TaskRequest};
 use vf_providers::{Answer, AskRequest, Output, Provider, RunRequest, RunResult};
 
@@ -407,6 +407,61 @@ fn rollback_only_to_journal_checkpoints() {
     );
     assert!(engine.rollback("demo", "HEAD~1").is_err(), "only hashes");
     assert!(engine.rollback("../x", &first).is_err());
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+fn run_program(engine: &Engine, project: &str) -> Vec<ServerMessage> {
+    let mut msgs = Vec::new();
+    engine.run_program(project, &mut |m| msgs.push(m), &Cancel::new());
+    msgs
+}
+
+#[test]
+fn run_sends_the_program_output_by_stream_and_its_exit_code() {
+    if vf_providers::process::find_program("npm").is_none() {
+        eprintln!("skipped: npm is not installed");
+        return;
+    }
+    let (base, engine, _) = setup();
+    let script = "node -e \"console.log('notes: 3');console.error('no config, defaults used');process.exit(2)\"";
+    std::fs::write(
+        base.join("projects/demo/package.json"),
+        serde_json::json!({ "scripts": { "start": script } }).to_string(),
+    )
+    .unwrap();
+    let msgs = run_program(&engine, "demo");
+    let lines: Vec<(ProgramStream, &str)> = msgs
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::ProgramLog { stream, text } => Some((*stream, text.as_str())),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        lines.contains(&(ProgramStream::Stdout, "notes: 3")),
+        "{msgs:?}"
+    );
+    assert!(
+        lines.contains(&(ProgramStream::Stderr, "no config, defaults used")),
+        "{msgs:?}"
+    );
+    assert!(
+        matches!(
+            msgs.last(),
+            Some(ServerMessage::ProgramDone {
+                code,
+                cut: false,
+                ..
+            }) if *code != 0
+        ),
+        "{msgs:?}"
+    );
+
+    std::fs::remove_file(base.join("projects/demo/package.json")).unwrap();
+    assert!(matches!(
+        &run_program(&engine, "demo")[..],
+        [ServerMessage::Error { code: Some(c), .. }] if c == "no_run_recipe"
+    ));
     let _ = std::fs::remove_dir_all(&base);
 }
 

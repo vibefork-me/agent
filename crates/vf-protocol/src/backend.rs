@@ -325,6 +325,17 @@ pub trait Backend: Send + Sync {
     /// Builds a project; the last message is [`ServerMessage::BuildDone`] or
     /// [`ServerMessage::Error`]. The caller has confirmed it with the user.
     fn build(&self, project: &str, out: &mut dyn FnMut(ServerMessage), cancel: &Cancel);
+    /// Runs the project's program until it exits or `cancel`; its output goes out as
+    /// [`ServerMessage::ProgramLog`] bounded by `vf_core::limits`, the last message is
+    /// [`ServerMessage::ProgramDone`], [`ServerMessage::Cancelled`] or [`ServerMessage::Error`].
+    /// The caller has confirmed it with the user.
+    fn run_program(&self, project: &str, out: &mut dyn FnMut(ServerMessage), cancel: &Cancel) {
+        let _ = (project, cancel);
+        out(ServerMessage::Error {
+            error: "not supported by this version of the agent".into(),
+            code: Some("not_supported".into()),
+        });
+    }
     /// Resets a project to a commit of its journal. The caller has confirmed it with the user.
     fn rollback(&self, project: &str, commit: &str) -> Result<RollbackResponse, BackendError>;
     /// Returns the files of one part of the map (node `id`) to how they were before the last task

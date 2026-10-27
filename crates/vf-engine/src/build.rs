@@ -186,7 +186,12 @@ impl Engine {
 /// wrapper in the project is called by full path, the current folder may not be searched),
 /// `/bin/sh` elsewhere.
 #[cfg(windows)]
-fn shell(dir: &Path, program: &str, args: &[String], env: &ChildEnv) -> std::process::Command {
+pub(crate) fn shell(
+    dir: &Path,
+    program: &str,
+    args: &[String],
+    env: &ChildEnv,
+) -> std::process::Command {
     use std::os::windows::process::CommandExt as _;
     let first = if dir.join(program).is_file() {
         format!("\"{}\"", dir.join(program).display())
@@ -206,7 +211,12 @@ fn shell(dir: &Path, program: &str, args: &[String], env: &ChildEnv) -> std::pro
 }
 
 #[cfg(not(windows))]
-fn shell(_dir: &Path, program: &str, args: &[String], env: &ChildEnv) -> std::process::Command {
+pub(crate) fn shell(
+    _dir: &Path,
+    program: &str,
+    args: &[String],
+    env: &ChildEnv,
+) -> std::process::Command {
     let line = std::iter::once(program.to_owned())
         .chain(args.iter().cloned())
         .collect::<Vec<_>>()

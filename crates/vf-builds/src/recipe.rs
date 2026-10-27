@@ -250,9 +250,107 @@ pub fn detect_recipe_os(dir: &Path, windows: bool) -> Option<Recipe> {
     None
 }
 
+/// How to start the program of `dir` after it is built, if the project type says so.
+pub fn detect_run(dir: &Path) -> Option<Step> {
+    detect_run_os(dir, cfg!(windows))
+}
+
+/// [`detect_run`] with an explicit operating system convention for the Python environment.
+///
+/// Cargo — `cargo run --release`; Go — `go run .`; Node — its `start` script; Python — `main.py`
+/// or `app.py` with the project's environment when it has one. Other projects have no known way.
+pub fn detect_run_os(dir: &Path, windows: bool) -> Option<Step> {
+    let has = |f: &str| dir.join(f).exists();
+    if has("Cargo.toml") {
+        return Some(Step::new("cargo", &["run", "--release"]));
+    }
+    if has("go.mod") {
+        return Some(Step::new("go", &["run", "."]));
+    }
+    if has("package.json") {
+        let pkg: serde_json::Value = std::fs::read_to_string(dir.join("package.json"))
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+        if !pkg["scripts"]["start"].is_string() {
+            return None;
+        }
+        let pm = pkg["packageManager"].as_str().unwrap_or_default();
+        return Some(if has("pnpm-lock.yaml") || pm.starts_with("pnpm") {
+            Step::new("corepack", &["pnpm", "run", "start"])
+        } else if has("yarn.lock") || pm.starts_with("yarn") {
+            Step::new("corepack", &["yarn", "run", "start"])
+        } else {
+            Step::new("npm", &["run", "start"])
+        });
+    }
+    let script = ["main.py", "app.py"].into_iter().find(|f| has(f))?;
+    let py = if has(".venv") {
+        venv_python(windows)
+    } else {
+        "python"
+    };
+    Some(Step::new(py, &[script]))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn run_with(files: &[(&str, &str)]) -> Option<Step> {
+        let dir = std::env::temp_dir().join(format!(
+            "vf-run-{}-{}",
+            std::process::id(),
+            files
+                .first()
+                .map(|f| f.0.replace(['.', '/'], "_"))
+                .unwrap_or_default()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::create_dir_all(&dir);
+        for (f, c) in files {
+            let _ = std::fs::write(dir.join(f), c);
+        }
+        let r = detect_run_os(&dir, false);
+        let _ = std::fs::remove_dir_all(&dir);
+        r
+    }
+
+    #[test]
+    fn run_steps() {
+        assert_eq!(
+            run_with(&[("Cargo.toml", "")]),
+            Some(Step::new("cargo", &["run", "--release"]))
+        );
+        assert_eq!(
+            run_with(&[("go.mod", "")]),
+            Some(Step::new("go", &["run", "."]))
+        );
+        assert_eq!(
+            run_with(&[("package.json", r#"{"scripts":{"start":"node index.js"}}"#)]),
+            Some(Step::new("npm", &["run", "start"]))
+        );
+        assert_eq!(
+            run_with(&[
+                ("package.json", r#"{"scripts":{"start":"vite"}}"#),
+                ("pnpm-lock.yaml", "")
+            ]),
+            Some(Step::new("corepack", &["pnpm", "run", "start"]))
+        );
+        assert_eq!(
+            run_with(&[("package.json", r#"{"scripts":{"build":"tsc"}}"#)]),
+            None
+        );
+        assert_eq!(
+            run_with(&[("app.py", ""), (".venv", "")]),
+            Some(Step::new(".venv/bin/python", &["app.py"]))
+        );
+        assert_eq!(
+            run_with(&[("main.py", "")]),
+            Some(Step::new("python", &["main.py"]))
+        );
+        assert_eq!(run_with(&[("pom.xml", "")]), None);
+    }
 
     fn with_os(files: &[(&str, &str)], windows: bool) -> Option<Recipe> {
         static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);

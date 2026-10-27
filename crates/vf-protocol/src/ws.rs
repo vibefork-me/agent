@@ -40,6 +40,12 @@ pub enum ClientMessage {
         /// Project name.
         project: String,
     },
+    /// Run the project's program (confirmed in the native dialog); its output comes as
+    /// `program_log`, the end as `program_done`. `cancel` stops it.
+    Run {
+        /// Project name.
+        project: String,
+    },
     /// Cancel the running task or build. While it is paused, its changes are undone as well.
     Cancel,
     /// A message to the agent while it works; it is taken into account at the next point that
@@ -134,6 +140,16 @@ pub enum ToolchainStatus {
     Ready,
     /// Failed.
     Failed,
+}
+
+/// The output of a program a line came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ProgramStream {
+    /// Standard output.
+    Stdout,
+    /// Standard error.
+    Stderr,
 }
 
 /// Messages from the agent.
@@ -282,6 +298,22 @@ pub enum ServerMessage {
         /// Output files, relative to `artifacts`.
         files: Vec<String>,
         /// Seconds spent.
+        seconds: f64,
+    },
+    /// A line of the running program's output (at most 4 KiB; at most 1 MiB in all per run).
+    ProgramLog {
+        /// Which output the line came from.
+        stream: ProgramStream,
+        /// Text.
+        text: String,
+    },
+    /// The program ended.
+    ProgramDone {
+        /// Exit code (0 = success; -1 — no code, e.g. killed by a signal).
+        code: i32,
+        /// Some output was cut: a line too long, or more output than is sent.
+        cut: bool,
+        /// Seconds it ran.
         seconds: f64,
     },
     /// A numbered event of the project's session stream (see [`crate::canvas`]).

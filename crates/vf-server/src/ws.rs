@@ -202,7 +202,37 @@ async fn connection(mut socket: WebSocket, state: AppState, origin: String) {
                     })
                 } else {
                     let key = authed.clone().unwrap_or_default();
-                    let cancel = start_build(&state, origin.clone(), key, project, tx.clone());
+                    let cancel = start_confirmed(
+                        &state,
+                        Confirmed::Build,
+                        origin.clone(),
+                        key,
+                        project,
+                        tx.clone(),
+                    );
+                    running = Some(Running {
+                        cancel,
+                        task_of: None,
+                    });
+                    None
+                }
+            }
+            Ok(ClientMessage::Run { project }) => {
+                if running.is_some() {
+                    Some(ServerMessage::Error {
+                        error: "a task is already running".into(),
+                        code: Some("task_already_running".into()),
+                    })
+                } else {
+                    let key = authed.clone().unwrap_or_default();
+                    let cancel = start_confirmed(
+                        &state,
+                        Confirmed::Run,
+                        origin.clone(),
+                        key,
+                        project,
+                        tx.clone(),
+                    );
                     running = Some(Running {
                         cancel,
                         task_of: None,
@@ -299,9 +329,19 @@ fn note(
     }
 }
 
-/// Builds after the user confirms it in the native dialog (invariant 3).
-fn start_build(
+/// A project action that runs its code, so it is confirmed in the native dialog (invariant 3).
+#[derive(Debug, Clone, Copy)]
+enum Confirmed {
+    /// Build the project.
+    Build,
+    /// Run the project's program.
+    Run,
+}
+
+/// Builds or runs after the user confirms it in the native dialog (invariant 3).
+fn start_confirmed(
     state: &AppState,
+    what: Confirmed,
     origin: String,
     key_id: String,
     project: String,
@@ -311,21 +351,32 @@ fn start_build(
     let (backend, auth, c) = (state.backend.clone(), state.auth.clone(), cancel.clone());
     tokio::task::spawn_blocking(move || {
         let lang = auth.dialog().language();
-        let prompt = vf_core::catalog::action_build(lang);
+        let (prompt, refused, code) = match what {
+            Confirmed::Build => (
+                vf_core::catalog::action_build(lang),
+                "build not confirmed",
+                "build_not_confirmed",
+            ),
+            Confirmed::Run => (
+                vf_core::catalog::action_run(lang),
+                "run not confirmed",
+                "run_not_confirmed",
+            ),
+        };
         if auth.project_allowed(&key_id, &origin, &project)
             && auth.confirm_action(&origin, prompt, Some(&project))
         {
-            backend.build(
-                &project,
-                &mut |m| {
-                    let _ = tx.send(Out::Message(m));
-                },
-                &c,
-            );
+            let mut out = |m| {
+                let _ = tx.send(Out::Message(m));
+            };
+            match what {
+                Confirmed::Build => backend.build(&project, &mut out, &c),
+                Confirmed::Run => backend.run_program(&project, &mut out, &c),
+            }
         } else {
             let _ = tx.send(Out::Message(ServerMessage::Error {
-                error: "build not confirmed".into(),
-                code: Some("build_not_confirmed".into()),
+                error: refused.into(),
+                code: Some(code.into()),
             }));
         }
         let _ = tx.send(Out::Finished);

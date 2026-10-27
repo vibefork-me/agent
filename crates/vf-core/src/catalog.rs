@@ -106,6 +106,14 @@ pub fn action_build(lang: Language) -> &'static str {
     }
 }
 
+/// Action prompt: run the project's program.
+pub fn action_run(lang: Language) -> &'static str {
+    match lang {
+        Language::En => "run the project's program",
+        Language::Ru => "запустить программу проекта",
+    }
+}
+
 /// Answer to a message of the person that the running task took (`note.taken`).
 pub fn note_taken(lang: Language) -> &'static str {
     match lang {
@@ -597,6 +605,7 @@ mod tests {
             assert!(!confirm_action_text(lang, "site", "action", Some("target")).is_empty());
             assert!(!confirm_action_text(lang, "site", "action", None).is_empty());
             assert!(!action_build(lang).is_empty());
+            assert!(!action_run(lang).is_empty());
             assert!(!action_rollback(lang).is_empty());
             assert!(!action_rollback_part(lang).is_empty());
             assert!(!action_save(lang).is_empty());
@@ -651,6 +660,7 @@ mod tests {
             confirm_action_title(Language::Ru)
         );
         assert_ne!(action_build(Language::En), action_build(Language::Ru));
+        assert_ne!(action_run(Language::En), action_run(Language::Ru));
         assert_ne!(action_rollback(Language::En), action_rollback(Language::Ru));
         assert_ne!(
             action_rollback_part(Language::En),
