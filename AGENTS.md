@@ -10,7 +10,8 @@ can see there are no hidden traps.
 
 ## Code rules
 - No `unsafe` (forbidden by lint). Only `vf-platform` / `vf-sandbox` may use it, each site with a `// SAFETY:` comment.
-- No `unwrap` / `expect` / `panic!` outside tests. Libraries return typed errors (`thiserror`); `anyhow` only in binaries.
+- The agent never panics on input. Outside tests: no `unwrap` / `expect` / `panic!` / `unreachable!` / `todo!` / `unimplemented!`, no byte slicing of strings (`get(..)`, `split_once`, char APIs) — all denied by lint. Tests may unwrap (`clippy.toml`). Libraries return typed errors (`thiserror`); `anyhow` only in binaries.
+- Everything from the network is hostile: read bodies through `vf_core::LimitedBody` with a bound from `vf_core::limits` (never `.json()` / `.text()` / `.bytes()` of a response), index slices of network data with `get()`, size arithmetic is checked or saturating.
 - Untrusted input gets a type: paths → `ProjectPath`, secrets → `Secret<T>`, tokens → `SessionToken`.
 - Domain crates (layer 0–1) do no IO; put IO behind a trait implemented in an adapter crate.
 - Explicit over clever: no macro tricks, no deep generics, no hidden global state.

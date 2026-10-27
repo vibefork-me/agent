@@ -26,7 +26,8 @@ pub(crate) fn hello(port: u16) -> Option<Alive> {
     )
     .ok()?;
     let mut text = String::new();
-    s.read_to_string(&mut text).ok()?;
+    // Any process can listen on the port: read at most 64 KiB of its answer.
+    s.take(64 * 1024).read_to_string(&mut text).ok()?;
     let body = text.split("\r\n\r\n").nth(1)?;
     let v: serde_json::Value = serde_json::from_str(body.trim()).ok()?;
     (v["agent"] == "vibefork").then(|| Alive {

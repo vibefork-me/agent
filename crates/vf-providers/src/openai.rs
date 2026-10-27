@@ -6,7 +6,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
-use vf_core::Secret;
+use vf_core::{LimitedBody, Secret, limits};
 use vf_protocol::{Cancel, CostClass, Event, ModelInfo, Usage};
 
 use crate::tools::{self, Outcome};
@@ -210,7 +210,7 @@ impl OpenAiCompatible {
             if !status.is_success() {
                 return Err(format!("{id} returned HTTP {status}"));
             }
-            res.json::<Value>()
+            read_json(res)
                 .await
                 .map_err(|_| format!("invalid JSON response from {id}"))
         })??;
@@ -247,7 +247,7 @@ impl OpenAiCompatible {
             if !res.status().is_success() {
                 return Err(format!("HTTP {}", res.status()));
             }
-            res.json::<Value>().await.map_err(|e| e.to_string())
+            read_json(res).await
         })?;
 
         let mut models = Vec::new();
@@ -299,7 +299,7 @@ impl OpenAiCompatible {
                 .map_err(|e| format!("Failed to reach endpoint: {e}"))?;
             let status = res.status();
             if !status.is_success() {
-                let err_text = res.text().await.unwrap_or_default();
+                let err_text = read_error_text(res).await;
                 return Err(format!("Endpoint returned HTTP {status}: {err_text}"));
             }
             Ok(vec![m.to_owned()])
@@ -324,7 +324,7 @@ impl OpenAiCompatible {
             if !res.status().is_success() {
                 return Err(format!("HTTP {}", res.status()));
             }
-            res.json::<Value>().await.map_err(|e| e.to_string())
+            read_json(res).await
         })
         .unwrap_or_else(Err);
 
@@ -443,6 +443,29 @@ fn block_on<F: Future>(f: F) -> Result<F::Output, String> {
     }
 }
 
+/// Reads a response body of at most `limit` bytes ([`vf_core::limits`]).
+async fn read_body(mut res: reqwest::Response, limit: usize) -> Result<Vec<u8>, String> {
+    let mut body = LimitedBody::new(limit, res.content_length()).map_err(|e| e.to_string())?;
+    while let Some(chunk) = res.chunk().await.map_err(|e| e.to_string())? {
+        body.push(&chunk).map_err(|e| e.to_string())?;
+    }
+    Ok(body.into_vec())
+}
+
+/// Reads a JSON body of at most [`limits::API_RESPONSE`] bytes.
+async fn read_json(res: reqwest::Response) -> Result<Value, String> {
+    let bytes = read_body(res, limits::API_RESPONSE).await?;
+    serde_json::from_slice(&bytes).map_err(|e| e.to_string())
+}
+
+/// Error text of a failed response, at most 64 KiB read and 300 characters kept.
+async fn read_error_text(res: reqwest::Response) -> String {
+    match read_body(res, 64 * 1024).await {
+        Ok(bytes) => clip(String::from_utf8_lossy(&bytes).trim(), 300),
+        Err(e) => e,
+    }
+}
+
 /// One chat request; temporary failures (rate limit, upstream errors) are retried twice.
 async fn chat(
     client: &reqwest::Client,
@@ -460,7 +483,7 @@ async fn chat(
             }
             let res = req.send().await.map_err(|e| (true, e.to_string()))?;
             let status = res.status();
-            let v: Value = res.json().await.map_err(|e| (true, e.to_string()))?;
+            let v = read_json(res).await.map_err(|e| (true, e))?;
             if !status.is_success() || !v["error"].is_null() {
                 let mut message = v["error"]["message"]
                     .as_str()

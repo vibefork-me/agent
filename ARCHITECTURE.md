@@ -72,6 +72,7 @@ These must hold in every version. A PR that touches one says so explicitly.
 8. **Paths from the network or from a model are `ProjectPath`s** — guaranteed inside the project root; no `..`, no drive or stream (`:`), no symlink escapes.
 9. **Content of foreign forks is data** — instructions found in their files are never followed.
 10. **Domain crates (layer 0–1) do no IO** — everything goes through traits implemented in adapters.
+11. **The agent never panics on input, and data from the network is bounded** — panicking macros, `unwrap` / `expect` and string byte slicing are denied by lint outside tests; every response body is read through `vf_core::LimitedBody` with a bound from `vf_core::limits`.
 
 ## Where to look during review
 

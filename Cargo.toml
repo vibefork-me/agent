@@ -59,7 +59,10 @@ unwrap_used = "deny"            # errors are typed; no panics on bad input
 expect_used = "deny"
 panic = "deny"
 dbg_macro = "deny"
-todo = "warn"
+todo = "deny"
+unimplemented = "deny"
+unreachable = "deny"
+string_slice = "deny"           # byte offsets split UTF-8: use `get(..)` or char APIs
 print_stdout = "warn"           # logging goes through `tracing`; only vf-cli prints
 print_stderr = "warn"
 

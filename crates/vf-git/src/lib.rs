@@ -495,7 +495,7 @@ fn stage_all(repo: &Repository) -> Result<Oid, JournalError> {
 }
 
 fn short(oid: Oid) -> String {
-    oid.to_string()[..SHORT].to_owned()
+    oid.to_string().chars().take(SHORT).collect()
 }
 
 impl Vcs for Repo {
@@ -583,7 +583,6 @@ mod shim_tests {
     use super::*;
 
     #[test]
-    #[allow(clippy::expect_used)]
     fn shim_reads_status_diff_and_log_without_changing_the_repository() {
         let dir = std::env::temp_dir().join(format!("vf-git-shim-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);

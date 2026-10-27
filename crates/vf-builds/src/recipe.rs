@@ -251,7 +251,6 @@ pub fn detect_recipe_os(dir: &Path, windows: bool) -> Option<Recipe> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

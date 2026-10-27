@@ -95,11 +95,9 @@ async fn get(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, UpdateError
             res.status()
         )));
     }
-    Ok(res
-        .bytes()
+    crate::read_file(res)
         .await
-        .map_err(|e| UpdateError::Download(e.to_string()))?
-        .to_vec())
+        .map_err(|e| UpdateError::Download(format!("{url}: {e}")))
 }
 
 impl Release {

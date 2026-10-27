@@ -242,8 +242,8 @@ pub fn protocol_target() -> Option<String> {
         .ok()
         .and_then(|s| {
             s.lines()
-                .find(|l| l.starts_with("Exec="))
-                .map(|l| l[5..].to_owned())
+                .find_map(|l| l.strip_prefix("Exec="))
+                .map(str::to_owned)
         });
     #[allow(unreachable_code)]
     None

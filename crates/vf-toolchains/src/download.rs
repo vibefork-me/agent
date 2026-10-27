@@ -53,6 +53,10 @@ fn file_hash(path: &Path) -> Result<String, String> {
     Ok(hex::encode(h.finalize()))
 }
 
+/// Upper bound for one toolchain download; a larger response is an error (everything from the
+/// network is hostile).
+const MAX_DOWNLOAD: u64 = 4 * 1024 * 1024 * 1024;
+
 /// Appends the rest of `url` to `part` (redirects to the release CDN are followed; the hash is
 /// checked afterwards).
 fn fetch(url: &str, part: &Path, cancel: &Cancel) -> Result<(), String> {
@@ -81,6 +85,7 @@ fn fetch(url: &str, part: &Path, cancel: &Cancel) -> Result<(), String> {
             .truncate(!resumed)
             .open(&part)
             .map_err(|e| e.to_string())?;
+        let mut size = if resumed { have } else { 0 };
         loop {
             if cancel.is_cancelled() {
                 return Err("cancelled".into());
@@ -90,7 +95,13 @@ fn fetch(url: &str, part: &Path, cancel: &Cancel) -> Result<(), String> {
                 .map_err(|_| "download stalled".to_owned())?
                 .map_err(|e| e.to_string())?;
             match chunk {
-                Some(bytes) => file.write_all(&bytes).map_err(|e| e.to_string())?,
+                Some(bytes) => {
+                    size = size.saturating_add(bytes.len() as u64);
+                    if size > MAX_DOWNLOAD {
+                        return Err(format!("{url}: larger than {MAX_DOWNLOAD} bytes"));
+                    }
+                    file.write_all(&bytes).map_err(|e| e.to_string())?;
+                }
                 None => return Ok(()),
             }
         }
