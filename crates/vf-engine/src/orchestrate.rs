@@ -4,7 +4,7 @@
 use std::path::Path;
 use std::time::Duration;
 
-use vf_core::catalog::Language;
+use vf_core::catalog::{self, Language};
 use vf_git::Repo;
 use vf_journal::{JournalStore as _, Vcs as _};
 use vf_orchestrator::{
@@ -367,16 +367,12 @@ pub(crate) enum Thought<'a> {
 
 /// What the agent is doing while it waits for a model, in the person's language (no call to a model).
 pub(crate) fn thought(what: &Thought<'_>, lang: &str) -> String {
-    let ru = Language::parse(lang) == Language::Ru;
-    match (what, ru) {
-        (Thought::Rating, true) => "Оцениваю, насколько велика задача".into(),
-        (Thought::Rating, false) => "Working out how big the task is".into(),
-        (Thought::Planning, true) => "Разбиваю задачу на шаги".into(),
-        (Thought::Planning, false) => "Splitting the task into steps".into(),
-        (Thought::Task, true) => "Делаю задачу".into(),
-        (Thought::Task, false) => "Working on the task".into(),
-        (Thought::Step(s), true) => format!("Шаг {} из {}: {}", s.n, s.of, s.title),
-        (Thought::Step(s), false) => format!("Step {} of {}: {}", s.n, s.of, s.title),
+    let lang = Language::parse(lang);
+    match what {
+        Thought::Rating => catalog::thought_rating(lang),
+        Thought::Planning => catalog::thought_planning(lang),
+        Thought::Task => catalog::thought_task(lang),
+        Thought::Step(s) => catalog::thought_step(lang, s.n, s.of, &s.title),
     }
 }
 
