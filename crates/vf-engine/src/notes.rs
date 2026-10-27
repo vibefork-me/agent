@@ -54,7 +54,7 @@ impl Inbox {
                 ev: CanvasEvent::NoteTaken {
                     note_id: note.id.to_string(),
                     related: Vec::new(),
-                    reply: vf_core::catalog::note_taken(self.lang).to_owned(),
+                    reply: vf_core::catalog::note_taken(self.lang),
                 },
             });
         }

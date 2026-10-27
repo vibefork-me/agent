@@ -1,5 +1,14 @@
 //! Localization strings for native dialogs, tray, and CLI.
 //! Layer 0: pure data and templates, no IO.
+//!
+//! The strings live in Fluent files (`locales/<lang>.ftl`) compiled into the crate; English is the
+//! reference. A language without its own file yet, or a message missing in it, is shown in English,
+//! message by message; a message missing in English too comes out as its id.
+
+use std::sync::OnceLock;
+
+use fluent_bundle::concurrent::FluentBundle;
+use fluent_bundle::{FluentArgs, FluentResource, FluentValue};
 
 /// Supported UI languages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -9,74 +18,150 @@ pub enum Language {
     En,
     /// Russian.
     Ru,
+    /// Portuguese (Brazil); every Portuguese reader gets it.
+    PtBr,
+    /// Spanish.
+    Es,
+    /// German.
+    De,
 }
 
+/// English strings: the reference every other language falls back to.
+const EN_FTL: &str = include_str!("../locales/en.ftl");
+/// Russian strings.
+const RU_FTL: &str = include_str!("../locales/ru.ftl");
+
 impl Language {
-    /// Parses a language code (`en`, `ru`, `ru_RU`, etc.).
+    /// Every language the agent knows, English first.
+    pub const ALL: [Language; 5] = [
+        Language::En,
+        Language::Ru,
+        Language::PtBr,
+        Language::Es,
+        Language::De,
+    ];
+
+    /// Parses a language code (`en`, `ru`, `ru_RU`, `pt-BR`, `de_DE.UTF-8`, …); English when unknown.
     pub fn parse(s: &str) -> Self {
         let s = s.trim().to_ascii_lowercase();
         if s.starts_with("ru") {
-            Self::Ru
-        } else {
-            Self::En
+            return Self::Ru;
+        }
+        let primary = s.split(['-', '_', '.', '@']).next().unwrap_or_default();
+        match primary {
+            "pt" => Self::PtBr,
+            "es" => Self::Es,
+            "de" => Self::De,
+            _ => Self::En,
         }
     }
 
-    /// Two-letter code.
+    /// BCP 47 code: `en`, `ru`, `pt-BR`, `es`, `de`.
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::En => "en",
             Self::Ru => "ru",
+            Self::PtBr => "pt-BR",
+            Self::Es => "es",
+            Self::De => "de",
+        }
+    }
+
+    /// The language's own strings, `None` while it has none yet (it is then shown in English).
+    pub fn ftl(&self) -> Option<&'static str> {
+        match self {
+            Self::En => Some(EN_FTL),
+            Self::Ru => Some(RU_FTL),
+            Self::PtBr | Self::Es | Self::De => None,
         }
     }
 }
 
-/// Pairing dialog title.
-pub fn pair_title(lang: Language) -> &'static str {
-    match lang {
-        Language::En => "Vibefork: connect a browser?",
-        Language::Ru => "Vibefork: подключить браузер?",
+/// One Fluent bundle per language that has its own strings, built once.
+fn bundles() -> &'static [(Language, FluentBundle<FluentResource>)] {
+    static BUNDLES: OnceLock<Vec<(Language, FluentBundle<FluentResource>)>> = OnceLock::new();
+    BUNDLES.get_or_init(|| {
+        Language::ALL
+            .iter()
+            .filter_map(|&lang| {
+                let source = lang.ftl()?;
+                let id = lang.as_str().parse().unwrap_or_default();
+                let mut bundle = FluentBundle::new_concurrent(vec![id]);
+                // Plain text for dialogs and terminals: no Unicode isolation marks around values.
+                bundle.set_use_isolating(false);
+                // A broken entry is skipped (tests keep the files clean); the rest still works.
+                let resource =
+                    FluentResource::try_new(source.to_owned()).unwrap_or_else(|(r, _)| r);
+                let _ = bundle.add_resource(resource);
+                Some((lang, bundle))
+            })
+            .collect()
+    })
+}
+
+fn bundle(lang: Language) -> Option<&'static FluentBundle<FluentResource>> {
+    bundles().iter().find(|(l, _)| *l == lang).map(|(_, b)| b)
+}
+
+/// Whether `lang` has the message `id` itself, without falling back to English.
+pub fn has_message(lang: Language, id: &str) -> bool {
+    bundle(lang).is_some_and(|b| b.has_message(id))
+}
+
+/// The message `id` in `lang` with its variables filled in; English when `lang` lacks it, the id
+/// itself when English lacks it too. Values are inserted as plain text.
+pub fn message(lang: Language, id: &str, args: &[(&str, FluentValue<'_>)]) -> String {
+    let args: FluentArgs = args.iter().map(|(k, v)| (*k, v.clone())).collect();
+    for l in [lang, Language::En] {
+        let Some(b) = bundle(l) else { continue };
+        let Some(pattern) = b.get_message(id).and_then(|m| m.value()) else {
+            continue;
+        };
+        let mut errors = Vec::new();
+        return b
+            .format_pattern(pattern, Some(&args), &mut errors)
+            .into_owned();
     }
+    id.to_owned()
+}
+
+fn text(lang: Language, id: &str) -> String {
+    message(lang, id, &[])
+}
+
+/// Pairing dialog title.
+pub fn pair_title(lang: Language) -> String {
+    text(lang, "pair-title")
 }
 
 /// Pairing dialog text.
 pub fn pair_text(lang: Language, origin: &str, name: &str, code: &str) -> String {
-    match lang {
-        Language::En => format!(
-            "Site: {origin}\nBrowser: {name}\nCode: {code}\n\nAllow only if the same code is shown on the page."
-        ),
-        Language::Ru => format!(
-            "Сайт: {origin}\nБраузер: {name}\nКод: {code}\n\nРазрешайте, только если этот же код показан на странице."
-        ),
-    }
+    let args = [
+        ("origin", origin.into()),
+        ("name", name.into()),
+        ("code", code.into()),
+    ];
+    message(lang, "pair-text", &args)
 }
 
 /// Project access dialog title.
-pub fn project_access_title(lang: Language) -> &'static str {
-    match lang {
-        Language::En => "Vibefork: give access to a project?",
-        Language::Ru => "Vibefork: дать доступ к проекту?",
-    }
+pub fn project_access_title(lang: Language) -> String {
+    text(lang, "project-access-title")
 }
 
 /// Project access dialog text.
 pub fn project_access_text(lang: Language, origin: &str, name: &str, project: &str) -> String {
-    match lang {
-        Language::En => format!(
-            "{origin} ({name}) asks to work in the project:\n\n{project}\n\nAllow only if you are doing this in your browser right now."
-        ),
-        Language::Ru => format!(
-            "{origin} ({name}) запрашивает доступ к проекту:\n\n{project}\n\nРазрешайте, только если вы сейчас работаете в браузере."
-        ),
-    }
+    let args = [
+        ("origin", origin.into()),
+        ("name", name.into()),
+        ("project", project.into()),
+    ];
+    message(lang, "project-access-text", &args)
 }
 
 /// Confirm action dialog title.
-pub fn confirm_action_title(lang: Language) -> &'static str {
-    match lang {
-        Language::En => "Vibefork: confirm an action",
-        Language::Ru => "Vibefork: подтверждение действия",
-    }
+pub fn confirm_action_title(lang: Language) -> String {
+    text(lang, "confirm-action-title")
 }
 
 /// Confirm action dialog text.
@@ -86,321 +171,236 @@ pub fn confirm_action_text(
     action: &str,
     target: Option<&str>,
 ) -> String {
-    match lang {
-        Language::En => {
-            let target_str = target.map(|t| format!("\nTarget: {t}")).unwrap_or_default();
-            format!("{origin} asks to:\n\n{action}{target_str}")
+    match target {
+        Some(target) => {
+            let args = [
+                ("origin", origin.into()),
+                ("action", action.into()),
+                ("target", target.into()),
+            ];
+            message(lang, "confirm-action-text-target", &args)
         }
-        Language::Ru => {
-            let target_str = target.map(|t| format!("\nЦель: {t}")).unwrap_or_default();
-            format!("{origin} запрашивает действие:\n\n{action}{target_str}")
+        None => {
+            let args = [("origin", origin.into()), ("action", action.into())];
+            message(lang, "confirm-action-text", &args)
         }
     }
 }
 
 /// Action prompt: build project.
-pub fn action_build(lang: Language) -> &'static str {
-    match lang {
-        Language::En => "build and run the project's build",
-        Language::Ru => "собрать и запустить проект",
-    }
+pub fn action_build(lang: Language) -> String {
+    text(lang, "action-build")
 }
 
 /// Action prompt: run the project's program.
-pub fn action_run(lang: Language) -> &'static str {
-    match lang {
-        Language::En => "run the project's program",
-        Language::Ru => "запустить программу проекта",
-    }
+pub fn action_run(lang: Language) -> String {
+    text(lang, "action-run")
 }
 
 /// Answer to a message of the person that the running task took (`note.taken`).
-pub fn note_taken(lang: Language) -> &'static str {
-    match lang {
-        Language::En => "Got it, I'll take it into account in the next step.",
-        Language::Ru => "Принято, учту на следующем шаге.",
-    }
+pub fn note_taken(lang: Language) -> String {
+    text(lang, "note-taken")
+}
+
+/// What the agent does while it waits for a model: sizing up the task.
+pub fn thought_rating(lang: Language) -> String {
+    text(lang, "thought-rating")
+}
+
+/// What the agent does while it waits for a model: splitting the task into steps.
+pub fn thought_planning(lang: Language) -> String {
+    text(lang, "thought-planning")
+}
+
+/// What the agent does while it waits for a model: the whole task in one go.
+pub fn thought_task(lang: Language) -> String {
+    text(lang, "thought-task")
+}
+
+/// What the agent does while it waits for a model: step `n` of `of`, titled `title`.
+pub fn thought_step(lang: Language, n: u32, of: u32, title: &str) -> String {
+    let args = [
+        ("n", FluentValue::from(n)),
+        ("of", FluentValue::from(of)),
+        ("title", title.into()),
+    ];
+    message(lang, "thought-step", &args)
 }
 
 /// Action prompt: rollback project.
-pub fn action_rollback(lang: Language) -> &'static str {
-    match lang {
-        Language::En => "roll the project back (later changes are dropped)",
-        Language::Ru => "откатить проект (последующие изменения будут удалены)",
-    }
+pub fn action_rollback(lang: Language) -> String {
+    text(lang, "action-rollback")
 }
 
 /// Action prompt: roll one part of the project back.
-pub fn action_rollback_part(lang: Language) -> &'static str {
-    match lang {
-        Language::En => {
-            "return this part of the project to how it was before the last task changed it (other parts are kept)"
-        }
-        Language::Ru => {
-            "вернуть эту часть проекта к виду до последней задачи, которая её меняла (остальные части не меняются)"
-        }
-    }
+pub fn action_rollback_part(lang: Language) -> String {
+    text(lang, "action-rollback-part")
 }
 
 /// Action prompt: save to GitHub fork.
-pub fn action_save(lang: Language) -> &'static str {
-    match lang {
-        Language::En => "save the project's changes to your copy on GitHub (it may be public)",
-        Language::Ru => {
-            "сохранить изменения проекта в вашу копию на GitHub (она может быть публичной)"
-        }
-    }
+pub fn action_save(lang: Language) -> String {
+    text(lang, "action-save")
 }
 
 /// Action prompt: connect subscription CLI.
 pub fn action_connect_ai_subscription(lang: Language, provider_name: &str) -> String {
-    match lang {
-        Language::En => {
-            format!("set up {provider_name} (official app) and sign in in your browser")
-        }
-        Language::Ru => {
-            format!("установить {provider_name} (официальное приложение) и войти в браузере")
-        }
-    }
+    message(
+        lang,
+        "action-connect-ai-subscription",
+        &[("provider", provider_name.into())],
+    )
 }
 
 /// Action prompt: connect AI via API key.
 pub fn action_connect_ai_key(lang: Language, provider_name: &str) -> String {
-    match lang {
-        Language::En => format!("connect {provider_name} with an API key"),
-        Language::Ru => format!("подключить {provider_name} через API-ключ"),
-    }
+    message(
+        lang,
+        "action-connect-ai-key",
+        &[("provider", provider_name.into())],
+    )
 }
 
 /// Action prompt: switch AI provider to user's personal CLI home.
 pub fn action_connect_ai_user_home(lang: Language, provider_name: &str) -> String {
-    match lang {
-        Language::En => {
-            format!(
-                "Allow Vibefork to use your {provider_name} login? Agent sessions will appear in your {provider_name} history."
-            )
-        }
-        Language::Ru => {
-            format!(
-                "Разрешить Vibefork работать с вашим входом в {provider_name}? Сессии агента появятся в вашей истории {provider_name}."
-            )
-        }
-    }
+    message(
+        lang,
+        "action-connect-ai-user-home",
+        &[("provider", provider_name.into())],
+    )
 }
 
 /// Secret dialog title.
-pub fn ask_secret_title(lang: Language) -> &'static str {
-    match lang {
-        Language::En => "Vibefork: enter secret",
-        Language::Ru => "Vibefork: ввод ключа",
-    }
+pub fn ask_secret_title(lang: Language) -> String {
+    text(lang, "ask-secret-title")
 }
 
 /// Secret dialog prompt template.
 pub fn ask_secret_text(lang: Language, origin: &str, prompt: &str) -> String {
-    match lang {
-        Language::En => format!("{origin} asks for:\n\n{prompt}"),
-        Language::Ru => format!("{origin} запрашивает:\n\n{prompt}"),
-    }
+    let args = [("origin", origin.into()), ("prompt", prompt.into())];
+    message(lang, "ask-secret-text", &args)
 }
 
 /// Prompt for entering OpenRouter API key.
-pub fn openrouter_key_prompt(lang: Language) -> &'static str {
-    match lang {
-        Language::En => "enter OpenRouter API key (get one at openrouter.ai)",
-        Language::Ru => "введите API-ключ OpenRouter (получите на openrouter.ai)",
-    }
+pub fn openrouter_key_prompt(lang: Language) -> String {
+    text(lang, "openrouter-key-prompt")
 }
 
 /// Prompt for entering Google AI Studio (Gemini) API key with free tier training warning.
-pub fn gemini_key_prompt(lang: Language) -> &'static str {
-    match lang {
-        Language::En => {
-            "enter Google AI Studio (Gemini) API key (get one at aistudio.google.com):\n\nNote: Google free tier terms allow using inputs to train models."
-        }
-        Language::Ru => {
-            "введите API-ключ Google AI Studio (получите на aistudio.google.com):\n\nВнимание: по условиям Google бесплатный уровень может использовать запросы для обучения моделей."
-        }
-    }
+pub fn gemini_key_prompt(lang: Language) -> String {
+    text(lang, "gemini-key-prompt")
 }
 
 /// Text entry dialog title.
-pub fn ask_text_title(lang: Language) -> &'static str {
-    match lang {
-        Language::En => "Vibefork: enter value",
-        Language::Ru => "Vibefork: ввод значения",
-    }
+pub fn ask_text_title(lang: Language) -> String {
+    text(lang, "ask-text-title")
 }
 
 /// Text entry dialog prompt template.
 pub fn ask_text_text(lang: Language, origin: &str, prompt: &str) -> String {
-    match lang {
-        Language::En => format!("{origin} asks for:\n\n{prompt}"),
-        Language::Ru => format!("{origin} запрашивает:\n\n{prompt}"),
-    }
+    let args = [("origin", origin.into()), ("prompt", prompt.into())];
+    message(lang, "ask-text-text", &args)
 }
 
 /// Prompt for entering custom OpenAI-compatible API endpoint URL.
-pub fn custom_openai_endpoint_prompt(lang: Language) -> &'static str {
-    match lang {
-        Language::En => "enter OpenAI-compatible API base URL (e.g. http://localhost:11434/v1):",
-        Language::Ru => {
-            "введите адрес OpenAI-совместимого API (например, http://localhost:11434/v1):"
-        }
-    }
+pub fn custom_openai_endpoint_prompt(lang: Language) -> String {
+    text(lang, "custom-openai-endpoint-prompt")
 }
 
 /// Confirmation text showing full custom endpoint with security warning.
 pub fn custom_openai_confirm_text(lang: Language, origin: &str, endpoint: &str) -> String {
-    match lang {
-        Language::En => format!(
-            "{origin} asks to connect a custom OpenAI-compatible API:\n\n{endpoint}\n\nProject code and requests will be sent to this address.\n\nAllow connecting to this server?"
-        ),
-        Language::Ru => format!(
-            "{origin} запрашивает подключение своего OpenAI-совместимого API:\n\n{endpoint}\n\nКод проекта и запросы будут отправляться на этот адрес.\n\nРазрешить подключение к этому серверу?"
-        ),
-    }
+    let args = [("origin", origin.into()), ("endpoint", endpoint.into())];
+    message(lang, "custom-openai-confirm-text", &args)
 }
 
 /// Prompt for entering custom OpenAI-compatible API key (optional for local servers).
-pub fn custom_openai_key_prompt(lang: Language) -> &'static str {
-    match lang {
-        Language::En => {
-            "enter API key for this server (leave empty if your local server does not require authentication):"
-        }
-        Language::Ru => {
-            "введите API-ключ для этого сервера (оставьте пустым, если локальный сервер не требует авторизации):"
-        }
-    }
+pub fn custom_openai_key_prompt(lang: Language) -> String {
+    text(lang, "custom-openai-key-prompt")
 }
 
 /// Prompt for entering custom OpenAI model identifier.
-pub fn custom_openai_model_prompt(lang: Language) -> &'static str {
-    match lang {
-        Language::En => "enter model identifier (e.g. llama3, qwen2.5-coder):",
-        Language::Ru => "введите идентификатор модели (например, llama3, qwen2.5-coder):",
-    }
+pub fn custom_openai_model_prompt(lang: Language) -> String {
+    text(lang, "custom-openai-model-prompt")
 }
 
 /// Action prompt: disconnect AI provider.
 pub fn action_disconnect_ai(lang: Language, provider_name: &str) -> String {
-    match lang {
-        Language::En => format!("disconnect {provider_name}"),
-        Language::Ru => format!("отключить {provider_name}"),
-    }
+    message(
+        lang,
+        "action-disconnect-ai",
+        &[("provider", provider_name.into())],
+    )
 }
 
 /// Native button label: Allow.
-pub fn btn_allow(lang: Language) -> &'static str {
-    match lang {
-        Language::En => "Allow",
-        Language::Ru => "Разрешить",
-    }
+pub fn btn_allow(lang: Language) -> String {
+    text(lang, "btn-allow")
 }
 
 /// Native button label: Block.
-pub fn btn_block(lang: Language) -> &'static str {
-    match lang {
-        Language::En => "Block",
-        Language::Ru => "Заблокировать",
-    }
+pub fn btn_block(lang: Language) -> String {
+    text(lang, "btn-block")
 }
 
 /// Native button label: OK.
-pub fn btn_ok(lang: Language) -> &'static str {
-    match lang {
-        Language::En | Language::Ru => "OK",
-    }
+pub fn btn_ok(lang: Language) -> String {
+    text(lang, "btn-ok")
 }
 
 /// Native button label: Cancel.
-pub fn btn_cancel(lang: Language) -> &'static str {
-    match lang {
-        Language::En => "Cancel",
-        Language::Ru => "Отмена",
-    }
+pub fn btn_cancel(lang: Language) -> String {
+    text(lang, "btn-cancel")
 }
 
 /// Tray status: checking.
-pub fn tray_checking(lang: Language) -> &'static str {
-    match lang {
-        Language::En => "Vibefork: checking…",
-        Language::Ru => "Vibefork: проверка…",
-    }
+pub fn tray_checking(lang: Language) -> String {
+    text(lang, "tray-checking")
 }
 
 /// Tray menu: install update.
 pub fn tray_install_update(lang: Language, update: Option<&str>) -> String {
-    match lang {
-        Language::En => match update {
-            Some(u) => format!("Install update {u}"),
-            None => "Install update".into(),
-        },
-        Language::Ru => match update {
-            Some(u) => format!("Установить обновление {u}"),
-            None => "Установить обновление".into(),
-        },
+    match update {
+        Some(u) => message(lang, "tray-install-update-version", &[("update", u.into())]),
+        None => text(lang, "tray-install-update"),
     }
 }
 
 /// Tray menu: automatic updates.
-pub fn tray_automatic_updates(lang: Language) -> &'static str {
-    match lang {
-        Language::En => "Automatic updates",
-        Language::Ru => "Автообновление",
-    }
+pub fn tray_automatic_updates(lang: Language) -> String {
+    text(lang, "tray-automatic-updates")
+}
+
+/// `true` / `false` as a Fluent selector.
+fn flag(on: bool) -> FluentValue<'static> {
+    if on { "true".into() } else { "false".into() }
 }
 
 /// Tray menu: toggle automatic updates.
-pub fn tray_auto_updates_toggle(lang: Language, enabled: bool) -> &'static str {
-    match lang {
-        Language::En => {
-            if enabled {
-                "Turn automatic updates off"
-            } else {
-                "Turn automatic updates on"
-            }
-        }
-        Language::Ru => {
-            if enabled {
-                "Отключить автообновление"
-            } else {
-                "Включить автообновление"
-            }
-        }
-    }
+pub fn tray_auto_updates_toggle(lang: Language, enabled: bool) -> String {
+    message(
+        lang,
+        "tray-auto-updates-toggle",
+        &[("enabled", flag(enabled))],
+    )
 }
 
 /// Tray menu: open Vibefork.
-pub fn tray_open_vibefork(lang: Language) -> &'static str {
-    match lang {
-        Language::En => "Open Vibefork",
-        Language::Ru => "Открыть Vibefork",
-    }
+pub fn tray_open_vibefork(lang: Language) -> String {
+    text(lang, "tray-open-vibefork")
 }
 
 /// Tray menu: stop agent.
-pub fn tray_stop_agent(lang: Language) -> &'static str {
-    match lang {
-        Language::En => "Stop the agent",
-        Language::Ru => "Остановить агент",
-    }
+pub fn tray_stop_agent(lang: Language) -> String {
+    text(lang, "tray-stop-agent")
 }
 
 /// Tray menu: start agent.
-pub fn tray_start_agent(lang: Language) -> &'static str {
-    match lang {
-        Language::En => "Start the agent",
-        Language::Ru => "Запустить агент",
-    }
+pub fn tray_start_agent(lang: Language) -> String {
+    text(lang, "tray-start-agent")
 }
 
 /// Tray menu: quit tray.
-pub fn tray_quit(lang: Language) -> &'static str {
-    match lang {
-        Language::En => "Quit tray",
-        Language::Ru => "Выйти",
-    }
+pub fn tray_quit(lang: Language) -> String {
+    text(lang, "tray-quit")
 }
 
 /// Tray status: running.
@@ -410,152 +410,131 @@ pub fn tray_status_running(
     port: u16,
     update: Option<&str>,
 ) -> String {
-    match lang {
-        Language::En => match update {
-            Some(u) => format!("Vibefork {version}: running on port {port} · update {u} available"),
-            None => format!("Vibefork {version}: running on port {port}"),
-        },
-        Language::Ru => match update {
-            Some(u) => {
-                format!("Vibefork {version}: работает на порту {port} · доступно обновление {u}")
-            }
-            None => format!("Vibefork {version}: работает на порту {port}"),
-        },
+    let port = port.to_string();
+    match update {
+        Some(u) => {
+            let args = [
+                ("version", version.into()),
+                ("port", port.as_str().into()),
+                ("update", u.into()),
+            ];
+            message(lang, "tray-status-running-update", &args)
+        }
+        None => {
+            let args = [("version", version.into()), ("port", port.as_str().into())];
+            message(lang, "tray-status-running", &args)
+        }
     }
 }
 
 /// Tray status: stopped.
 pub fn tray_status_stopped(lang: Language, update: Option<&str>) -> String {
-    match lang {
-        Language::En => match update {
-            Some(u) => format!("Vibefork: stopped · update {u} available"),
-            None => "Vibefork: stopped".into(),
-        },
-        Language::Ru => match update {
-            Some(u) => format!("Vibefork: остановлен · доступно обновление {u}"),
-            None => "Vibefork: остановлен".into(),
-        },
+    match update {
+        Some(u) => message(lang, "tray-status-stopped-update", &[("update", u.into())]),
+        None => text(lang, "tray-status-stopped"),
     }
 }
 
 /// CLI status: running.
 pub fn cli_status_running(lang: Language, version: &str, port: u16, pid: &str) -> String {
-    match lang {
-        Language::En => format!("running · version {version} · port {port} · pid {pid}"),
-        Language::Ru => format!("работает · версия {version} · порт {port} · pid {pid}"),
-    }
+    let port = port.to_string();
+    let args = [
+        ("version", version.into()),
+        ("port", port.as_str().into()),
+        ("pid", pid.into()),
+    ];
+    message(lang, "cli-status-running", &args)
 }
 
 /// CLI status: not running.
 pub fn cli_status_not_running(lang: Language, port: u16) -> String {
-    match lang {
-        Language::En => format!("not running (port {port})"),
-        Language::Ru => format!("не запущен (порт {port})"),
-    }
+    let port = port.to_string();
+    message(
+        lang,
+        "cli-status-not-running",
+        &[("port", port.as_str().into())],
+    )
 }
 
 /// CLI status: auto update setting.
 pub fn cli_status_auto_update(lang: Language, enabled: bool) -> String {
-    match lang {
-        Language::En => format!("automatic updates: {}", if enabled { "on" } else { "off" }),
-        Language::Ru => format!("автообновление: {}", if enabled { "вкл" } else { "выкл" }),
-    }
+    message(
+        lang,
+        "cli-status-auto-update",
+        &[("enabled", flag(enabled))],
+    )
 }
 
 /// CLI status: stopped.
-pub fn cli_status_stopped(lang: Language) -> &'static str {
-    match lang {
-        Language::En => "stopped",
-        Language::Ru => "остановлен",
-    }
+pub fn cli_status_stopped(lang: Language) -> String {
+    text(lang, "cli-status-stopped")
 }
 
 /// CLI status: update notice.
 pub fn cli_status_update_notice(lang: Language, update: &str) -> String {
-    match lang {
-        Language::En => format!(" · update {update} available (run `vibefork update` to install)"),
-        Language::Ru => {
-            format!(" · доступно обновление {update} (запустите `vibefork update` для установки)")
-        }
-    }
+    message(
+        lang,
+        "cli-status-update-notice",
+        &[("update", update.into())],
+    )
 }
 
 /// CLI status: update available line.
 pub fn cli_status_update_available(lang: Language, version: &str) -> String {
-    match lang {
-        Language::En => format!("update {version} is available — `vibefork update`"),
-        Language::Ru => format!("доступно обновление {version} — `vibefork update`"),
-    }
+    message(
+        lang,
+        "cli-status-update-available",
+        &[("version", version.into())],
+    )
 }
 
 /// CLI GitHub: connected.
 pub fn cli_github_connected(lang: Language, login: Option<&str>) -> String {
-    match lang {
-        Language::En => match login {
-            Some(l) => format!("connected as {l}"),
-            None => "connected".into(),
-        },
-        Language::Ru => match login {
-            Some(l) => format!("подключен как {l}"),
-            None => "подключен".into(),
-        },
+    match login {
+        Some(l) => message(lang, "cli-github-connected-login", &[("login", l.into())]),
+        None => text(lang, "cli-github-connected"),
     }
 }
 
 /// CLI GitHub: not connected.
-pub fn cli_github_not_connected(lang: Language) -> &'static str {
-    match lang {
-        Language::En => "not connected — `vibefork github connect`",
-        Language::Ru => "не подключен — `vibefork github connect`",
-    }
+pub fn cli_github_not_connected(lang: Language) -> String {
+    text(lang, "cli-github-not-connected")
 }
 
 /// CLI GitHub: disconnected message.
-pub fn cli_github_disconnected(lang: Language) -> &'static str {
-    match lang {
-        Language::En => {
-            "disconnected (the app stays installed on your copies; remove it in GitHub settings if you want)"
-        }
-        Language::Ru => {
-            "отключено (приложение остаётся установленным в ваших копиях; при желании удалите его в настройках GitHub)"
-        }
-    }
+pub fn cli_github_disconnected(lang: Language) -> String {
+    text(lang, "cli-github-disconnected")
 }
 
 /// CLI storage: header files count.
-pub fn cli_storage_header_files(lang: Language) -> &'static str {
-    match lang {
-        Language::En => "files",
-        Language::Ru => "файлов",
-    }
+pub fn cli_storage_header_files(lang: Language) -> String {
+    text(lang, "cli-storage-header-files")
 }
 
 /// CLI storage: unknown folder.
 pub fn cli_storage_unknown_folder(lang: Language, kind: &str) -> String {
-    match lang {
-        Language::En => {
-            format!("vibefork: unknown folder `{kind}` (projects, tools, caches, artifacts)")
-        }
-        Language::Ru => {
-            format!("vibefork: неизвестная папка `{kind}` (projects, tools, caches, artifacts)")
-        }
-    }
+    message(lang, "cli-storage-unknown-folder", &[("kind", kind.into())])
 }
 
 /// CLI storage: stop agent first.
 pub fn cli_storage_stop_agent_first(lang: Language, port: u16) -> String {
-    match lang {
-        Language::En => format!("vibefork: stop the agent first (it is listening on port {port})"),
-        Language::Ru => format!("vibefork: сначала остановите агент (он слушает порт {port})"),
-    }
+    let port = port.to_string();
+    message(
+        lang,
+        "cli-storage-stop-agent-first",
+        &[("port", port.as_str().into())],
+    )
 }
 
 /// CLI storage: moved successfully.
 pub fn cli_storage_moved(lang: Language, kind: &str, size: &str, files: u64, path: &str) -> String {
-    match lang {
-        Language::En => format!("moved {kind} ({size}, {files} files) to {path}"),
-        Language::Ru => format!("папка {kind} ({size}, файлов: {files}) перемещена в {path}"),
-    }
+    let args = [
+        ("kind", kind.into()),
+        ("size", size.into()),
+        ("files", FluentValue::from(files)),
+        ("path", path.into()),
+    ];
+    message(lang, "cli-storage-moved", &args)
 }
 
 /// System instruction for coding models: reply in the user's language and keep answers accessible for non-programmers.
@@ -593,6 +572,144 @@ pub fn system_instruction(lang: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fluent_bundle::FluentResource;
+
+    /// Message ids of a Fluent source, in file order: lines `id = …` at the start of a line.
+    fn ids(source: &str) -> Vec<String> {
+        source
+            .lines()
+            .filter_map(|l| l.split_once(" ="))
+            .map(|(id, _)| id)
+            .filter(|id| !id.is_empty() && id.chars().all(|c| c.is_ascii_lowercase() || c == '-'))
+            .map(str::to_owned)
+            .collect()
+    }
+
+    #[test]
+    fn every_language_file_parses_without_errors() {
+        for lang in Language::ALL {
+            if let Some(source) = lang.ftl() {
+                assert!(
+                    FluentResource::try_new(source.to_owned()).is_ok(),
+                    "{} has syntax errors",
+                    lang.as_str()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_language_with_strings_has_exactly_the_english_messages() {
+        let mut english = ids(EN_FTL);
+        english.sort();
+        assert!(english.len() > 60);
+        for lang in Language::ALL {
+            let Some(source) = lang.ftl() else { continue };
+            let mut own = ids(source);
+            own.sort();
+            assert_eq!(own, english, "{} differs from en", lang.as_str());
+        }
+    }
+
+    #[test]
+    fn every_message_formats_without_errors_in_every_language() {
+        let values = [
+            "origin", "name", "code", "project", "action", "target", "provider", "prompt",
+            "endpoint", "update", "version", "port", "pid", "login", "kind", "size", "path",
+            "title",
+        ];
+        let mut args = FluentArgs::new();
+        for v in values {
+            args.set(v, "x");
+        }
+        args.set("enabled", "true");
+        for v in ["n", "of", "files"] {
+            args.set(v, 2);
+        }
+        for (lang, b) in bundles() {
+            for id in ids(lang.ftl().unwrap()) {
+                let pattern = b.get_message(&id).and_then(|m| m.value()).unwrap();
+                let mut errors = Vec::new();
+                let out = b.format_pattern(pattern, Some(&args), &mut errors);
+                assert!(errors.is_empty(), "{}: {id}: {errors:?}", lang.as_str());
+                assert!(!out.trim().is_empty(), "{}: {id} is empty", lang.as_str());
+            }
+        }
+    }
+
+    #[test]
+    fn languages_are_recognized_from_os_and_browser_codes() {
+        for (code, lang) in [
+            ("ru", Language::Ru),
+            ("ru_RU.UTF-8", Language::Ru),
+            ("en_US", Language::En),
+            ("pt", Language::PtBr),
+            ("pt-BR", Language::PtBr),
+            ("pt_PT", Language::PtBr),
+            ("es", Language::Es),
+            ("es-MX", Language::Es),
+            ("es_ES.UTF-8", Language::Es),
+            ("de", Language::De),
+            ("de-AT", Language::De),
+            ("de_DE@euro", Language::De),
+            ("fr_FR", Language::En),
+            ("C.UTF-8", Language::En),
+            ("dev", Language::En),
+            ("", Language::En),
+        ] {
+            assert_eq!(Language::parse(code), lang, "{code}");
+        }
+        for lang in Language::ALL {
+            assert_eq!(Language::parse(lang.as_str()), lang);
+            assert!(lang_code(lang.as_str()).is_some());
+        }
+    }
+
+    #[test]
+    fn a_language_without_its_own_strings_is_shown_in_english() {
+        for lang in [Language::PtBr, Language::Es, Language::De] {
+            assert_eq!(btn_cancel(lang), btn_cancel(Language::En));
+            assert_eq!(
+                pair_text(lang, "site", "chrome", "123456"),
+                pair_text(Language::En, "site", "chrome", "123456")
+            );
+        }
+        assert!(!has_message(Language::De, "btn-cancel"));
+        assert!(has_message(Language::Ru, "btn-cancel"));
+    }
+
+    #[test]
+    fn a_message_missing_everywhere_comes_out_as_its_id() {
+        assert_eq!(
+            message(Language::Ru, "no-such-message", &[]),
+            "no-such-message"
+        );
+    }
+
+    #[test]
+    fn plurals_follow_the_language_rules() {
+        assert_eq!(
+            cli_storage_moved(Language::En, "tools", "1 KB", 1, "/p"),
+            "moved tools (1 KB, 1 file) to /p"
+        );
+        assert_eq!(
+            cli_storage_moved(Language::En, "tools", "1 KB", 2, "/p"),
+            "moved tools (1 KB, 2 files) to /p"
+        );
+    }
+
+    #[test]
+    fn thoughts_are_in_the_persons_language() {
+        assert_eq!(
+            thought_step(Language::Ru, 2, 5, "Тесты"),
+            "Шаг 2 из 5: Тесты"
+        );
+        assert_eq!(
+            thought_step(Language::En, 2, 5, "Tests"),
+            "Step 2 of 5: Tests"
+        );
+        assert_eq!(thought_task(Language::Es), "Working on the task");
+    }
 
     #[test]
     fn every_catalog_entry_exists_in_both_languages() {

@@ -364,7 +364,7 @@ fn start_confirmed(
             ),
         };
         if auth.project_allowed(&key_id, &origin, &project)
-            && auth.confirm_action(&origin, prompt, Some(&project))
+            && auth.confirm_action(&origin, &prompt, Some(&project))
         {
             let mut out = |m| {
                 let _ = tx.send(Out::Message(m));
@@ -415,7 +415,7 @@ fn rollback_part(
             .map(|n| n.label)
             .filter(|l| !l.is_empty())
             .unwrap_or_else(|| id.clone());
-        if auth.confirm_action(&origin, prompt, Some(&format!("{project} → {part}"))) {
+        if auth.confirm_action(&origin, &prompt, Some(&format!("{project} → {part}"))) {
             backend.rollback_part(&project, &id, &mut out);
         } else {
             out(ServerMessage::Error {

@@ -403,7 +403,7 @@ pub(crate) async fn ai_connect(
         let auth = state.auth.clone();
         let o = origin.0.clone();
         let endpoint_prompt = vf_core::catalog::custom_openai_endpoint_prompt(lang);
-        let endpoint_val = tokio::task::spawn_blocking(move || auth.ask_text(&o, endpoint_prompt))
+        let endpoint_val = tokio::task::spawn_blocking(move || auth.ask_text(&o, &endpoint_prompt))
             .await
             .unwrap_or(None);
 
@@ -435,7 +435,7 @@ pub(crate) async fn ai_connect(
         let confirm_title = vf_core::catalog::confirm_action_title(lang);
         let confirm_text = vf_core::catalog::custom_openai_confirm_text(lang, &o, &clean_endpoint);
         let confirmed = tokio::task::spawn_blocking(move || {
-            auth.dialog().confirm(confirm_title, &confirm_text)
+            auth.dialog().confirm(&confirm_title, &confirm_text)
         })
         .await
         .unwrap_or(false);
@@ -458,7 +458,7 @@ pub(crate) async fn ai_connect(
         let o = origin.0.clone();
         let key_prompt = vf_core::catalog::custom_openai_key_prompt(lang);
         let key_secret =
-            tokio::task::spawn_blocking(move || auth.ask_secret_optional(&o, key_prompt))
+            tokio::task::spawn_blocking(move || auth.ask_secret_optional(&o, &key_prompt))
                 .await
                 .unwrap_or(None);
 
@@ -493,7 +493,7 @@ pub(crate) async fn ai_connect(
             let auth = state.auth.clone();
             let o = origin.0.clone();
             let model_prompt = vf_core::catalog::custom_openai_model_prompt(lang);
-            let model_val = tokio::task::spawn_blocking(move || auth.ask_text(&o, model_prompt))
+            let model_val = tokio::task::spawn_blocking(move || auth.ask_text(&o, &model_prompt))
                 .await
                 .unwrap_or(None);
 
@@ -561,7 +561,7 @@ pub(crate) async fn ai_connect(
         } else {
             vf_core::catalog::openrouter_key_prompt(lang)
         };
-        let secret = tokio::task::spawn_blocking(move || auth.ask_secret(&o, secret_prompt))
+        let secret = tokio::task::spawn_blocking(move || auth.ask_secret(&o, &secret_prompt))
             .await
             .unwrap_or(None);
 
@@ -766,7 +766,7 @@ pub(crate) async fn rollback(
         format!("{} → {}", req.project, req.commit),
     );
     let approved =
-        tokio::task::spawn_blocking(move || auth.confirm_action(&o, prompt, Some(&target)))
+        tokio::task::spawn_blocking(move || auth.confirm_action(&o, &prompt, Some(&target)))
             .await
             .unwrap_or(false);
     if !approved {
@@ -834,7 +834,7 @@ pub(crate) async fn save(
     let lang = auth.dialog().language();
     let prompt = vf_core::catalog::action_save(lang);
     let approved = tokio::task::spawn_blocking(move || {
-        !backend.save_needs_confirm(&p) || auth.confirm_action(&o, prompt, Some(&p))
+        !backend.save_needs_confirm(&p) || auth.confirm_action(&o, &prompt, Some(&p))
     })
     .await
     .unwrap_or(false);
