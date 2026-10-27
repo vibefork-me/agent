@@ -1,5 +1,5 @@
 //! Project tasks, run as `cargo xtask <task>`:
-//! - `ci` — every check a PR must pass: format, clippy, tests, layers;
+//! - `ci` — every check a PR must pass: format, clippy, tests, layers, dependency sources;
 //! - `version` — prints the agent version (`[workspace.package] version`, the only place it lives);
 //! - `version set X.Y.Z[-pre]` — sets it.
 #![allow(clippy::print_stdout, clippy::print_stderr)] // a command-line tool reports to the terminal
@@ -56,6 +56,7 @@ fn ci() -> Result<(), String> {
         run(name, program, args)?;
     }
     run("layers", python(), &["scripts/check_layers.py"])?;
+    run("sources", python(), &["scripts/check_sources.py"])?;
     println!("xtask ci: all checks passed");
     Ok(())
 }
