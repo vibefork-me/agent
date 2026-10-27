@@ -133,24 +133,28 @@ impl Engine {
     }
 
     fn task(&self, task: TaskRequest, out: &mut dyn FnMut(ServerMessage), cancel: &Cancel) {
-        let error = |out: &mut dyn FnMut(ServerMessage), e: &str| {
+        let error = |out: &mut dyn FnMut(ServerMessage), e: &str, code: &str| {
             out(ServerMessage::Error {
                 error: e.to_owned(),
-                code: None,
+                code: Some(code.to_owned()),
             })
         };
         let dir = match self.projects.resolve(&task.project) {
             Ok(d) => d,
-            Err(_) => return error(out, "unknown project"),
+            Err(_) => return error(out, "unknown project", "not_found"),
         };
         if task.prompt.trim().is_empty() || task.prompt.chars().count() > MAX_PROMPT {
-            return error(out, &format!("prompt required (≤ {MAX_PROMPT} chars)"));
+            return error(
+                out,
+                &format!("prompt required (≤ {MAX_PROMPT} chars)"),
+                "bad_prompt",
+            );
         }
         let repo = Repo::open(&dir);
         if !repo.is_ready()
             && let Err(e) = Repo::init(&dir)
         {
-            return error(out, &format!("cannot prepare git: {e}"));
+            return error(out, &format!("cannot prepare git: {e}"), "git_failed");
         }
         let provider = task.provider.clone().unwrap_or_else(|| "auto".into());
         let model = task.model.clone().unwrap_or_default();
@@ -183,7 +187,11 @@ impl Engine {
                     } else {
                         &model
                     };
-                    return error(out, &format!("model not available: {provider} {shown}"));
+                    return error(
+                        out,
+                        &format!("model not available: {provider} {shown}"),
+                        "model_unavailable",
+                    );
                 }
                 self.single(&t, &provider, &model, out, cancel);
             }
@@ -208,7 +216,7 @@ impl Engine {
         let Some(p) = self.provider(provider).cloned() else {
             return out(ServerMessage::Error {
                 error: format!("unknown provider {provider}"),
-                code: None,
+                code: Some("model_unavailable".into()),
             });
         };
         orchestrate::think(out, orchestrate::Thought::Task, t.lang);
@@ -311,7 +319,7 @@ impl Engine {
             if !busy.insert(project.to_owned()) {
                 return out(ServerMessage::Error {
                     error: "a task is already running in this project".into(),
-                    code: None,
+                    code: Some("task_already_running".into()),
                 });
             }
         }
@@ -705,6 +713,9 @@ impl Backend for Engine {
                     text: "Part rolled back".into(),
                     detail: done.summary,
                     artifacts: done.artifacts,
+                    kind: Some(vf_protocol::canvas::ResultKind::PartRolledBack),
+                    exit: None,
+                    id: Some(id.to_owned()),
                 });
             }
             Err(e) => out(ServerMessage::Error {

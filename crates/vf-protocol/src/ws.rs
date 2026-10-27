@@ -331,9 +331,12 @@ pub enum ServerMessage {
     },
     /// An error; for auth errors the connection is closed after it.
     Error {
-        /// Reason.
+        /// Reason, in plain English; an editor words it itself by `code` when it knows the code.
         error: String,
-        /// Machine-readable error code.
+        /// Machine-readable error code. Of a task or a build: `not_found` (unknown project),
+        /// `bad_prompt` (empty or too long), `model_unavailable`, `no_models`, `no_model_for_step`,
+        /// `planning_failed`, `plan_stopped` (a plan step failed), `git_failed`,
+        /// `task_already_running`, `no_build_recipe`, `not_enough_resources`, `build_start_failed`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         code: Option<String>,
     },

@@ -345,7 +345,7 @@ impl Engine {
             Err(e) => {
                 out(ServerMessage::Error {
                     error: format!("git: {e}"),
-                    code: None,
+                    code: Some("git_failed".into()),
                 });
                 return StepResult {
                     code: -1,

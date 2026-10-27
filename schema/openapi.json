@@ -815,6 +815,14 @@
           {
             "description": "A build or a check finished.",
             "properties": {
+              "exit": {
+                "description": "Exit code of the check's process.",
+                "format": "int32",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
               "id": {
                 "description": "The part where a failed check broke.",
                 "type": [
@@ -822,12 +830,23 @@
                   "null"
                 ]
               },
+              "kind": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/CheckKind"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "What was checked."
+              },
               "ok": {
                 "description": "Whether it passed.",
                 "type": "boolean"
               },
               "text": {
-                "description": "What happened, in plain words.",
+                "description": "What happened, in plain English; an editor words it itself by `kind` when given.",
                 "type": "string"
               },
               "type": {
@@ -918,11 +937,37 @@
                 "type": "array"
               },
               "detail": {
-                "description": "Details.",
+                "description": "Details, in plain English (for `done` and `failed`: the changed files' summary).",
                 "type": "string"
               },
+              "exit": {
+                "description": "Exit code of the task (`done` and `failed`).",
+                "format": "int32",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "id": {
+                "description": "The part it is about (`part_rolled_back`).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ResultKind"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "How it ended."
+              },
               "text": {
-                "description": "The outcome, in plain words.",
+                "description": "The outcome, in plain English; an editor words it itself by `kind` when given.",
                 "type": "string"
               },
               "type": {
@@ -1021,6 +1066,18 @@
           "nonce"
         ],
         "type": "object"
+      },
+      "CheckKind": {
+        "description": "What a [`CanvasEvent::Check`] checked.",
+        "oneOf": [
+          {
+            "description": "The project's build (`exit` is its code).",
+            "enum": [
+              "build"
+            ],
+            "type": "string"
+          }
+        ]
       },
       "CliHomeMode": {
         "description": "Where a CLI keeps its sign-in, settings, and sessions.",
@@ -2635,6 +2692,39 @@
         ],
         "type": "object"
       },
+      "ResultKind": {
+        "description": "How a [`CanvasEvent::Result`] ended: the editor words it in the person's language.",
+        "oneOf": [
+          {
+            "description": "The task finished (exit code 0).",
+            "enum": [
+              "done"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "The task failed (`exit` is its code).",
+            "enum": [
+              "failed"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "The task was cancelled.",
+            "enum": [
+              "cancelled"
+            ],
+            "type": "string"
+          },
+          {
+            "description": "One part was rolled back (`id` is the part).",
+            "enum": [
+              "part_rolled_back"
+            ],
+            "type": "string"
+          }
+        ]
+      },
       "RevokeRequest": {
         "description": "`POST /v1/pairs/revoke`.",
         "properties": {
@@ -3460,14 +3550,14 @@
             "description": "An error; for auth errors the connection is closed after it.",
             "properties": {
               "code": {
-                "description": "Machine-readable error code.",
+                "description": "Machine-readable error code. Of a task or a build: `not_found` (unknown project), `bad_prompt` (empty or too long), `model_unavailable`, `no_models`, `no_model_for_step`, `planning_failed`, `plan_stopped` (a plan step failed), `git_failed`, `task_already_running`, `no_build_recipe`, `not_enough_resources`, `build_start_failed`.",
                 "type": [
                   "string",
                   "null"
                 ]
               },
               "error": {
-                "description": "Reason.",
+                "description": "Reason, in plain English; an editor words it itself by `code` when it knows the code.",
                 "type": "string"
               },
               "type": {
