@@ -371,12 +371,12 @@ mod tests {
         assert_eq!(
             wire(&CanvasEvent::Project {
                 id: "root".into(),
-                label: "Mod".into(),
-                summary: "A mod".into(),
+                label: "notes-app (fork)".into(),
+                summary: "Another version with tags".into(),
                 version_of: Some("upstream".into()),
                 files: Vec::new(),
             }),
-            serde_json::json!({"type": "project", "id": "root", "label": "Mod", "summary": "A mod", "versionOf": "upstream"})
+            serde_json::json!({"type": "project", "id": "root", "label": "notes-app (fork)", "summary": "Another version with tags", "versionOf": "upstream"})
         );
         assert_eq!(
             wire(&CanvasEvent::NoteTaken {
@@ -398,13 +398,13 @@ mod tests {
     #[test]
     fn a_recorded_session_reads_back() {
         let lines = [
-            r#"{"seq":1,"at":1000,"session":"s1","ev":{"type":"task","text":"Build for 1.21.4","nodes":["build"]}}"#,
+            r#"{"seq":1,"at":1000,"session":"s1","ev":{"type":"task","text":"Add a dark theme","nodes":["ui"]}}"#,
             r#"{"seq":2,"at":1500,"session":"s1","ev":{"type":"plan","steps":["Read","Fix"]}}"#,
             r#"{"seq":3,"at":2000,"session":"s1","ev":{"type":"step","index":0}}"#,
-            r#"{"seq":4,"at":2500,"session":"s1","ev":{"type":"progress","done":3,"total":10,"unit":"files","eta":12,"id":"build"}}"#,
-            r#"{"seq":5,"at":3000,"session":"s1","ev":{"type":"offers","items":[{"title":"Dark theme","text":"Add it","source":{"kind":"issues","text":"asked 4 times"}}]}}"#,
-            r#"{"seq":6,"at":3500,"session":"s1","ev":{"type":"check","ok":false,"text":"Build failed","id":"build"}}"#,
-            r#"{"seq":7,"at":4000,"session":"s1","ev":{"type":"result","text":"Done","detail":"2 files","artifacts":[{"name":"mod.jar","kind":"build","size":"1 MB"},{"name":"Changes","kind":"changes","files":[{"path":"a.txt","node":"build","diff":["-a","+b"]}]}]}}"#,
+            r#"{"seq":4,"at":2500,"session":"s1","ev":{"type":"progress","done":3,"total":10,"unit":"files","eta":12,"id":"ui"}}"#,
+            r#"{"seq":5,"at":3000,"session":"s1","ev":{"type":"offers","items":[{"title":"Export to PDF","text":"Save a note as a PDF","source":{"kind":"issues","text":"Asked for in 4 issues"}}]}}"#,
+            r#"{"seq":6,"at":3500,"session":"s1","ev":{"type":"check","ok":false,"text":"Build failed","id":"ui"}}"#,
+            r#"{"seq":7,"at":4000,"session":"s1","ev":{"type":"result","text":"Done","detail":"2 files","artifacts":[{"name":"notes-app.zip","kind":"build","size":"2 MB"},{"name":"Changes","kind":"changes","files":[{"path":"src/ui/theme.ts","node":"ui","diff":["-light","+dark"]}]}]}}"#,
         ];
         for line in lines {
             let record: CanvasRecord = serde_json::from_str(line).unwrap();
