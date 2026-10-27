@@ -16,6 +16,7 @@ use vf_core::Secret;
 use vf_engine::Engine;
 use vf_platform::Settings;
 use vf_platform::settings::Storage;
+use vf_protocol::canvas::CanvasEvent;
 use vf_protocol::ws::ServerMessage;
 use vf_protocol::{Backend, Cancel, CostClass, Event, ModelInfo, TaskRequest};
 use vf_providers::{Answer, AskRequest, Output, Provider, RunRequest, RunResult};
@@ -156,9 +157,19 @@ fn task(provider: &str, continue_: bool) -> TaskRequest {
     }
 }
 
+/// Messages of the existing protocol (the session stream is checked on its own).
 fn run(engine: &Engine, t: TaskRequest) -> Vec<ServerMessage> {
     let mut msgs = vec![];
     engine.run_task(t, &mut |m| msgs.push(m), &Cancel::new());
+    msgs.retain(|m| !matches!(m, ServerMessage::Canvas { .. }));
+    msgs
+}
+
+/// Messages of the existing protocol of a build.
+fn build(engine: &Engine, project: &str) -> Vec<ServerMessage> {
+    let mut msgs = vec![];
+    engine.build(project, &mut |m| msgs.push(m), &Cancel::new());
+    msgs.retain(|m| !matches!(m, ServerMessage::Canvas { .. }));
     msgs
 }
 
@@ -412,8 +423,7 @@ fn build_runs_the_recipe_and_keeps_artifacts() {
         serde_json::json!({ "scripts": { "build": script } }).to_string(),
     )
     .unwrap();
-    let mut msgs = vec![];
-    engine.build("demo", &mut |m| msgs.push(m), &Cancel::new());
+    let msgs = build(&engine, "demo");
     assert!(
         matches!(&msgs[0], ServerMessage::Estimate { .. }),
         "{msgs:?}"
@@ -431,10 +441,76 @@ fn build_runs_the_recipe_and_keeps_artifacts() {
     assert!(std::path::Path::new(dir).join("dist/out.txt").exists());
 
     std::fs::remove_file(base.join("projects/demo/package.json")).unwrap();
-    let mut msgs = vec![];
-    engine.build("demo", &mut |m| msgs.push(m), &Cancel::new());
+    let msgs = build(&engine, "demo");
     assert!(
         matches!(&msgs[..], [ServerMessage::Error { error, .. }] if error.contains("no known way"))
+    );
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+#[test]
+fn a_task_writes_its_session_stream_and_it_replays_from_any_event() {
+    let (base, engine, _) = setup();
+    let mut live = vec![];
+    engine.run_task(task("codex", false), &mut |m| live.push(m), &Cancel::new());
+    let live: Vec<(u64, CanvasEvent)> = live
+        .into_iter()
+        .filter_map(|m| match m {
+            ServerMessage::Canvas { seq, ev, .. } => Some((seq, ev)),
+            _ => None,
+        })
+        .collect();
+    let types: Vec<String> = live
+        .iter()
+        .map(|(_, ev)| {
+            serde_json::to_value(ev).unwrap()["type"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        })
+        .collect();
+    assert_eq!(types.first().map(String::as_str), Some("task"), "{types:?}");
+    assert_eq!(
+        types.last().map(String::as_str),
+        Some("result"),
+        "{types:?}"
+    );
+    assert!(types.contains(&"stage".to_owned()), "{types:?}");
+    let seqs: Vec<u64> = live.iter().map(|(seq, _)| *seq).collect();
+    assert_eq!(seqs, (1..=seqs.len() as u64).collect::<Vec<_>>());
+
+    // The log holds exactly what was sent live.
+    let replay = engine.canvas("demo", 1).unwrap();
+    assert_eq!(
+        replay
+            .events
+            .iter()
+            .map(|r| (r.seq, r.ev.clone()))
+            .collect::<Vec<_>>(),
+        live
+    );
+    assert_eq!(replay.next, seqs.len() as u64 + 1);
+    let tail = engine.canvas("demo", 3).unwrap();
+    assert_eq!(tail.events.first().map(|r| r.seq), Some(3));
+    assert!(
+        engine
+            .canvas("demo", replay.next)
+            .unwrap()
+            .events
+            .is_empty()
+    );
+    assert!(engine.canvas("nope", 1).is_err());
+
+    // The next run continues the numbering in a new session.
+    run(&engine, task("codex", true));
+    let all = engine.canvas("demo", 1).unwrap().events;
+    assert_eq!(
+        all.get(seqs.len()).map(|r| r.seq),
+        Some(seqs.len() as u64 + 1)
+    );
+    assert_ne!(
+        all.first().map(|r| &r.session),
+        all.last().map(|r| &r.session)
     );
     let _ = std::fs::remove_dir_all(&base);
 }

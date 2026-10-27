@@ -11,6 +11,7 @@ use std::path::PathBuf;
 
 use schemars::r#gen::SchemaSettings;
 use serde_json::{Map, Value, json};
+use vf_protocol::canvas::{CanvasRecord, CanvasResponse};
 use vf_protocol::http::*;
 use vf_protocol::ws::{ClientMessage, ServerMessage};
 
@@ -64,6 +65,8 @@ fn definitions() -> Map<String, Value> {
         DescribeRequest,
         GraphNode,
         GraphEdge,
+        CanvasResponse,
+        CanvasRecord,
         ClientMessage,
         ServerMessage,
     );

@@ -245,6 +245,31 @@ pub(crate) async fn projects(
     with_backend(state, &headers, &origin.0, |b| b.projects()).await
 }
 
+/// The session stream of a project from event `from` (query: `project`, `from`, default 1).
+pub(crate) async fn canvas(
+    State(state): State<AppState>,
+    Extension(origin): Extension<EffectiveOrigin>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let project = q.get("project").cloned().unwrap_or_default();
+    let from = match q.get("from").map(|f| f.parse::<u64>()) {
+        None => 1,
+        Some(Ok(from)) => from,
+        Some(Err(_)) => return error(StatusCode::BAD_REQUEST, "from must be a number"),
+    };
+    if session_from(&state, &headers, &origin.0).is_none() {
+        return no_session();
+    }
+    if !project_allowed(&state, &headers, &origin.0, &project).await {
+        return error(StatusCode::FORBIDDEN, "no access to this project");
+    }
+    with_backend(state, &headers, &origin.0, move |b| {
+        b.canvas(&project, from)
+    })
+    .await
+}
+
 pub(crate) async fn journal(
     State(state): State<AppState>,
     Extension(origin): Extension<EffectiveOrigin>,

@@ -3,7 +3,8 @@
 //! (connectivity check without a session).
 //!
 //! After authentication: `task` starts a task (one at a time per connection), `cancel` cancels it,
-//! other text is echoed. Closing the connection cancels the running task.
+//! `note`, `stop`, `resume`, `choose_offer`, `rollback_part` answer `not_supported` for now, other
+//! text is echoed. A running task also sends its session stream (`canvas` messages). Closing the connection cancels the running task.
 
 use std::time::Duration;
 
@@ -149,6 +150,17 @@ async fn connection(mut socket: WebSocket, state: AppState, origin: String) {
                 }
                 None
             }
+            // The protocol has them; the engine handles them in later versions.
+            Ok(
+                ClientMessage::Note { .. }
+                | ClientMessage::Stop
+                | ClientMessage::Resume
+                | ClientMessage::ChooseOffer { .. }
+                | ClientMessage::RollbackPart { .. },
+            ) => Some(ServerMessage::Error {
+                error: "not supported by this version of the agent".into(),
+                code: Some("not_supported".into()),
+            }),
             Ok(ClientMessage::Auth { .. }) => None,
             Err(_) => Some(ServerMessage::Echo {
                 data: text.to_owned(),

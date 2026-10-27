@@ -24,6 +24,27 @@ export type AiProvider = { connected: AiConnected; host?: string | null; id: str
 /** `GET /v1/ai`: whether AI is connected — the editor is not usable without it. */
 export type AiResponse = { providers: (AiProvider)[]; ready: boolean };
 
+/** Something a task produced. */
+export type Artifact = { about?: string | null; checks?: (ArtifactCheck)[]; files?: (ArtifactFile)[]; kind: ArtifactKind; lines?: (string)[]; name: string; nodes?: (string)[]; path?: string | null; size?: string | null };
+
+/** One check inside a [`ArtifactKind::Report`] artifact. */
+export type ArtifactCheck = { node?: string | null; ok: boolean; text: string };
+
+/** A changed file inside a [`ArtifactKind::Changes`] artifact. */
+export type ArtifactFile = { diff?: (string)[]; node?: string | null; note?: string | null; path: string };
+
+/** Kind of a result artifact. */
+export type ArtifactKind = "build" | "report" | "backup" | "changes" | "log";
+
+/** What the agent does, as the canvas shows it. Tagged by `type`. */
+export type CanvasEvent = { id: Stage; type: "stage" } | { done: number; eta: number; id?: string | null; text?: string | null; total: number; type: "progress"; unit: string } | { scope: EtaScope; seconds: number; type: "eta" } | { id: string; text: string; type: "think" } | { files?: (string)[]; id: string; label: string; summary: string; type: "project"; versionOf?: string | null } | { files?: (string)[]; id: string; label: string; parent: string; summary: string; type: "found" } | { files?: (string)[]; id: string; label: string; parent: string; summary: string; type: "subsystem" } | { id: string; type: "focus" } | { from: string; to: string; type: "touch" } | { id: string; text: string; type: "insight" } | { items: (Offer)[]; type: "offers" } | { nodes: (string)[]; text: string; type: "task" } | { steps: (string)[]; type: "plan" } | { index: number; type: "step" } | { files?: (string)[]; id: string; type: "change" } | { id?: string | null; ok: boolean; text: string; type: "check" } | { noteId: string; related: (string)[]; reply: string; type: "note.taken" } | { artifacts?: (Artifact)[]; detail: string; text: string; type: "result" };
+
+/** A numbered event of a project's stream, as kept in its event log. */
+export type CanvasRecord = { at: number; ev: CanvasEvent; seq: number; session: string };
+
+/** Response of `GET /v1/canvas?project=…&from=N[&session=…]`. */
+export type CanvasResponse = { events: (CanvasRecord)[]; next: number };
+
 /** `POST /v1/auth/challenge`. */
 export type ChallengeRequest = { keyId: string };
 
@@ -34,7 +55,7 @@ export type ChallengeResponse = { nonce: string };
 export type CliHomeMode = "agent" | "user";
 
 /** Messages from the browser. */
-export type ClientMessage = { token: string; type: "auth" } | { continue?: boolean; lang?: string | null; model?: string | null; project: string; prompt: string; provider?: string | null; type: "task" } | { project: string; type: "build" } | { type: "cancel" };
+export type ClientMessage = { token: string; type: "auth" } | { continue?: boolean; lang?: string | null; model?: string | null; project: string; prompt: string; provider?: string | null; type: "task" } | { project: string; type: "build" } | { type: "cancel" } | { attachments?: (NoteAttachment)[]; project: string; text: string; type: "note" } | { type: "stop" } | { type: "resume" } | { index: number; project: string; type: "choose_offer" } | { id: string; project: string; type: "rollback_part" };
 
 /** Cost class of a model. */
 export type CostClass = "subscription" | "free" | "paid";
@@ -44,6 +65,9 @@ export type DescribeRequest = { lang?: string | null; project: string };
 
 /** An error body: `{ "error": "…" }`. */
 export type ErrorBody = { code?: string | null; error: string; resetMinutes?: number | null };
+
+/** What an [`CanvasEvent::Eta`] estimates. */
+export type EtaScope = "analysis" | "task";
 
 /** A normalized event, tagged by `kind`. */
 export type Event = { cli: string; kind: "init"; mcp?: number | null; model?: string | null; session?: string | null; skills?: number | null } | { kind: "text"; text: string } | { detail: string; kind: "tool"; tool: string } | { error: boolean; kind: "tool_result"; text: string } | { costUsd?: number | null; kind: "result"; ms?: number | null; ok: boolean; text: string; turns?: number | null; usage?: Usage | null } | { kind: "error"; text: string };
@@ -99,6 +123,18 @@ export type ModelInfo = { cost: CostClass; label: string; model: string; provide
 /** Response of `GET /v1/models`. */
 export type ModelsResponse = { models: (ModelInfo)[] };
 
+/** A file or text the person attaches to a message. */
+export type NoteAttachment = { data: string; mime: string; name: string };
+
+/** Something the person can do next. */
+export type Offer = { source?: OfferSource | null; text: string; title: string };
+
+/** Where an offer comes from, in plain words. */
+export type OfferSource = { kind: OfferSourceKind; text: string };
+
+/** Why an offer is made. */
+export type OfferSourceKind = "analysis" | "similar" | "issues";
+
 /** One paired browser in `GET /v1/pairs`. */
 export type PairInfo = { created: number; keyId: string; name: string; origin: string; projects?: (string)[] };
 
@@ -151,13 +187,16 @@ export type SaveResponse = { commit?: string | null; copy?: string | null; files
 export type SaveStep = "saved" | "unchanged" | "connect_github" | "create_copy" | "create_repo" | "allow_app" | "narrow_access" | "conflict";
 
 /** Messages from the agent. */
-export type ServerMessage = { keyId: string; type: "authed" } | { data: string; type: "echo" } | { choice: ModelInfo; rating: Rating; type: "routing" } | { rating?: Rating | null; type: "planning" } | { costUsd?: number | null; planner: string; steps: (PlanStepInfo)[]; type: "plan" } | { error?: string | null; path?: string | null; seconds?: string | null; status: ToolchainStatus; tool: string; type: "toolchain" } | { handoff: boolean; isolation?: string; model: string; project: string; provider: string; resume: boolean; step?: StepInfo | null; toolchain: (string)[]; type: "started" } | { ev: Event; provider: string; type: "evt" } | { text: string; type: "stderr" } | { commit?: string | null; n: number; of: number; ok: boolean; type: "step-done" } | { type: "cancelled" } | { code: number; commit?: string | null; diff: string; model?: string | null; plan?: boolean; provider?: string | null; sessionId?: string | null; status: string; type: "done" } | { text: string; type: "estimate"; verdict: string } | { text: string; type: "build_log" } | { artifacts?: string | null; code: number; files: (string)[]; seconds: number; type: "build_done" } | { code?: string | null; error: string; type: "error" };
+export type ServerMessage = { keyId: string; type: "authed" } | { data: string; type: "echo" } | { choice: ModelInfo; rating: Rating; type: "routing" } | { rating?: Rating | null; type: "planning" } | { costUsd?: number | null; planner: string; steps: (PlanStepInfo)[]; type: "plan" } | { error?: string | null; path?: string | null; seconds?: string | null; status: ToolchainStatus; tool: string; type: "toolchain" } | { handoff: boolean; isolation?: string; model: string; project: string; provider: string; resume: boolean; step?: StepInfo | null; toolchain: (string)[]; type: "started" } | { ev: Event; provider: string; type: "evt" } | { text: string; type: "stderr" } | { commit?: string | null; n: number; of: number; ok: boolean; type: "step-done" } | { type: "cancelled" } | { code: number; commit?: string | null; diff: string; model?: string | null; plan?: boolean; provider?: string | null; sessionId?: string | null; status: string; type: "done" } | { text: string; type: "estimate"; verdict: string } | { text: string; type: "build_log" } | { artifacts?: string | null; code: number; files: (string)[]; seconds: number; type: "build_done" } | { at: number; ev: CanvasEvent; project: string; seq: number; session: string; type: "canvas" } | { code?: string | null; error: string; type: "error" };
 
 /** `POST /v1/auth/session`. */
 export type SessionRequest = { keyId: string; nonce: string; signature: string };
 
 /** Response of `POST /v1/auth/session`. */
 export type SessionResponse = { expiresIn: number; token: string };
+
+/** A stage of the analysis (`download` … `summary`) or of a task (`understand` … `done`). */
+export type Stage = "download" | "parts" | "links" | "tools" | "summary" | "understand" | "plan" | "change" | "check" | "done";
 
 /** Position of a step in a plan. */
 export type StepInfo = { n: number; of: number; title: string };

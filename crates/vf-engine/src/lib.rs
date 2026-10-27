@@ -6,6 +6,7 @@
 //! environment, then a checkpoint and a journal entry (`vf-journal`).
 
 mod build;
+mod canvas;
 mod files;
 mod github;
 mod graph;
@@ -19,8 +20,9 @@ use std::sync::{Arc, Mutex};
 
 use vf_core::Secret;
 use vf_git::Repo;
-use vf_journal::JournalStore as _;
-use vf_platform::{JournalFiles, ProjectError, Projects, Settings};
+use vf_journal::{CanvasLog as _, JournalStore as _};
+use vf_platform::{CanvasFiles, JournalFiles, ProjectError, Projects, Settings};
+use vf_protocol::canvas::{CanvasEvent, CanvasResponse, MAX_CANVAS_PAGE, Stage};
 use vf_protocol::http::{
     AiConnected, AiKind, AiProvider, AiResponse, DescribeRequest, FileDiffResponse, FileResponse,
     GithubConnectResponse, GithubStatusResponse, GraphResponse, ImportRequest, ImportResponse,
@@ -46,6 +48,7 @@ pub const MAX_DIFF: usize = 200_000;
 pub struct Engine {
     projects: Projects,
     journal: JournalFiles,
+    canvas: CanvasFiles,
     providers: Vec<Arc<dyn Provider>>,
     busy: Mutex<HashSet<String>>,
     simulate_clean_machine: bool,
@@ -75,6 +78,7 @@ impl Engine {
         Self {
             projects: Projects::new(&settings.storage.projects),
             journal: JournalFiles::new(settings.journal_dir()),
+            canvas: CanvasFiles::new(settings.canvas_dir()),
             providers,
             busy: Mutex::new(HashSet::new()),
             simulate_clean_machine: settings.simulate_clean_machine,
@@ -480,11 +484,43 @@ impl Backend for Engine {
 
     fn run_task(&self, task: TaskRequest, out: &mut dyn FnMut(ServerMessage), cancel: &Cancel) {
         let project = task.project.clone();
-        self.exclusive(&project, out, |out| self.task(task, out, cancel));
+        self.exclusive(&project, out, |out| {
+            if self.projects.resolve(&project).is_err() {
+                return self.task(task, out, cancel);
+            }
+            let mut stream = canvas::Stream::new(&self.canvas, &project, out);
+            stream.emit(CanvasEvent::Task {
+                text: task.prompt.clone(),
+                nodes: Vec::new(),
+            });
+            stream.emit(CanvasEvent::Stage {
+                id: Stage::Understand,
+            });
+            self.task(task, &mut |m| stream.forward(m), cancel);
+        });
+    }
+
+    fn canvas(&self, project: &str, from: u64) -> Result<CanvasResponse, BackendError> {
+        self.projects
+            .resolve(project)
+            .map_err(|_| BackendError::NotFound("unknown project".into()))?;
+        let from = from.max(1);
+        let events = self
+            .canvas
+            .read_from(project, from, MAX_CANVAS_PAGE)
+            .map_err(|e| BackendError::Internal(e.to_string()))?;
+        let next = events.last().map_or(from, |r| r.seq.saturating_add(1));
+        Ok(CanvasResponse { events, next })
     }
 
     fn build(&self, project: &str, out: &mut dyn FnMut(ServerMessage), cancel: &Cancel) {
-        self.exclusive(project, out, |out| self.run_build(project, out, cancel));
+        self.exclusive(project, out, |out| {
+            if self.projects.resolve(project).is_err() {
+                return self.run_build(project, out, cancel);
+            }
+            let mut stream = canvas::Stream::new(&self.canvas, project, out);
+            self.run_build(project, &mut |m| stream.forward(m), cancel);
+        });
     }
 
     fn github_connect(&self) -> Result<GithubConnectResponse, BackendError> {

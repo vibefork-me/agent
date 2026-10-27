@@ -12,6 +12,7 @@ pub mod customizations;
 pub mod handoff;
 
 use vf_protocol::Usage;
+use vf_protocol::canvas::CanvasRecord;
 use vf_protocol::http::JournalEntry;
 
 pub use handoff::handoff_preamble;
@@ -48,6 +49,22 @@ pub trait JournalStore {
     fn read(&self, project: &str) -> Result<Vec<JournalEntry>, JournalError>;
     /// Appends an entry.
     fn append(&self, project: &str, entry: &JournalEntry) -> Result<(), JournalError>;
+}
+
+/// Where the session stream of a project is kept (implemented in `vf-platform`: JSONL per project).
+/// Records are appended in `seq` order; `seq` starts at 1 and has no gaps.
+pub trait CanvasLog {
+    /// The `seq` of the newest record, 0 when there is none.
+    fn last_seq(&self, project: &str) -> Result<u64, JournalError>;
+    /// Appends a record.
+    fn append(&self, project: &str, record: &CanvasRecord) -> Result<(), JournalError>;
+    /// Records with `seq ≥ from`, oldest first, at most `limit`.
+    fn read_from(
+        &self,
+        project: &str,
+        from: u64,
+        limit: usize,
+    ) -> Result<Vec<CanvasRecord>, JournalError>;
 }
 
 /// What a finished step reports.

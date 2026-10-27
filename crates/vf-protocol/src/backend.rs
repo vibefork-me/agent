@@ -4,6 +4,7 @@
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
+use crate::canvas::CanvasResponse;
 use crate::http::{
     AiResponse, DescribeRequest, FileDiffResponse, FileResponse, GithubConnectResponse,
     GithubStatusResponse, GraphResponse, ImportRequest, ImportResponse, JournalResponse,
@@ -162,6 +163,15 @@ pub trait Backend: Send + Sync {
     /// Runs a task to the end, reporting progress through `out`; the last message is
     /// [`ServerMessage::Done`], [`ServerMessage::Cancelled`] or [`ServerMessage::Error`].
     fn run_task(&self, task: TaskRequest, out: &mut dyn FnMut(ServerMessage), cancel: &Cancel);
+    /// The session stream of a project from event `from` on, at most
+    /// [`crate::canvas::MAX_CANVAS_PAGE`] events (replay after the editor reloads).
+    fn canvas(&self, project: &str, from: u64) -> Result<CanvasResponse, BackendError> {
+        let _ = project;
+        Ok(CanvasResponse {
+            events: Vec::new(),
+            next: from,
+        })
+    }
     /// Builds a project; the last message is [`ServerMessage::BuildDone`] or
     /// [`ServerMessage::Error`]. The caller has confirmed it with the user.
     fn build(&self, project: &str, out: &mut dyn FnMut(ServerMessage), cancel: &Cancel);
