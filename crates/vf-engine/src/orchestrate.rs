@@ -181,6 +181,7 @@ impl Engine {
             cost_usd,
             usage: None,
             prompt_version: Some(vf_platform::prompts::get(vf_core::prompts::Stage::Plan).tag()),
+            artifacts: Vec::new(),
         };
         if let Err(e) = self.journal.append(t.project, &entry) {
             tracing::warn!(error = %e, "plan not journaled");

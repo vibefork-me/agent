@@ -1969,6 +1969,13 @@
       "JournalEntry": {
         "description": "One journal entry: a task or a plan step.",
         "properties": {
+          "artifacts": {
+            "description": "What the step produced: its changes by file and part, …",
+            "items": {
+              "$ref": "#/components/schemas/Artifact"
+            },
+            "type": "array"
+          },
           "at": {
             "description": "RFC 3339 time.",
             "type": "string"

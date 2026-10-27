@@ -161,6 +161,18 @@ pub(crate) fn parse(answer: &str, files: &[String]) -> Result<Parsed, String> {
     Ok((parts, links))
 }
 
+/// The part of the map a file belongs to (`p1`, `p2`…): the one with the longest path covering it;
+/// `None` when no part covers it.
+pub(crate) fn part_of(map: &ModelMap, file: &str) -> Option<String> {
+    map.parts
+        .iter()
+        .enumerate()
+        .flat_map(|(i, p)| p.paths.iter().map(move |path| (i, path)))
+        .filter(|(_, path)| covers(path, file))
+        .max_by_key(|(_, path)| path.len())
+        .map(|(i, _)| format!("p{}", i + 1))
+}
+
 /// Nodes and edges of a model's map for the files now; a file belongs to the part with the
 /// longest path covering it, files no part covers go to [`OTHER`].
 pub(crate) fn build(
@@ -172,14 +184,7 @@ pub(crate) fn build(
     let changed: BTreeSet<&str> = changed.iter().map(String::as_str).collect();
     let mut counts: BTreeMap<String, (u32, u32)> = BTreeMap::new();
     for f in file_set.union(&changed) {
-        let owner = map
-            .parts
-            .iter()
-            .enumerate()
-            .flat_map(|(i, p)| p.paths.iter().map(move |path| (i, path)))
-            .filter(|(_, path)| covers(path, f))
-            .max_by_key(|(_, path)| path.len())
-            .map_or_else(|| OTHER.to_owned(), |(i, _)| format!("p{}", i + 1));
+        let owner = part_of(map, f).unwrap_or_else(|| OTHER.to_owned());
         let c = counts.entry(owner).or_default();
         c.0 += u32::from(file_set.contains(f));
         c.1 += u32::from(changed.contains(f));

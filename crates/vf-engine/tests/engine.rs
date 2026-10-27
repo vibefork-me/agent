@@ -516,6 +516,57 @@ fn a_task_writes_its_session_stream_and_it_replays_from_any_event() {
 }
 
 #[test]
+fn a_task_reports_its_changes_by_part_in_the_journal_and_the_stream() {
+    let (base, engine, _) = setup();
+    // A map whose part "Notes" covers the file the scripted model writes.
+    std::fs::create_dir_all(base.join("state/projects")).unwrap();
+    std::fs::write(
+        base.join("state/projects/demo.map.json"),
+        r#"{"revision":"r","by":"t","parts":[{"name":"Notes","summary":"","paths":["1.txt"]}],"links":[]}"#,
+    )
+    .unwrap();
+    run(&engine, task("codex", false));
+
+    let journal = engine.journal("demo").unwrap();
+    let artifacts = &journal.entries.last().unwrap().artifacts;
+    assert_eq!(artifacts.len(), 1, "{artifacts:?}");
+    let note = artifacts[0]
+        .files
+        .iter()
+        .find(|f| f.path == "1.txt")
+        .unwrap();
+    assert_eq!(note.node.as_deref(), Some("p1"));
+    assert_eq!(note.diff, ["+x"]);
+    assert!(
+        artifacts[0]
+            .files
+            .iter()
+            .any(|f| f.path == "left.txt" && f.node.is_none())
+    );
+
+    let stream: Vec<CanvasEvent> = engine
+        .canvas("demo", 1)
+        .unwrap()
+        .events
+        .into_iter()
+        .map(|r| r.ev)
+        .collect();
+    assert!(
+        stream.contains(&CanvasEvent::Change {
+            id: "p1".into(),
+            files: vec!["1.txt".into()]
+        }),
+        "{stream:?}"
+    );
+    let Some(CanvasEvent::Result { artifacts, .. }) = stream.last() else {
+        panic!("{stream:?}")
+    };
+    assert_eq!(artifacts.len(), 1);
+    assert_eq!(artifacts[0].nodes, ["p1"]);
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+#[test]
 fn viewer_reads_project_files_only() {
     let (base, engine, _) = setup();
     let demo = base.join("projects/demo");

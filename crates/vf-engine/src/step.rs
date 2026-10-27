@@ -205,6 +205,23 @@ impl Engine {
         (env, paths, level)
     }
 
+    /// What a step produced, kept with its journal entry: its changes by file and part of the map.
+    fn step_artifacts(
+        &self,
+        repo: &Repo,
+        project: &str,
+        base: &str,
+    ) -> Vec<vf_protocol::canvas::Artifact> {
+        let Ok(diff) = vf_journal::Vcs::diff_from(repo, base) else {
+            return Vec::new();
+        };
+        let map = self.load_map(project);
+        let part = |file: &str| map.as_ref().and_then(|m| crate::map::part_of(m, file));
+        crate::changes::changes_artifact(&diff, &part)
+            .into_iter()
+            .collect()
+    }
+
     /// Runs one step; while the person has paused the task, waits, then runs the interrupted step
     /// again, with the project's history (what it did before the pause is kept).
     pub fn step_pausable(
@@ -356,6 +373,7 @@ impl Engine {
             cost_usd: result.cost_usd,
             usage: result.usage.clone(),
             prompt_version,
+            artifacts: self.step_artifacts(repo, req.project, start.base()),
         };
         let base = start.base().to_owned();
         let finished = start.finish(repo, &self.journal, req.project, now_rfc3339(), report);
