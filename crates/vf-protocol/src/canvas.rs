@@ -296,6 +296,10 @@ pub enum CanvasEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
     },
+    /// The person paused the task; the interrupted step runs again on resume.
+    Paused,
+    /// The paused task goes on.
+    Resumed,
     /// The agent took a message of the person into account.
     #[serde(rename = "note.taken")]
     NoteTaken {

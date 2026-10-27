@@ -40,7 +40,7 @@ pub enum ClientMessage {
         /// Project name.
         project: String,
     },
-    /// Cancel the running task or build.
+    /// Cancel the running task or build. While it is paused, its changes are undone as well.
     Cancel,
     /// A message to the agent while it works; it is taken into account at the next point that
     /// allows it (answered with `note.taken`).
@@ -53,9 +53,9 @@ pub enum ClientMessage {
         #[serde(default)]
         attachments: Vec<NoteAttachment>,
     },
-    /// Pause the running task at once.
+    /// Pause the running task or build at once.
     Stop,
-    /// Continue a paused task.
+    /// Continue a paused task or build.
     Resume,
     /// Start what an offer of the analysis suggests.
     ChooseOffer {
@@ -217,6 +217,11 @@ pub enum ServerMessage {
         /// Newest commit of the step.
         commit: Option<String>,
     },
+    /// The task is paused (`stop`): the step in progress was interrupted; `resume` runs it again,
+    /// `cancel` ends the task and undoes its changes.
+    Paused,
+    /// The paused task goes on: the interrupted step runs again.
+    Resumed,
     /// The task was cancelled.
     Cancelled,
     /// The task finished.

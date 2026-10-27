@@ -111,7 +111,19 @@ impl Engine {
             }
         };
         out(ServerMessage::Planning { rating });
-        let (planner, cost_usd, steps) = match self.make_plan(t, inventory, cancel) {
+        // Paused while planning: plan again once resumed.
+        let planned = loop {
+            let planned = self.make_plan(t, inventory, cancel);
+            if planned.is_ok() || !cancel.is_paused() {
+                break planned;
+            }
+            out(ServerMessage::Paused);
+            if !cancel.wait_resumed() {
+                return out(ServerMessage::Cancelled);
+            }
+            out(ServerMessage::Resumed);
+        };
+        let (planner, cost_usd, steps) = match planned {
             Ok(p) => p,
             Err(e) => {
                 out(ServerMessage::Error {
@@ -211,7 +223,7 @@ impl Engine {
                 step: Some(&info),
                 system: Some(&system_instruction),
             };
-            let r = self.step(t.repo, p.as_ref(), &req, out, cancel);
+            let r = self.step_pausable(t.repo, p.as_ref(), &req, out, cancel);
             out(ServerMessage::StepDone {
                 n,
                 of,

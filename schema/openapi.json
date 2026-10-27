@@ -845,6 +845,36 @@
             "type": "object"
           },
           {
+            "description": "The person paused the task; the interrupted step runs again on resume.",
+            "properties": {
+              "type": {
+                "enum": [
+                  "paused"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "The paused task goes on.",
+            "properties": {
+              "type": {
+                "enum": [
+                  "resumed"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "type": "object"
+          },
+          {
             "description": "The agent took a message of the person into account.",
             "properties": {
               "noteId": {
@@ -1109,7 +1139,7 @@
             "type": "object"
           },
           {
-            "description": "Cancel the running task or build.",
+            "description": "Cancel the running task or build. While it is paused, its changes are undone as well.",
             "properties": {
               "type": {
                 "enum": [
@@ -1157,7 +1187,7 @@
             "type": "object"
           },
           {
-            "description": "Pause the running task at once.",
+            "description": "Pause the running task or build at once.",
             "properties": {
               "type": {
                 "enum": [
@@ -1172,7 +1202,7 @@
             "type": "object"
           },
           {
-            "description": "Continue a paused task.",
+            "description": "Continue a paused task or build.",
             "properties": {
               "type": {
                 "enum": [
@@ -3014,6 +3044,36 @@
               "n",
               "of",
               "ok",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "The task is paused (`stop`): the step in progress was interrupted; `resume` runs it again, `cancel` ends the task and undoes its changes.",
+            "properties": {
+              "type": {
+                "enum": [
+                  "paused"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "The paused task goes on: the interrupted step runs again.",
+            "properties": {
+              "type": {
+                "enum": [
+                  "resumed"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
               "type"
             ],
             "type": "object"

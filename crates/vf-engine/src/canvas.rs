@@ -108,6 +108,8 @@ pub(crate) fn events_for(message: &ServerMessage) -> Vec<CanvasEvent> {
                 artifacts: Vec::new(),
             },
         ],
+        ServerMessage::Paused => vec![CanvasEvent::Paused],
+        ServerMessage::Resumed => vec![CanvasEvent::Resumed],
         ServerMessage::Cancelled => vec![CanvasEvent::Result {
             text: "Cancelled".into(),
             detail: String::new(),

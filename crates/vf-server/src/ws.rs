@@ -3,7 +3,8 @@
 //! (connectivity check without a session).
 //!
 //! After authentication: `task` starts a task (one at a time per connection), `cancel` cancels it,
-//! `note`, `stop`, `resume`, `choose_offer`, `rollback_part` answer `not_supported` for now, other
+//! `stop` pauses it, `resume` continues it, cancelling a paused task undoes its changes; `note`,
+//! `choose_offer`, `rollback_part` answer `not_supported` for now, other
 //! text is echoed. A running task also sends its session stream (`canvas` messages). Closing the connection cancels the running task.
 
 use std::time::Duration;
@@ -145,16 +146,29 @@ async fn connection(mut socket: WebSocket, state: AppState, origin: String) {
                 }
             }
             Ok(ClientMessage::Cancel) => {
+                // Cancelling a paused task is the person's "cancel the task": its changes go.
+                match &running {
+                    Some(c) if c.is_paused() => c.cancel_and_undo(),
+                    Some(c) => c.cancel(),
+                    None => {}
+                }
+                None
+            }
+            Ok(ClientMessage::Stop) => {
                 if let Some(c) = &running {
-                    c.cancel();
+                    c.pause();
+                }
+                None
+            }
+            Ok(ClientMessage::Resume) => {
+                if let Some(c) = &running {
+                    c.resume();
                 }
                 None
             }
             // The protocol has them; the engine handles them in later versions.
             Ok(
                 ClientMessage::Note { .. }
-                | ClientMessage::Stop
-                | ClientMessage::Resume
                 | ClientMessage::ChooseOffer { .. }
                 | ClientMessage::RollbackPart { .. },
             ) => Some(ServerMessage::Error {
