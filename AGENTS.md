@@ -26,10 +26,12 @@ can see there are no hidden traps.
 ## Before you open a PR
 ```sh
 cargo fmt --all
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-python3 scripts/check_layers.py
+cargo xtask ci
 ```
+`cargo xtask ci` runs every check CI runs on each PR: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `scripts/check_layers.py`; it stops at the first failure.
+
+## Version
+The agent version lives only in `[workspace.package] version` of the root `Cargo.toml`; every crate inherits it and `vibefork --version` prints it. `cargo xtask version` shows it, `cargo xtask version set X.Y.Z[-pre]` sets it (and refreshes `Cargo.lock`).
 Protocol types changed → regenerate `schema/`: `VF_UPDATE_SCHEMA=1 cargo test -p vf-server --test schema`.
 
 ## Commits
