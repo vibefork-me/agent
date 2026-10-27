@@ -28,7 +28,7 @@ pub(crate) fn run() -> ExitCode {
                 }
             }
             "2" => {
-                crate::agent::open(false);
+                crate::agent::open(false, None);
             }
             "3" => {
                 crate::setup::pairs(&[]);

@@ -3,7 +3,7 @@
 //! ```text
 //! vibefork serve                      run the agent in this terminal
 //! vibefork start | stop | status      the background agent (status: --json)
-//! vibefork open [--local]             open the interface (hosted, or the agent's own page)
+//! vibefork open [--local] [--project <name>]   open the interface (hosted, or the agent's own page), on a project
 //! vibefork import <owner/name | url>   take a project from GitHub (no git needed)
 //! vibefork save <project> [--to owner/name]   save to your copy on GitHub (walks through the steps)
 //! vibefork github [connect | status | disconnect]   the agent's GitHub sign-in
@@ -60,7 +60,13 @@ pub fn run(args: &[String], app: &dyn App) -> ExitCode {
         Some("start") => agent::start(),
         Some("stop") => agent::stop(),
         Some("status") => agent::status(json),
-        Some("open") => agent::open(rest.iter().any(|a| a == "--local")),
+        Some("open") => agent::open(
+            rest.iter().any(|a| a == "--local"),
+            rest.iter()
+                .position(|a| a == "--project")
+                .and_then(|i| rest.get(i + 1))
+                .map(String::as_str),
+        ),
         Some("handle") => match rest.first() {
             Some(url) => agent::handle(url),
             None => usage(),

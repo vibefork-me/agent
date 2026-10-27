@@ -438,6 +438,119 @@ pub fn tray_status_stopped(lang: Language, update: Option<&str>) -> String {
     }
 }
 
+/// Tray: name of a stage of the analysis or of a task, by its protocol id (`download` … `done`);
+/// an unknown id gives an empty string.
+pub fn tray_stage(lang: Language, id: &str) -> &'static str {
+    match (lang, id) {
+        (Language::En, "download") => "downloading",
+        (Language::En, "parts") => "looking at the parts",
+        (Language::En, "links") => "linking the parts",
+        (Language::En, "tools") => "preparing tools",
+        (Language::En, "summary") => "summing up",
+        (Language::En, "understand") => "understanding the task",
+        (Language::En, "plan") => "planning",
+        (Language::En, "change") => "changing",
+        (Language::En, "check") => "checking",
+        (Language::En, "done") => "finishing",
+        (Language::Ru, "download") => "загрузка",
+        (Language::Ru, "parts") => "разбор частей",
+        (Language::Ru, "links") => "связи частей",
+        (Language::Ru, "tools") => "подготовка инструментов",
+        (Language::Ru, "summary") => "итоги",
+        (Language::Ru, "understand") => "понимание задачи",
+        (Language::Ru, "plan") => "план",
+        (Language::Ru, "change") => "изменения",
+        (Language::Ru, "check") => "проверка",
+        (Language::Ru, "done") => "завершение",
+        _ => "",
+    }
+}
+
+/// Tray: what the agent does in a project — «“notes-app” — checking, ≈ 1 min left». An empty
+/// `stage` is left out; minutes are rounded up.
+pub fn tray_activity(lang: Language, project: &str, stage: &str, eta_secs: Option<u64>) -> String {
+    let mut line = match lang {
+        Language::En => format!("“{project}”"),
+        Language::Ru => format!("«{project}»"),
+    };
+    if !stage.is_empty() {
+        line.push_str(" — ");
+        line.push_str(stage);
+    }
+    if let Some(secs) = eta_secs {
+        let min = secs.div_ceil(60).max(1);
+        line.push_str(&match lang {
+            Language::En => format!(", ≈ {min} min left"),
+            Language::Ru => format!(", ещё ≈ {min} мин"),
+        });
+    }
+    line
+}
+
+/// Tray: tooltip and status line when nothing runs.
+pub fn tray_waiting(lang: Language) -> &'static str {
+    match lang {
+        Language::En => "waiting",
+        Language::Ru => "ждёт",
+    }
+}
+
+/// Tray: status line when a project waits for the person's choice.
+pub fn tray_needs_you(lang: Language, project: &str) -> String {
+    match lang {
+        Language::En => format!("“{project}” — your decision is needed"),
+        Language::Ru => format!("«{project}» — нужно твоё решение"),
+    }
+}
+
+/// Tray: status line when the last build of a project failed.
+pub fn tray_failed(lang: Language, project: &str) -> String {
+    match lang {
+        Language::En => format!("“{project}” — the build failed"),
+        Language::Ru => format!("«{project}» — сборка не прошла"),
+    }
+}
+
+/// Tray menu: submenu of recent projects.
+pub fn tray_recent_projects(lang: Language) -> &'static str {
+    match lang {
+        Language::En => "Recent projects",
+        Language::Ru => "Недавние проекты",
+    }
+}
+
+/// Tray menu: open the agent's log.
+pub fn tray_open_log(lang: Language) -> &'static str {
+    match lang {
+        Language::En => "Open the log",
+        Language::Ru => "Открыть журнал",
+    }
+}
+
+/// Notification title: a task finished.
+pub fn notify_done(lang: Language, project: &str) -> String {
+    match lang {
+        Language::En => format!("Done: {project}"),
+        Language::Ru => format!("Готово: {project}"),
+    }
+}
+
+/// Notification title: the agent waits for the person.
+pub fn notify_needs_you(lang: Language) -> &'static str {
+    match lang {
+        Language::En => "The agent needs your decision",
+        Language::Ru => "Агенту нужно твоё решение",
+    }
+}
+
+/// Notification title: a build failed.
+pub fn notify_build_failed(lang: Language) -> &'static str {
+    match lang {
+        Language::En => "The build failed",
+        Language::Ru => "Сборка не прошла",
+    }
+}
+
 /// CLI status: running.
 pub fn cli_status_running(lang: Language, version: &str, port: u16, pid: &str) -> String {
     match lang {
@@ -632,6 +745,15 @@ mod tests {
             assert!(!tray_status_running(lang, "1.0", 8080, Some("1.1")).is_empty());
             assert!(!tray_status_stopped(lang, None).is_empty());
             assert!(!tray_status_stopped(lang, Some("1.1")).is_empty());
+            assert!(!tray_stage(lang, "check").is_empty());
+            assert!(!tray_waiting(lang).is_empty());
+            assert!(!tray_needs_you(lang, "notes-app").is_empty());
+            assert!(!tray_failed(lang, "notes-app").is_empty());
+            assert!(!tray_recent_projects(lang).is_empty());
+            assert!(!tray_open_log(lang).is_empty());
+            assert!(!notify_done(lang, "notes-app").is_empty());
+            assert!(!notify_needs_you(lang).is_empty());
+            assert!(!notify_build_failed(lang).is_empty());
             assert!(!cli_status_running(lang, "1.0", 8080, "123").is_empty());
             assert!(!cli_status_not_running(lang, 8080).is_empty());
             assert!(!cli_status_auto_update(lang, true).is_empty());
@@ -772,5 +894,27 @@ mod tests {
         assert_eq!(lang_code("en;rm"), None);
         assert_eq!(lang_code("de`evil"), None);
         assert_eq!(lang_code("ru\nevil"), None);
+    }
+
+    #[test]
+    fn tray_activity_line() {
+        assert_eq!(
+            tray_activity(
+                Language::Ru,
+                "notes-app",
+                tray_stage(Language::Ru, "check"),
+                Some(50)
+            ),
+            "«notes-app» — проверка, ещё ≈ 1 мин"
+        );
+        assert_eq!(
+            tray_activity(Language::En, "notes-app", "", Some(121)),
+            "“notes-app”, ≈ 3 min left"
+        );
+        assert_eq!(
+            tray_activity(Language::En, "notes-app", "planning", None),
+            "“notes-app” — planning"
+        );
+        assert_eq!(tray_stage(Language::En, "unknown"), "");
     }
 }
