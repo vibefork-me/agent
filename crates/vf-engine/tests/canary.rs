@@ -229,6 +229,8 @@ fn builds_leave_nothing_in_the_home_folder() {
     for project in ["rust", "go", "node"] {
         let mut msgs = vec![];
         engine.build(project, &mut |m| msgs.push(m), &Cancel::new());
+        // The session stream comes along; the build's own messages end with `build_done`.
+        msgs.retain(|m| !matches!(m, ServerMessage::Canvas { .. }));
         assert!(
             matches!(msgs.last(), Some(ServerMessage::BuildDone { code: 0, .. })),
             "{project} did not build: {msgs:?}"

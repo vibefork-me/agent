@@ -3,6 +3,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::canvas::{CanvasEvent, NoteAttachment};
 use crate::event::Event;
 use crate::model::ModelInfo;
 
@@ -41,6 +42,35 @@ pub enum ClientMessage {
     },
     /// Cancel the running task or build.
     Cancel,
+    /// A message to the agent while it works; it is taken into account at the next point that
+    /// allows it (answered with `note.taken`).
+    Note {
+        /// Project name.
+        project: String,
+        /// The message.
+        text: String,
+        /// Attached files or long pasted text.
+        #[serde(default)]
+        attachments: Vec<NoteAttachment>,
+    },
+    /// Pause the running task at once.
+    Stop,
+    /// Continue a paused task.
+    Resume,
+    /// Start what an offer of the analysis suggests.
+    ChooseOffer {
+        /// Project name.
+        project: String,
+        /// Index in the last `offers` event.
+        index: u32,
+    },
+    /// Undo the changes of one part.
+    RollbackPart {
+        /// Project name.
+        project: String,
+        /// Node id of the part.
+        id: String,
+    },
 }
 
 /// Rating of a task by the Auto mode.
@@ -232,6 +262,19 @@ pub enum ServerMessage {
         files: Vec<String>,
         /// Seconds spent.
         seconds: f64,
+    },
+    /// A numbered event of the project's session stream (see [`crate::canvas`]).
+    Canvas {
+        /// Project.
+        project: String,
+        /// Number within the project, from 1, without gaps.
+        seq: u64,
+        /// When, Unix time in milliseconds.
+        at: u64,
+        /// The run it belongs to.
+        session: String,
+        /// The event.
+        ev: CanvasEvent,
     },
     /// An error; for auth errors the connection is closed after it.
     Error {

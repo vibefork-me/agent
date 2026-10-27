@@ -101,6 +101,14 @@ pub const ROUTES: &[Route] = &[
     },
     Route {
         method: "GET",
+        path: "/v1/canvas",
+        summary: "Session stream of a project from event `from` (query: project, from) — replay after a reload",
+        request: None,
+        response: Some("CanvasResponse"),
+        session: true,
+    },
+    Route {
+        method: "GET",
         path: "/v1/ai",
         summary: "Whether AI is connected, per way to connect it (subscription CLIs, free models)",
         request: None,
