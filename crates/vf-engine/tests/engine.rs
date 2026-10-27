@@ -537,9 +537,7 @@ fn a_chosen_offer_is_the_prompt_of_a_kept_offer() {
     .unwrap();
     assert_eq!(
         engine.offer_prompt("demo", 0, None).as_deref(),
-        Ok("Tags for notes
-
-Notes can be grouped by tag.")
+        Ok("Tags for notes\n\nNotes can be grouped by tag.")
     );
     assert_eq!(
         engine

@@ -446,12 +446,7 @@ pub(crate) fn offer_prompt(offer: &MapOffer) -> String {
     if offer.text.is_empty() {
         offer.title.clone()
     } else {
-        format!(
-            "{}
-
-{}",
-            offer.title, offer.text
-        )
+        format!("{}\n\n{}", offer.title, offer.text)
     }
 }
 
