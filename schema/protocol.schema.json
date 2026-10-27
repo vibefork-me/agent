@@ -1139,6 +1139,26 @@
           "type": "object"
         },
         {
+          "description": "Run the project's program (confirmed in the native dialog); its output comes as `program_log`, the end as `program_done`. `cancel` stops it.",
+          "properties": {
+            "project": {
+              "description": "Project name.",
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "run"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "project",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
           "description": "Cancel the running task or build. While it is paused, its changes are undone as well.",
           "properties": {
             "type": {
@@ -2449,6 +2469,25 @@
       ],
       "type": "object"
     },
+    "ProgramStream": {
+      "description": "The output of a program a line came from.",
+      "oneOf": [
+        {
+          "description": "Standard output.",
+          "enum": [
+            "stdout"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Standard error.",
+          "enum": [
+            "stderr"
+          ],
+          "type": "string"
+        }
+      ]
+    },
     "ProjectFilesResponse": {
       "description": "`GET /v1/files?project=…`: the files of a project for the editor's file tree.",
       "properties": {
@@ -3311,6 +3350,63 @@
           "required": [
             "code",
             "files",
+            "seconds",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A line of the running program's output (at most 4 KiB; at most 1 MiB in all per run).",
+          "properties": {
+            "stream": {
+              "$ref": "#/components/schemas/ProgramStream",
+              "description": "Which output the line came from."
+            },
+            "text": {
+              "description": "Text.",
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "program_log"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "stream",
+            "text",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The program ended.",
+          "properties": {
+            "code": {
+              "description": "Exit code (0 = success; -1 — no code, e.g. killed by a signal).",
+              "format": "int32",
+              "type": "integer"
+            },
+            "cut": {
+              "description": "Some output was cut: a line too long, or more output than is sent.",
+              "type": "boolean"
+            },
+            "seconds": {
+              "description": "Seconds it ran.",
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "enum": [
+                "program_done"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "cut",
             "seconds",
             "type"
           ],

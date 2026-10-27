@@ -14,6 +14,7 @@ mod graph;
 mod map;
 mod notes;
 mod orchestrate;
+mod program;
 mod rollback;
 mod step;
 
@@ -627,6 +628,12 @@ impl Backend for Engine {
             }
             let mut stream = canvas::Stream::new(&self.canvas, project, out);
             self.pausable_build(project, &mut |m| stream.forward(m), cancel);
+        });
+    }
+
+    fn run_program(&self, project: &str, out: &mut dyn FnMut(ServerMessage), cancel: &Cancel) {
+        self.exclusive(project, out, |out| {
+            self.run_project_program(project, out, cancel);
         });
     }
 

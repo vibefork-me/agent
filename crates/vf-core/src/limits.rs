@@ -16,6 +16,12 @@ pub const PROJECT_FILES: usize = 20_000;
 /// Deepest folder nesting listed for the editor's file tree; deeper files are left out.
 pub const PROJECT_FILE_DEPTH: usize = 32;
 
+/// Longest line of a running program's output sent to the editor, in bytes; the rest is cut.
+pub const PROGRAM_LINE: usize = 4 * 1024;
+
+/// Most output of one run of a program sent to the editor, in bytes; later lines are dropped.
+pub const PROGRAM_OUTPUT: usize = 1024 * 1024;
+
 /// Initial capacity reserved for a body whose size is declared; the rest grows on demand.
 const RESERVE_CAP: usize = 1024 * 1024;
 
