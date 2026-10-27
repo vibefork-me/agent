@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+use vf_protocol::canvas::{CanvasEvent, Stage};
 use vf_protocol::http::{GraphEdge, GraphNode};
 use vf_protocol::{Cancel, ModelInfo};
 use vf_providers::{AskRequest, ChildEnv};
@@ -15,6 +16,8 @@ use crate::Engine;
 
 /// Most parts in a map.
 const MAX_PARTS: usize = 12;
+/// Insights kept per part.
+pub(crate) const MAX_INSIGHTS: usize = 2;
 /// Most file paths shown to the model.
 const MAX_PATHS: usize = 1500;
 /// Most characters of the README shown to the model.
@@ -32,6 +35,9 @@ pub(crate) struct Part {
     pub(crate) name: String,
     pub(crate) summary: String,
     pub(crate) paths: Vec<String>,
+    /// What the model understood about the part, in plain words (at most [`MAX_INSIGHTS`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) insights: Vec<String>,
 }
 
 /// A model's map of a project (`<state>/projects/<name>.map.json`).
@@ -54,6 +60,8 @@ struct RawPart {
     summary: String,
     #[serde(default)]
     paths: Vec<String>,
+    #[serde(default)]
+    insights: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -120,10 +128,18 @@ pub(crate) fn parse(answer: &str, files: &[String]) -> Result<Parsed, String> {
         if paths.is_empty() {
             continue;
         }
+        let insights = p
+            .insights
+            .iter()
+            .map(|i| plain(i, SUMMARY_CHARS))
+            .filter(|i| !i.is_empty())
+            .take(MAX_INSIGHTS)
+            .collect();
         parts.push(Part {
             name,
             summary: plain(&p.summary, SUMMARY_CHARS),
             paths,
+            insights,
         });
     }
     if parts.len() < 2 {
@@ -300,6 +316,54 @@ fn free_in_order(inventory: &[ModelInfo]) -> Vec<String> {
     free.into_iter().map(|m| m.model.clone()).collect()
 }
 
+/// What the analysis shows on the canvas once a map is drawn: every part (found, then looked at, with
+/// what the model understood about it), the links between parts, then the summary stage. Part ids are
+/// those of the map graph (`p1`, `p2`…), under the project root `root`.
+pub(crate) fn map_events(map: &ModelMap) -> Vec<CanvasEvent> {
+    let mut events = Vec::new();
+    for (i, part) in map.parts.iter().enumerate() {
+        let id = format!("p{}", i + 1);
+        events.push(CanvasEvent::Found {
+            id: id.clone(),
+            parent: ROOT.into(),
+            label: part.name.clone(),
+            summary: part.summary.clone(),
+            files: part.paths.clone(),
+        });
+        events.push(CanvasEvent::Focus { id: id.clone() });
+        for text in &part.insights {
+            events.push(CanvasEvent::Insight {
+                id: id.clone(),
+                text: text.clone(),
+            });
+        }
+    }
+    events.push(CanvasEvent::Stage { id: Stage::Links });
+    for (a, b) in &map.links {
+        if *a < map.parts.len() && *b < map.parts.len() {
+            events.push(CanvasEvent::Touch {
+                from: format!("p{}", a + 1),
+                to: format!("p{}", b + 1),
+            });
+        }
+    }
+    events.push(CanvasEvent::Stage { id: Stage::Summary });
+    events
+}
+
+/// Node id of the project root on the canvas.
+pub(crate) const ROOT: &str = "root";
+
+/// What the agent is doing while a model draws the map, in the person's language.
+pub(crate) fn thinking_about_parts(lang: &str) -> &'static str {
+    match vf_core::catalog::lang_code(lang) {
+        Some(code) if code.to_ascii_lowercase().starts_with("ru") => {
+            "Смотрю, из чего состоит проект"
+        }
+        _ => "Looking at what the project is made of",
+    }
+}
+
 impl Engine {
     fn map_path(&self, project: &str) -> PathBuf {
         self.state_dir
@@ -313,7 +377,8 @@ impl Engine {
         serde_json::from_str(&text).ok()
     }
 
-    /// Asks the models available now for a map of the project and keeps the first usable one.
+    /// Asks the models available now for a map of the project and keeps the first usable one;
+    /// `asking` is called before each model is asked.
     pub(crate) fn describe_map(
         &self,
         project: &str,
@@ -321,6 +386,7 @@ impl Engine {
         revision: &str,
         files: &[String],
         lang: &str,
+        asking: &mut dyn FnMut(),
     ) -> Result<ModelMap, String> {
         let inventory = self.inventory();
         let list = candidates(&inventory);
@@ -351,6 +417,7 @@ impl Engine {
                 "{provider}/{}",
                 if model.is_empty() { "default" } else { &model }
             );
+            asking();
             match p.ask(&req, &cancel) {
                 Ok(a) => match parse(&a.text, files) {
                     Ok((parts, links)) => {
@@ -465,6 +532,81 @@ mod tests {
     }
 
     #[test]
+    fn insights_are_plain_short_and_at_most_two() {
+        let answer = r#"{"parts":[
+          {"name":"Screens","summary":"What you see.","paths":["src/ui"],"insights":["Notes are\nwritten in Markdown","", "A second one", "A third one"]},
+          {"name":"Saving","summary":"Keeps your work.","paths":["src/save"]}
+        ],"links":[]}"#;
+        let (parts, _) = parse(answer, &files()).unwrap_or_default();
+        assert_eq!(
+            parts[0].insights,
+            vec!["Notes are written in Markdown", "A second one"]
+        );
+        assert!(parts[1].insights.is_empty());
+    }
+
+    #[test]
+    fn a_map_is_shown_part_by_part_then_its_links() {
+        let part = |name: &str, insights: &[&str]| Part {
+            name: name.into(),
+            summary: format!("{name} does its job."),
+            paths: vec![format!("src/{}", name.to_lowercase())],
+            insights: insights.iter().map(|s| (*s).to_owned()).collect(),
+        };
+        let map = ModelMap {
+            revision: "r".into(),
+            by: "t".into(),
+            parts: vec![
+                part("Editor", &["Notes are written in Markdown"]),
+                part("Storage", &[]),
+            ],
+            links: vec![(0, 1), (7, 0)],
+        };
+        let wire: Vec<String> = map_events(&map)
+            .iter()
+            .map(|ev| {
+                let v = serde_json::to_value(ev).unwrap_or_default();
+                let field = |k: &str| v[k].as_str().unwrap_or_default().to_owned();
+                match field("type").as_str() {
+                    "found" => format!("found {} in {}", field("id"), field("parent")),
+                    "touch" => format!("touch {}>{}", field("from"), field("to")),
+                    "stage" | "focus" | "insight" => format!("{} {}", field("type"), field("id")),
+                    other => other.to_owned(),
+                }
+            })
+            .collect();
+        assert_eq!(
+            wire,
+            [
+                "found p1 in root",
+                "focus p1",
+                "insight p1",
+                "found p2 in root",
+                "focus p2",
+                "stage links",
+                "touch p1>p2",
+                "stage summary"
+            ]
+        );
+    }
+
+    #[test]
+    fn the_agent_thinks_in_the_persons_language() {
+        assert_eq!(
+            thinking_about_parts("ru-RU"),
+            "Смотрю, из чего состоит проект"
+        );
+        assert_eq!(
+            thinking_about_parts("en"),
+            "Looking at what the project is made of"
+        );
+        assert_eq!(
+            thinking_about_parts("??"),
+            "Looking at what the project is made of"
+        );
+    }
+
+    #[test]
     fn files_go_to_the_longest_covering_part_and_the_rest_to_other() {
         let map = ModelMap {
             revision: "r".into(),
@@ -474,11 +616,13 @@ mod tests {
                     name: "Code".into(),
                     summary: String::new(),
                     paths: vec!["src".into()],
+                    insights: Vec::new(),
                 },
                 Part {
                     name: "Saving".into(),
                     summary: "Keeps work.".into(),
                     paths: vec!["src/save".into()],
+                    insights: Vec::new(),
                 },
             ],
             links: vec![(0, 1), (5, 0)],

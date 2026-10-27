@@ -23,10 +23,12 @@ use vf_github::{
     install_url_any, installation_url, new_repo_url, parse_repo,
 };
 use vf_journal::{JournalStore as _, Vcs as _};
+use vf_protocol::canvas::{CanvasEvent, Stage};
 use vf_protocol::http::{
     ForeignChanges, GithubConnectResponse, GithubStatusResponse, ImportRequest, ImportResponse,
     SaveRequest, SaveResponse, SaveStep,
 };
+use vf_protocol::ws::ServerMessage;
 use vf_protocol::{BackendError, Cancel};
 
 use crate::Engine;
@@ -357,6 +359,23 @@ impl Engine {
                 ..ProjectMeta::default()
             },
         )?;
+        // The project's session stream starts with its download.
+        if let Some(_hold) = self.hold(&name) {
+            let size = u64::try_from(archive.len()).unwrap_or(u64::MAX);
+            let mut sink = |_: ServerMessage| {};
+            let mut stream = crate::canvas::Stream::new(&self.canvas, &name, &mut sink);
+            stream.emit(CanvasEvent::Stage {
+                id: Stage::Download,
+            });
+            stream.emit(CanvasEvent::Progress {
+                done: size,
+                total: size,
+                unit: "bytes".into(),
+                eta: 0,
+                text: None,
+                id: None,
+            });
+        }
         Ok(ImportResponse {
             project: name,
             upstream: original,
