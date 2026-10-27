@@ -12,6 +12,7 @@ pub mod customizations;
 pub mod handoff;
 
 use vf_protocol::Usage;
+use vf_protocol::canvas::CanvasRecord;
 use vf_protocol::http::JournalEntry;
 
 pub use handoff::handoff_preamble;
@@ -50,6 +51,22 @@ pub trait JournalStore {
     fn append(&self, project: &str, entry: &JournalEntry) -> Result<(), JournalError>;
 }
 
+/// Where the session stream of a project is kept (implemented in `vf-platform`: JSONL per project).
+/// Records are appended in `seq` order; `seq` starts at 1 and has no gaps.
+pub trait CanvasLog {
+    /// The `seq` of the newest record, 0 when there is none.
+    fn last_seq(&self, project: &str) -> Result<u64, JournalError>;
+    /// Appends a record.
+    fn append(&self, project: &str, record: &CanvasRecord) -> Result<(), JournalError>;
+    /// Records with `seq ≥ from`, oldest first, at most `limit`.
+    fn read_from(
+        &self,
+        project: &str,
+        from: u64,
+        limit: usize,
+    ) -> Result<Vec<CanvasRecord>, JournalError>;
+}
+
 /// What a finished step reports.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StepOutcome {
@@ -86,6 +103,8 @@ pub struct StepReport {
     pub usage: Option<Usage>,
     /// Prompt version used, if applicable (e.g. `loop:1`).
     pub prompt_version: Option<String>,
+    /// What the step produced (kept with its journal entry).
+    pub artifacts: Vec<vf_protocol::canvas::Artifact>,
 }
 
 /// A started step: remembers where it began.
@@ -164,6 +183,7 @@ impl StepStart {
             cost_usd: report.cost_usd,
             usage: report.usage,
             prompt_version: report.prompt_version,
+            artifacts: report.artifacts,
         };
         store.append(project, &entry)?;
         Ok(StepOutcome { entry, diff })

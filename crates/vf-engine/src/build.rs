@@ -26,17 +26,21 @@ impl Engine {
         out: &mut dyn FnMut(ServerMessage),
         cancel: &Cancel,
     ) {
-        let error = |out: &mut dyn FnMut(ServerMessage), e: String| {
+        let error = |out: &mut dyn FnMut(ServerMessage), e: String, code: &str| {
             out(ServerMessage::Error {
                 error: e,
-                code: None,
+                code: Some(code.into()),
             })
         };
         let Ok(dir) = self.projects.resolve(project) else {
-            return error(out, "unknown project".into());
+            return error(out, "unknown project".into(), "not_found");
         };
         let Some(recipe) = detect_recipe(&dir) else {
-            return error(out, "no known way to build this project".into());
+            return error(
+                out,
+                "no known way to build this project".into(),
+                "no_build_recipe",
+            );
         };
 
         // Resources: ecosystem profile, raised by the maintainer's hint.
@@ -67,7 +71,11 @@ impl Engine {
             text: text.clone(),
         });
         if matches!(verdict, Verdict::NotEnough(_)) {
-            return error(out, format!("not enough resources: {text}"));
+            return error(
+                out,
+                format!("not enough resources: {text}"),
+                "not_enough_resources",
+            );
         }
 
         let run_id = crate::step::new_run_id(&format!("build-{project}"));
@@ -92,7 +100,13 @@ impl Engine {
             code = match exit {
                 Ok(e) if e.cancelled => return out(ServerMessage::Cancelled),
                 Ok(e) => e.code,
-                Err(e) => return error(out, format!("cannot start the build: {e}")),
+                Err(e) => {
+                    return error(
+                        out,
+                        format!("cannot start the build: {e}"),
+                        "build_start_failed",
+                    );
+                }
             };
             if code != 0 {
                 break;
@@ -155,7 +169,7 @@ impl Engine {
         let head = repo.head().map_err(|e| BackendError::Internal(e.0))?;
         let entry = JournalEntry {
             at: now_rfc3339(),
-            provider: "rollback".into(),
+            provider: crate::rollback::ROLLBACK.into(),
             model: String::new(),
             prompt: format!("roll back to {commit}"),
             session: None,
@@ -170,6 +184,7 @@ impl Engine {
             cost_usd: None,
             usage: None,
             prompt_version: None,
+            artifacts: Vec::new(),
         };
         self.journal
             .append(project, &entry)
@@ -185,7 +200,12 @@ impl Engine {
 /// wrapper in the project is called by full path, the current folder may not be searched),
 /// `/bin/sh` elsewhere.
 #[cfg(windows)]
-fn shell(dir: &Path, program: &str, args: &[String], env: &ChildEnv) -> std::process::Command {
+pub(crate) fn shell(
+    dir: &Path,
+    program: &str,
+    args: &[String],
+    env: &ChildEnv,
+) -> std::process::Command {
     use std::os::windows::process::CommandExt as _;
     let first = if dir.join(program).is_file() {
         format!("\"{}\"", dir.join(program).display())
@@ -205,7 +225,12 @@ fn shell(dir: &Path, program: &str, args: &[String], env: &ChildEnv) -> std::pro
 }
 
 #[cfg(not(windows))]
-fn shell(_dir: &Path, program: &str, args: &[String], env: &ChildEnv) -> std::process::Command {
+pub(crate) fn shell(
+    _dir: &Path,
+    program: &str,
+    args: &[String],
+    env: &ChildEnv,
+) -> std::process::Command {
     let line = std::iter::once(program.to_owned())
         .chain(args.iter().cloned())
         .collect::<Vec<_>>()

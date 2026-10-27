@@ -20,7 +20,7 @@ mod common;
 
 use vf_server::{Config, UiSlot, router};
 use vf_updater::UiBundle;
-use vf_updater::signing::{Manifest, sha256_hex, sign};
+use vf_updater::signing::{Manifest, sha256_hex, sign, sign_subkey_cert};
 
 struct No;
 impl ConfirmDialog for No {
@@ -35,14 +35,15 @@ fn temp_dir(tag: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!("vf-ui-{tag}-{}", u64::from_le_bytes(b)))
 }
 
-/// Serves `files` (+ signed manifest) at `http://127.0.0.1:<port>/b/…`; `tamper` replaces a file
-/// after signing; `redirect` makes the manifest a redirect.
+/// Serves `files` (+ signed manifest with certified subkey) at `http://127.0.0.1:<port>/b/…`;
+/// `tamper` replaces a file after signing; `redirect` makes the manifest a redirect.
 async fn bundle_server(
-    key: &SigningKey,
+    root: &SigningKey,
     files: &[(&str, &str)],
     tamper: Option<(&str, &str)>,
     redirect: bool,
 ) -> String {
+    let subkey = SigningKey::generate(&mut OsRng);
     let manifest = Manifest {
         version: "t1".into(),
         files: files
@@ -52,7 +53,17 @@ async fn bundle_server(
         expires_at: None,
     };
     let manifest_bytes = serde_json::to_vec(&manifest).unwrap();
-    let sig = sign(&manifest_bytes, key);
+    let sig = sign(&manifest_bytes, &subkey);
+    let cert = vf_updater::SubkeyCert {
+        public_key: base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            subkey.verifying_key().to_bytes(),
+        ),
+        expires_at: i64::MAX,
+        purpose: "bundle".into(),
+    };
+    let cert_json = serde_json::to_vec(&cert).unwrap();
+    let cert_sig = sign_subkey_cert(&cert_json, root);
     let mut app = Router::new();
     app = if redirect {
         app.route(
@@ -64,6 +75,8 @@ async fn bundle_server(
         app.route("/b/manifest.json", get(move || async move { m }))
     };
     app = app.route("/b/manifest.sig", get(move || async move { sig }));
+    app = app.route("/b/subkey.cert.json", get(move || async move { cert_json }));
+    app = app.route("/b/subkey.cert.sig", get(move || async move { cert_sig }));
     for (path, content) in files {
         let body = match tamper {
             Some((p, evil)) if p == *path => evil.to_owned(),

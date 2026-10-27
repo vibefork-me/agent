@@ -3,7 +3,7 @@
 use vf_core::Language;
 
 /// Detects the system language for native UI and CLI (Windows UI language, LANG/LC_ALL/LC_MESSAGES, macOS AppleLanguages).
-/// Returns `Language::Ru` or `Language::En` (fallback).
+/// Returns the first language the agent knows (`Language::ALL`); English when none matches.
 pub fn system_language() -> Language {
     // 1. Environment variable override (for tests or explicit user configuration).
     for var in ["VF_LANG", "LC_ALL", "LC_MESSAGES", "LANG"] {
@@ -20,9 +20,8 @@ pub fn system_language() -> Language {
     {
         #[allow(unsafe_code)]
         let lang_id = unsafe { windows_sys::Win32::Globalization::GetUserDefaultUILanguage() };
-        // Primary language ID is lower 10 bits: 0x19 is LANG_RUSSIAN.
-        if (lang_id & 0x03ff) == 0x19 {
-            return Language::Ru;
+        if let Some(lang) = windows_primary_language(lang_id) {
+            return lang;
         }
     }
 
@@ -33,17 +32,31 @@ pub fn system_language() -> Language {
             .output()
         {
             let text = String::from_utf8_lossy(&output.stdout);
-            if text
+            // `(` then the preferred languages, one `"xx-YY",` per line; the first two count.
+            if let Some(lang) = text
                 .lines()
                 .take(3)
-                .any(|l| l.trim().to_ascii_lowercase().starts_with("\"ru"))
+                .map(|l| Language::parse(l.trim().trim_start_matches('"')))
+                .find(|l| *l != Language::En)
             {
-                return Language::Ru;
+                return lang;
             }
         }
     }
 
     Language::En
+}
+
+/// The language of a Windows LANGID by its primary language (lower 10 bits).
+#[cfg_attr(not(windows), allow(dead_code))]
+fn windows_primary_language(lang_id: u16) -> Option<Language> {
+    match lang_id & 0x03ff {
+        0x19 => Some(Language::Ru),   // LANG_RUSSIAN
+        0x16 => Some(Language::PtBr), // LANG_PORTUGUESE (Brazil and Portugal)
+        0x0a => Some(Language::Es),   // LANG_SPANISH
+        0x07 => Some(Language::De),   // LANG_GERMAN
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -74,7 +87,28 @@ mod tests {
         assert_eq!(system_language(), Language::En);
 
         unsafe {
+            std::env::set_var("VF_LANG", "de_DE.UTF-8");
+        }
+        assert_eq!(system_language(), Language::De);
+
+        unsafe {
+            std::env::set_var("VF_LANG", "pt_BR");
+        }
+        assert_eq!(system_language(), Language::PtBr);
+
+        unsafe {
             std::env::remove_var("VF_LANG");
         }
+    }
+
+    #[test]
+    fn windows_language_ids() {
+        assert_eq!(windows_primary_language(0x0419), Some(Language::Ru));
+        assert_eq!(windows_primary_language(0x0416), Some(Language::PtBr)); // pt-BR
+        assert_eq!(windows_primary_language(0x0816), Some(Language::PtBr)); // pt-PT
+        assert_eq!(windows_primary_language(0x0c0a), Some(Language::Es));
+        assert_eq!(windows_primary_language(0x0407), Some(Language::De));
+        assert_eq!(windows_primary_language(0x0409), None); // en-US
+        assert_eq!(windows_primary_language(0x040c), None); // fr-FR
     }
 }

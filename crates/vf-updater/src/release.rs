@@ -95,11 +95,9 @@ async fn get(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, UpdateError
             res.status()
         )));
     }
-    Ok(res
-        .bytes()
+    crate::read_file(res)
         .await
-        .map_err(|e| UpdateError::Download(e.to_string()))?
-        .to_vec())
+        .map_err(|e| UpdateError::Download(format!("{url}: {e}")))
 }
 
 impl Release {
@@ -116,7 +114,6 @@ impl Release {
         let cert_json = get_optional(&strict, &format!("{base}/subkey.cert.json")).await?;
         let cert_sig = get_optional(&strict, &format!("{base}/subkey.cert.sig")).await?;
         let subkey = match (cert_json, cert_sig) {
-            (None, None) => None,
             (Some(cert_json), Some(cert_sig)) => {
                 let cert_sig =
                     String::from_utf8(cert_sig).map_err(|_| SignatureError::BadSignature)?;
@@ -126,16 +123,11 @@ impl Release {
                 if cert.purpose != "release" {
                     return Err(SignatureError::SubkeyCertMismatch.into());
                 }
-                Some(subkey)
+                subkey
             }
-            _ => return Err(SignatureError::SubkeyCertMismatch.into()),
+            _ => return Err(SignatureError::SubkeyCertMissing.into()),
         };
-        let manifest_key = subkey.as_ref().unwrap_or(key);
-        let manifest = verify_manifest(
-            &manifest_bytes,
-            &String::from_utf8_lossy(&sig),
-            manifest_key,
-        )?;
+        let manifest = verify_manifest(&manifest_bytes, &String::from_utf8_lossy(&sig), &subkey)?;
         check_fresh(&manifest)?;
         Ok(Self {
             base_url: base,

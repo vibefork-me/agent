@@ -5,12 +5,15 @@
 //! A breaking change goes to a new version prefix (`/v2/`), never in place.
 
 pub mod backend;
+pub mod canvas;
 pub mod event;
 pub mod http;
 pub mod model;
+pub mod note;
 pub mod ws;
 
-pub use backend::{Backend, BackendError, Cancel, TaskRequest};
+pub use backend::{Backend, BackendError, Cancel, OfferRejected, TaskRequest};
+pub use canvas::{CanvasEvent, CanvasRecord};
 pub use event::{Event, Usage};
 pub use http::CliHomeMode;
 pub use model::{CostClass, ModelInfo};

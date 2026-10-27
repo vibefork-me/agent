@@ -6,11 +6,13 @@
 //! - [`task`] — the task state machine;
 //! - [`secret`] — [`Secret`]: a wrapper whose `Debug` never prints the value (invariant 6);
 //! - [`ports`] — traits implemented by adapters ([`ConfirmDialog`]);
-//! - [`sandbox`] — what a sandboxed process may touch, and the launcher prefix.
+//! - [`sandbox`] — what a sandboxed process may touch, and the launcher prefix;
+//! - [`limits`] — upper bounds for data from the network ([`LimitedBody`]).
 
 pub mod catalog;
 pub mod endpoint;
 pub mod ids;
+pub mod limits;
 pub mod path;
 pub mod ports;
 pub mod prompts;
@@ -20,6 +22,7 @@ pub mod task;
 
 pub use catalog::Language;
 pub use endpoint::{endpoint_host_label, validate_custom_openai_endpoint};
+pub use limits::{LimitedBody, TooLarge};
 pub use path::{PathError, ProjectPath};
 pub use ports::{ConfirmDialog, dialog_field, dialog_text};
 pub use secret::{Secret, clean_secret};

@@ -7,9 +7,11 @@ use std::path::PathBuf;
 use vf_git::Repo;
 use vf_journal::Vcs as _;
 use vf_protocol::BackendError;
+use vf_protocol::canvas::{CanvasEvent, Stage};
 use vf_protocol::http::{DescribeRequest, GraphEdge, GraphNode, GraphResponse, GraphSource};
+use vf_protocol::ws::ServerMessage;
 
-use crate::Engine;
+use crate::{Engine, map};
 
 /// A top folder with more files than this is shown as its subfolders.
 const SPLIT_ABOVE: usize = 40;
@@ -83,6 +85,7 @@ pub(crate) fn build(files: &[String], changed: &[String]) -> (Vec<GraphNode>, Ve
                 .map_or_else(|| id.clone(), |(_, l)| l.to_owned()),
             id,
             summary: None,
+            parent: None,
             files,
             changed,
         })
@@ -155,11 +158,41 @@ impl Engine {
             ));
         };
         let lang = req.lang.as_deref().unwrap_or("en");
-        self.describe_map(&req.project, &root, &head, &files, lang)
-            .map_err(|e| {
-                tracing::info!(project = %req.project, error = %e, "map not described");
-                BackendError::BadRequest(format!("no model could describe the project: {e}"))
-            })?;
+        // The analysis goes into the project's session stream, unless a task holds the project now.
+        let hold = self.hold(&req.project);
+        let mut sink = |_: ServerMessage| {};
+        let mut stream = hold
+            .as_ref()
+            .map(|_| crate::canvas::Stream::new(&self.canvas, &req.project, &mut sink));
+        if let Some(s) = stream.as_mut() {
+            s.emit(CanvasEvent::Project {
+                id: map::ROOT.into(),
+                label: req.project.clone(),
+                summary: String::new(),
+                version_of: None,
+                files: Vec::new(),
+            });
+            s.emit(CanvasEvent::Stage { id: Stage::Parts });
+        }
+        let described = self.describe_map(&req.project, &root, &head, &files, lang, &mut || {
+            if let Some(s) = stream.as_mut() {
+                s.emit(CanvasEvent::Think {
+                    id: map::ROOT.into(),
+                    text: map::thinking_about_parts(lang).into(),
+                });
+            }
+        });
+        let map = described.map_err(|e| {
+            tracing::info!(project = %req.project, error = %e, "map not described");
+            BackendError::BadRequest(format!("no model could describe the project: {e}"))
+        })?;
+        if let Some(s) = stream.as_mut() {
+            for ev in map::map_events(&map) {
+                s.emit(ev);
+            }
+        }
+        drop(stream);
+        drop(hold);
         self.project_graph(&req.project, false)
     }
 }

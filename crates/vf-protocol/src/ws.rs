@@ -3,6 +3,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::canvas::{CanvasEvent, NoteAttachment};
 use crate::event::Event;
 use crate::http::ImportStatus;
 use crate::model::ModelInfo;
@@ -40,8 +41,59 @@ pub enum ClientMessage {
         /// Project name.
         project: String,
     },
-    /// Cancel the running task or build.
+    /// Run the project's program (confirmed in the native dialog); its output comes as
+    /// `program_log`, the end as `program_done`. `cancel` stops it.
+    Run {
+        /// Project name.
+        project: String,
+    },
+    /// Cancel the running task or build. While it is paused, its changes are undone as well.
     Cancel,
+    /// A message to the agent while it works; it is taken into account at the next point that
+    /// allows it (answered with `note.taken`).
+    Note {
+        /// Project name.
+        project: String,
+        /// The message.
+        text: String,
+        /// Attached files or long pasted text.
+        #[serde(default)]
+        attachments: Vec<NoteAttachment>,
+    },
+    /// Pause the running task or build at once.
+    Stop,
+    /// Continue a paused task or build.
+    Resume,
+    /// Run a task with what an offer of the analysis suggests (its title and text), like `task`.
+    ChooseOffer {
+        /// Project name.
+        project: String,
+        /// Index in the last `offers` event of the project.
+        index: u32,
+        /// Title of the offer as shown; when given, the kept offer at `index` must have it (the
+        /// offers changed since otherwise: `bad_index`).
+        #[serde(default)]
+        title: Option<String>,
+        /// `auto`, `plan`, or a provider, as in `task`.
+        #[serde(default)]
+        provider: Option<String>,
+        /// Model of the provider; empty = its default.
+        #[serde(default)]
+        model: Option<String>,
+        /// Continue with the history of the project.
+        #[serde(default, rename = "continue")]
+        continue_: bool,
+        /// Language of the UI/response (`en`, `ru`, …); default is the OS language.
+        #[serde(default)]
+        lang: Option<String>,
+    },
+    /// Undo the changes of one part.
+    RollbackPart {
+        /// Project name.
+        project: String,
+        /// Node id of the part.
+        id: String,
+    },
 }
 
 /// Rating of a task by the Auto mode.
@@ -93,6 +145,16 @@ pub enum ToolchainStatus {
     Ready,
     /// Failed.
     Failed,
+}
+
+/// The output of a program a line came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ProgramStream {
+    /// Standard output.
+    Stdout,
+    /// Standard error.
+    Stderr,
 }
 
 /// Messages from the agent.
@@ -224,6 +286,11 @@ pub enum ServerMessage {
         /// Newest commit of the step.
         commit: Option<String>,
     },
+    /// The task is paused (`stop`): the step in progress was interrupted; `resume` runs it again,
+    /// `cancel` ends the task and undoes its changes.
+    Paused,
+    /// The paused task goes on: the interrupted step runs again.
+    Resumed,
     /// The task was cancelled.
     Cancelled,
     /// The task finished.
@@ -270,11 +337,43 @@ pub enum ServerMessage {
         /// Seconds spent.
         seconds: f64,
     },
+    /// A line of the running program's output (at most 4 KiB; at most 1 MiB in all per run).
+    ProgramLog {
+        /// Which output the line came from.
+        stream: ProgramStream,
+        /// Text.
+        text: String,
+    },
+    /// The program ended.
+    ProgramDone {
+        /// Exit code (0 = success; -1 — no code, e.g. killed by a signal).
+        code: i32,
+        /// Some output was cut: a line too long, or more output than is sent.
+        cut: bool,
+        /// Seconds it ran.
+        seconds: f64,
+    },
+    /// A numbered event of the project's session stream (see [`crate::canvas`]).
+    Canvas {
+        /// Project.
+        project: String,
+        /// Number within the project, from 1, without gaps.
+        seq: u64,
+        /// When, Unix time in milliseconds.
+        at: u64,
+        /// The run it belongs to.
+        session: String,
+        /// The event.
+        ev: CanvasEvent,
+    },
     /// An error; for auth errors the connection is closed after it.
     Error {
-        /// Reason.
+        /// Reason, in plain English; an editor words it itself by `code` when it knows the code.
         error: String,
-        /// Machine-readable error code.
+        /// Machine-readable error code. Of a task or a build: `not_found` (unknown project),
+        /// `bad_prompt` (empty or too long), `model_unavailable`, `no_models`, `no_model_for_step`,
+        /// `planning_failed`, `plan_stopped` (a plan step failed), `git_failed`,
+        /// `task_already_running`, `no_build_recipe`, `not_enough_resources`, `build_start_failed`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         code: Option<String>,
     },

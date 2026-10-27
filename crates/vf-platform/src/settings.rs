@@ -202,6 +202,11 @@ impl Settings {
         self.state_dir.join("journal")
     }
 
+    /// Folder of the session streams of projects (`<state>/canvas`).
+    pub fn canvas_dir(&self) -> PathBuf {
+        self.state_dir.join("canvas")
+    }
+
     /// Creates the state folder readable by its owner only (Unix `0700`; on Windows the per-user
     /// `%LOCALAPPDATA%` already is).
     pub fn secure_state_dir(&self) -> std::io::Result<()> {

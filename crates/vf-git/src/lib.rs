@@ -421,6 +421,43 @@ impl Repo {
         Ok(out)
     }
 
+    /// Paths (`/`-separated, sorted) of the files of the working tree as git sees them: tracked
+    /// files still present and new files `.gitignore` does not exclude; git data never. At most
+    /// `max` paths, none deeper than `max_depth` folders; `true` — some were left out.
+    pub fn working_files(
+        &self,
+        max: usize,
+        max_depth: usize,
+    ) -> Result<(Vec<String>, bool), JournalError> {
+        let repo = self.repo()?;
+        let mut opts = StatusOptions::new();
+        opts.include_unmodified(true)
+            .include_untracked(true)
+            .recurse_untracked_dirs(true)
+            .include_ignored(false)
+            .exclude_submodules(true);
+        let statuses = repo.statuses(Some(&mut opts)).map_err(err)?;
+        let mut out = Vec::new();
+        let mut truncated = false;
+        for e in statuses.iter() {
+            if e.status()
+                .intersects(Status::WT_DELETED | Status::INDEX_DELETED)
+            {
+                continue;
+            }
+            let Ok(path) = e.path() else { continue };
+            let path = path.replace('\\', "/");
+            if path.split('/').count() > max_depth.saturating_add(1) || out.len() >= max {
+                truncated = true;
+                continue;
+            }
+            out.push(path);
+        }
+        out.sort();
+        out.dedup();
+        Ok((out, truncated))
+    }
+
     /// Paths of the files added, changed or deleted from `base` to `head`.
     pub fn changed_paths(&self, base: &str, head: &str) -> Result<Vec<String>, JournalError> {
         let repo = self.repo()?;
@@ -434,6 +471,16 @@ impl Repo {
             .filter_map(|d| d.new_file().path().or_else(|| d.old_file().path()))
             .map(|p| p.to_string_lossy().replace('\\', "/"))
             .collect())
+    }
+
+    /// Whether `commit` is in the history of `head` (or is `head`); a commit a reset dropped is not.
+    pub fn in_history(&self, commit: &str, head: &str) -> Result<bool, JournalError> {
+        let repo = self.repo()?;
+        let (c, h) = (
+            repo.revparse_single(commit).map_err(err)?.id(),
+            repo.revparse_single(head).map_err(err)?.id(),
+        );
+        Ok(c == h || repo.graph_descendant_of(h, c).map_err(err)?)
     }
 
     /// Git blob ids of `paths` at `commit` (a path that is not a file there is absent; `commit`
@@ -495,7 +542,7 @@ fn stage_all(repo: &Repository) -> Result<Oid, JournalError> {
 }
 
 fn short(oid: Oid) -> String {
-    oid.to_string()[..SHORT].to_owned()
+    oid.to_string().chars().take(SHORT).collect()
 }
 
 impl Vcs for Repo {
@@ -583,7 +630,6 @@ mod shim_tests {
     use super::*;
 
     #[test]
-    #[allow(clippy::expect_used)]
     fn shim_reads_status_diff_and_log_without_changing_the_repository() {
         let dir = std::env::temp_dir().join(format!("vf-git-shim-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);

@@ -11,6 +11,7 @@ use vf_providers::{ChildEnv, Output, Provider, RunRequest};
 use vf_sandbox::IsolationLevel;
 use vf_toolchains::Progress;
 
+use crate::notes::Inbox;
 use crate::{Engine, MAX_DIFF};
 
 /// `PATH` entries hidden by the clean-machine simulation.
@@ -27,6 +28,8 @@ pub struct StepRequest<'a> {
     pub prompt: &'a str,
     /// Text put before the prompt (plan context).
     pub prefix: &'a str,
+    /// Text put after the prompt: messages of the person taken during the task.
+    pub notes: &'a str,
     /// Model.
     pub model: &'a str,
     /// Continue with the project's history.
@@ -239,6 +242,78 @@ impl Engine {
         (env, paths, level)
     }
 
+    /// What a step produced, kept with its journal entry: its changes by file and part of the map.
+    fn step_artifacts(
+        &self,
+        repo: &Repo,
+        project: &str,
+        base: &str,
+    ) -> Vec<vf_protocol::canvas::Artifact> {
+        let Ok(diff) = vf_journal::Vcs::diff_from(repo, base) else {
+            return Vec::new();
+        };
+        let map = self.load_map(project);
+        let part = |file: &str| map.as_ref().and_then(|m| crate::map::part_of(m, file));
+        crate::changes::changes_artifact(&diff, &part)
+            .into_iter()
+            .collect()
+    }
+
+    /// Runs one step; while the person has paused the task, waits, then runs the interrupted step
+    /// again, with the project's history (what it did before the pause is kept).
+    pub fn step_pausable(
+        &self,
+        repo: &Repo,
+        provider: &dyn Provider,
+        req: &StepRequest<'_>,
+        out: &mut dyn FnMut(ServerMessage),
+        cancel: &Cancel,
+    ) -> StepResult {
+        self.step_noted(repo, provider, req, None, out, cancel)
+    }
+
+    /// [`Engine::step_pausable`] that takes the person's messages before the step and before it
+    /// runs again; every message taken so far goes after the step's prompt.
+    pub(crate) fn step_noted(
+        &self,
+        repo: &Repo,
+        provider: &dyn Provider,
+        req: &StepRequest<'_>,
+        inbox: Option<&Inbox>,
+        out: &mut dyn FnMut(ServerMessage),
+        cancel: &Cancel,
+    ) -> StepResult {
+        let mut req = *req;
+        loop {
+            let notes = match inbox {
+                Some(inbox) => {
+                    inbox.pick_up(cancel, out);
+                    format!("{}{}", req.notes, inbox.addendum())
+                }
+                None => req.notes.to_owned(),
+            };
+            let r = self.step(
+                repo,
+                provider,
+                &StepRequest {
+                    notes: &notes,
+                    ..req
+                },
+                out,
+                cancel,
+            );
+            if !cancel.is_paused() {
+                return r;
+            }
+            out(ServerMessage::Paused);
+            if !cancel.wait_resumed() {
+                return r;
+            }
+            out(ServerMessage::Resumed);
+            req.continue_ = true;
+        }
+    }
+
     /// Runs one step and journals it.
     pub fn step(
         &self,
@@ -253,7 +328,7 @@ impl Engine {
         let journal = self.journal.read(req.project).unwrap_or_default();
         let mut resume = None;
         let mut handoff = false;
-        let mut prompt = format!("{}{}", req.prefix, req.prompt);
+        let mut prompt = format!("{}{}{}", req.prefix, req.prompt, req.notes);
         if req.continue_
             && let Some(last) = journal.last()
         {
@@ -304,7 +379,7 @@ impl Engine {
             Err(e) => {
                 out(ServerMessage::Error {
                     error: format!("git: {e}"),
-                    code: None,
+                    code: Some("git_failed".into()),
                 });
                 return StepResult {
                     code: -1,
@@ -365,6 +440,7 @@ impl Engine {
             cost_usd: result.cost_usd,
             usage: result.usage.clone(),
             prompt_version,
+            artifacts: self.step_artifacts(repo, req.project, start.base()),
         };
         let base = start.base().to_owned();
         let finished = start.finish(repo, &self.journal, req.project, now_rfc3339(), report);
@@ -542,7 +618,6 @@ pub(crate) fn now_rfc3339() -> String {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

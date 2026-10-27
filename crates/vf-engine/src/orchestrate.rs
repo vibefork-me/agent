@@ -4,17 +4,20 @@
 use std::path::Path;
 use std::time::Duration;
 
+use vf_core::catalog::{self, Language};
 use vf_git::Repo;
 use vf_journal::{JournalStore as _, Vcs as _};
 use vf_orchestrator::{
     Complexity, PlanStep, classifier_candidates, heuristic_rating, model_for_step, parse_plan,
     parse_rating, pick_model, plan_preamble, plan_prompt, wants_plan,
 };
+use vf_protocol::canvas::CanvasEvent;
 use vf_protocol::http::JournalEntry;
 use vf_protocol::ws::{PlanStepInfo, Rating, ServerMessage, StepInfo};
 use vf_protocol::{Cancel, ModelInfo};
 use vf_providers::{AskRequest, ChildEnv};
 
+use crate::notes::Inbox;
 use crate::step::now_rfc3339;
 use crate::{Engine, MAX_DIFF, StepRequest};
 
@@ -30,6 +33,8 @@ pub(crate) struct Task<'a> {
     pub(crate) prompt: &'a str,
     pub(crate) continue_: bool,
     pub(crate) lang: &'a str,
+    /// Messages of the person taken during the task.
+    pub(crate) inbox: &'a Inbox,
 }
 
 impl Engine {
@@ -41,7 +46,7 @@ impl Engine {
         out: &mut dyn FnMut(ServerMessage),
         cancel: &Cancel,
     ) {
-        let rating = self.classify(t, inventory, cancel);
+        let rating = self.classify(t, inventory, out, cancel);
         if wants_plan(&rating) {
             return self.plan(t, inventory, Some(rating), out, cancel);
         }
@@ -49,7 +54,7 @@ impl Engine {
         let Some(choice) = pick_model(inventory, complexity, &[], &[]) else {
             return out(ServerMessage::Error {
                 error: "no models available".into(),
-                code: None,
+                code: Some("no_models".into()),
             });
         };
         out(ServerMessage::Routing {
@@ -60,7 +65,13 @@ impl Engine {
     }
 
     /// The rating by a free classifier model; a heuristic when none answers.
-    fn classify(&self, t: &Task<'_>, inventory: &[ModelInfo], cancel: &Cancel) -> Rating {
+    fn classify(
+        &self,
+        t: &Task<'_>,
+        inventory: &[ModelInfo],
+        out: &mut dyn FnMut(ServerMessage),
+        cancel: &Cancel,
+    ) -> Rating {
         let free: Vec<String> = inventory
             .iter()
             .filter(|m| m.provider == "openrouter")
@@ -70,7 +81,11 @@ impl Engine {
             let env = ChildEnv::from_current();
             let prompt: String = t.prompt.chars().take(4000).collect();
             let classifier_prompt = vf_platform::prompts::get(vf_core::prompts::Stage::Classify);
-            for model in classifier_candidates(&free) {
+            let candidates = classifier_candidates(&free);
+            if !candidates.is_empty() {
+                think(out, Thought::Rating, t.lang);
+            }
+            for model in candidates {
                 let req = AskRequest {
                     dir: t.dir,
                     system: Some(&classifier_prompt.template),
@@ -106,17 +121,31 @@ impl Engine {
             Err(e) => {
                 return out(ServerMessage::Error {
                     error: format!("git: {e}"),
-                    code: None,
+                    code: Some("git_failed".into()),
                 });
             }
         };
         out(ServerMessage::Planning { rating });
-        let (planner, cost_usd, steps) = match self.make_plan(t, inventory, cancel) {
+        // Paused while planning: plan again once resumed.
+        let planned = loop {
+            t.inbox.pick_up(cancel, out);
+            think(out, Thought::Planning, t.lang);
+            let planned = self.make_plan(t, inventory, cancel);
+            if planned.is_ok() || !cancel.is_paused() {
+                break planned;
+            }
+            out(ServerMessage::Paused);
+            if !cancel.wait_resumed() {
+                return out(ServerMessage::Cancelled);
+            }
+            out(ServerMessage::Resumed);
+        };
+        let (planner, cost_usd, steps) = match planned {
             Ok(p) => p,
             Err(e) => {
                 out(ServerMessage::Error {
                     error: format!("planning failed: {e}"),
-                    code: None,
+                    code: Some("planning_failed".into()),
                 });
                 return done(out, 1, None, String::new(), String::new(), true);
             }
@@ -169,6 +198,7 @@ impl Engine {
             cost_usd,
             usage: None,
             prompt_version: Some(vf_platform::prompts::get(vf_core::prompts::Stage::Plan).tag()),
+            artifacts: Vec::new(),
         };
         if let Err(e) = self.journal.append(t.project, &entry) {
             tracing::warn!(error = %e, "plan not journaled");
@@ -185,7 +215,7 @@ impl Engine {
             let Some(m) = m else {
                 out(ServerMessage::Error {
                     error: format!("no model for step {n}"),
-                    code: None,
+                    code: Some("no_model_for_step".into()),
                 });
                 code = 1;
                 break;
@@ -199,6 +229,7 @@ impl Engine {
                 of,
                 title: s.title.clone(),
             };
+            think(out, Thought::Step(&info), t.lang);
             let prefix = plan_preamble(t.prompt, &steps, i);
             let system_instruction = vf_core::catalog::system_instruction(t.lang);
             let req = StepRequest {
@@ -206,12 +237,13 @@ impl Engine {
                 dir: t.dir,
                 prompt: &s.prompt,
                 prefix: &prefix,
+                notes: "",
                 model: &m.model,
                 continue_: t.continue_ || i > 0,
                 step: Some(&info),
                 system: Some(&system_instruction),
             };
-            let r = self.step(t.repo, p.as_ref(), &req, out, cancel);
+            let r = self.step_noted(t.repo, p.as_ref(), &req, Some(t.inbox), out, cancel);
             out(ServerMessage::StepDone {
                 n,
                 of,
@@ -225,7 +257,7 @@ impl Engine {
                 if !cancel.is_cancelled() {
                     out(ServerMessage::Error {
                         error: format!("step {n} failed — stopping the plan"),
-                        code: None,
+                        code: Some("plan_stopped".into()),
                     });
                     code = if code == 0 { 1 } else { code };
                 }
@@ -283,7 +315,7 @@ impl Engine {
             candidates.push(("openrouter", free.model.clone(), API_PLANNER_TIMEOUT));
         }
         let env = ChildEnv::from_current();
-        let prompt = plan_prompt(t.prompt);
+        let prompt = plan_prompt(&format!("{}{}", t.prompt, t.inbox.addendum()));
         let mut tried = Vec::new();
         for (provider, model, timeout) in candidates {
             if cancel.is_cancelled() {
@@ -321,6 +353,44 @@ impl Engine {
     }
 }
 
+/// What the agent waits for a model to do during a task.
+pub(crate) enum Thought<'a> {
+    /// Rate how big the task is.
+    Rating,
+    /// Split the task into steps.
+    Planning,
+    /// Do the whole task in one go.
+    Task,
+    /// Do one step of a plan.
+    Step(&'a StepInfo),
+}
+
+/// What the agent is doing while it waits for a model, in the person's language (no call to a model).
+pub(crate) fn thought(what: &Thought<'_>, lang: &str) -> String {
+    let lang = Language::parse(lang);
+    match what {
+        Thought::Rating => catalog::thought_rating(lang),
+        Thought::Planning => catalog::thought_planning(lang),
+        Thought::Task => catalog::thought_task(lang),
+        Thought::Step(s) => catalog::thought_step(lang, s.n, s.of, &s.title),
+    }
+}
+
+/// Sends a `think` event before a call to a model (a canvas event raised by the work; the session
+/// stream numbers it). It is about the whole project: a task's steps are not tied to a part.
+pub(crate) fn think(out: &mut dyn FnMut(ServerMessage), what: Thought<'_>, lang: &str) {
+    out(ServerMessage::Canvas {
+        project: String::new(),
+        seq: 0,
+        at: 0,
+        session: String::new(),
+        ev: CanvasEvent::Think {
+            id: crate::map::ROOT.into(),
+            text: thought(&what, lang),
+        },
+    });
+}
+
 fn done(
     out: &mut dyn FnMut(ServerMessage),
     code: i32,
@@ -339,4 +409,32 @@ fn done(
         status,
         plan,
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn thoughts_are_in_the_persons_language() {
+        let step = StepInfo {
+            n: 2,
+            of: 3,
+            title: "Add tags".into(),
+        };
+        assert_eq!(
+            thought(&Thought::Step(&step), "ru-RU"),
+            "Шаг 2 из 3: Add tags"
+        );
+        assert_eq!(
+            thought(&Thought::Step(&step), "en"),
+            "Step 2 of 3: Add tags"
+        );
+        assert_eq!(thought(&Thought::Planning, "ru"), "Разбиваю задачу на шаги");
+        assert_eq!(
+            thought(&Thought::Rating, "??"),
+            "Working out how big the task is"
+        );
+        assert_eq!(thought(&Thought::Task, "en"), "Working on the task");
+    }
 }

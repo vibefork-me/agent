@@ -11,6 +11,7 @@ publish.workspace = true
 [dependencies]
 serde.workspace = true
 thiserror.workspace = true
+fluent-bundle.workspace = true
 
 [lints]
 workspace = true

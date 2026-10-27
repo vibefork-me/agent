@@ -16,8 +16,9 @@ use vf_core::Secret;
 use vf_engine::Engine;
 use vf_platform::Settings;
 use vf_platform::settings::Storage;
-use vf_protocol::ws::ServerMessage;
-use vf_protocol::{Backend, Cancel, CostClass, Event, ModelInfo, TaskRequest};
+use vf_protocol::canvas::CanvasEvent;
+use vf_protocol::ws::{ProgramStream, ServerMessage};
+use vf_protocol::{Backend, Cancel, CostClass, Event, ModelInfo, OfferRejected, TaskRequest};
 use vf_providers::{Answer, AskRequest, Output, Provider, RunRequest, RunResult};
 
 /// Writes `n.txt`, commits it itself, writes `left.txt` uncommitted; records the prompts it got.
@@ -49,7 +50,7 @@ impl Provider for Scripted {
             .is_some_and(|s| s.contains("does not write code"))
         {
             assert!(req.prompt.contains("PROJECT DATA"));
-            r#"{"parts":[{"name":"Guide","summary":"Explains the project.","paths":["README.md"]},{"name":"Program","summary":"Does the work.","paths":["src"]}],"links":[{"from":"Guide","to":"Program"}]}"#
+            r#"{"parts":[{"name":"Guide","summary":"Explains the project.","paths":["README.md"],"insights":["Short and clear"]},{"name":"Program","summary":"Does the work.","paths":["src"]}],"links":[{"from":"Guide","to":"Program"}],"offers":[{"title":"Dark theme","text":"Easier to read at night.","why":"Only a light look now."},{"title":"Export","text":"Save notes as a file.","why":"Notes stay inside."}]}"#
         } else if req.system.is_some() {
             r#"{"complexity":"medium","decompose":true,"reason":"two parts"}"#
         } else {
@@ -156,9 +157,19 @@ fn task(provider: &str, continue_: bool) -> TaskRequest {
     }
 }
 
+/// Messages of the existing protocol (the session stream is checked on its own).
 fn run(engine: &Engine, t: TaskRequest) -> Vec<ServerMessage> {
     let mut msgs = vec![];
     engine.run_task(t, &mut |m| msgs.push(m), &Cancel::new());
+    msgs.retain(|m| !matches!(m, ServerMessage::Canvas { .. }));
+    msgs
+}
+
+/// Messages of the existing protocol of a build.
+fn build(engine: &Engine, project: &str) -> Vec<ServerMessage> {
+    let mut msgs = vec![];
+    engine.build(project, &mut |m| msgs.push(m), &Cancel::new());
+    msgs.retain(|m| !matches!(m, ServerMessage::Canvas { .. }));
     msgs
 }
 
@@ -233,47 +244,50 @@ fn task_is_journaled_with_all_commits_and_continued() {
 #[test]
 fn bad_requests_are_refused_before_running() {
     let (base, engine, p) = setup();
-    for (t, error) in [
+    for (t, (error, code)) in [
         (
             TaskRequest {
                 project: "nope".into(),
                 ..task("codex", false)
             },
-            "unknown project",
+            ("unknown project", "not_found"),
         ),
         (
             TaskRequest {
                 project: "..".into(),
                 ..task("codex", false)
             },
-            "unknown project",
+            ("unknown project", "not_found"),
         ),
         (
             TaskRequest {
                 prompt: " ".into(),
                 ..task("codex", false)
             },
-            "prompt required",
+            ("prompt required", "bad_prompt"),
         ),
         (
             TaskRequest {
                 prompt: "x".repeat(8001),
                 ..task("codex", false)
             },
-            "prompt required",
+            ("prompt required", "bad_prompt"),
         ),
         (
             TaskRequest {
                 model: Some("other".into()),
                 ..task("codex", false)
             },
-            "model not available",
+            ("model not available", "model_unavailable"),
         ),
-        (task("gemini", false), "model not available"),
+        (
+            task("gemini", false),
+            ("model not available", "model_unavailable"),
+        ),
     ] {
         let msgs = run(&engine, t);
         assert!(
-            matches!(&msgs[..], [ServerMessage::Error { error: e, .. }] if e.starts_with(error)),
+            matches!(&msgs[..], [ServerMessage::Error { error: e, code: Some(c) }] if e.starts_with(error) && c == code),
             "{msgs:?}"
         );
     }
@@ -399,6 +413,61 @@ fn rollback_only_to_journal_checkpoints() {
     let _ = std::fs::remove_dir_all(&base);
 }
 
+fn run_program(engine: &Engine, project: &str) -> Vec<ServerMessage> {
+    let mut msgs = Vec::new();
+    engine.run_program(project, &mut |m| msgs.push(m), &Cancel::new());
+    msgs
+}
+
+#[test]
+fn run_sends_the_program_output_by_stream_and_its_exit_code() {
+    if vf_providers::process::find_program("npm").is_none() {
+        eprintln!("skipped: npm is not installed");
+        return;
+    }
+    let (base, engine, _) = setup();
+    let script = "node -e \"console.log('notes: 3');console.error('no config, defaults used');process.exit(2)\"";
+    std::fs::write(
+        base.join("projects/demo/package.json"),
+        serde_json::json!({ "scripts": { "start": script } }).to_string(),
+    )
+    .unwrap();
+    let msgs = run_program(&engine, "demo");
+    let lines: Vec<(ProgramStream, &str)> = msgs
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::ProgramLog { stream, text } => Some((*stream, text.as_str())),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        lines.contains(&(ProgramStream::Stdout, "notes: 3")),
+        "{msgs:?}"
+    );
+    assert!(
+        lines.contains(&(ProgramStream::Stderr, "no config, defaults used")),
+        "{msgs:?}"
+    );
+    assert!(
+        matches!(
+            msgs.last(),
+            Some(ServerMessage::ProgramDone {
+                code,
+                cut: false,
+                ..
+            }) if *code != 0
+        ),
+        "{msgs:?}"
+    );
+
+    std::fs::remove_file(base.join("projects/demo/package.json")).unwrap();
+    assert!(matches!(
+        &run_program(&engine, "demo")[..],
+        [ServerMessage::Error { code: Some(c), .. }] if c == "no_run_recipe"
+    ));
+    let _ = std::fs::remove_dir_all(&base);
+}
+
 #[test]
 fn build_runs_the_recipe_and_keeps_artifacts() {
     if vf_providers::process::find_program("npm").is_none() {
@@ -412,8 +481,7 @@ fn build_runs_the_recipe_and_keeps_artifacts() {
         serde_json::json!({ "scripts": { "build": script } }).to_string(),
     )
     .unwrap();
-    let mut msgs = vec![];
-    engine.build("demo", &mut |m| msgs.push(m), &Cancel::new());
+    let msgs = build(&engine, "demo");
     assert!(
         matches!(&msgs[0], ServerMessage::Estimate { .. }),
         "{msgs:?}"
@@ -431,11 +499,272 @@ fn build_runs_the_recipe_and_keeps_artifacts() {
     assert!(std::path::Path::new(dir).join("dist/out.txt").exists());
 
     std::fs::remove_file(base.join("projects/demo/package.json")).unwrap();
-    let mut msgs = vec![];
-    engine.build("demo", &mut |m| msgs.push(m), &Cancel::new());
+    let msgs = build(&engine, "demo");
     assert!(
-        matches!(&msgs[..], [ServerMessage::Error { error, .. }] if error.contains("no known way"))
+        matches!(&msgs[..], [ServerMessage::Error { error, code: Some(code) }] if error.contains("no known way") && code == "no_build_recipe")
     );
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+#[test]
+fn a_task_writes_its_session_stream_and_it_replays_from_any_event() {
+    let (base, engine, _) = setup();
+    let mut live = vec![];
+    engine.run_task(task("codex", false), &mut |m| live.push(m), &Cancel::new());
+    let live: Vec<(u64, CanvasEvent)> = live
+        .into_iter()
+        .filter_map(|m| match m {
+            ServerMessage::Canvas { seq, ev, .. } => Some((seq, ev)),
+            _ => None,
+        })
+        .collect();
+    let types: Vec<String> = live
+        .iter()
+        .map(|(_, ev)| {
+            serde_json::to_value(ev).unwrap()["type"]
+                .as_str()
+                .unwrap()
+                .to_owned()
+        })
+        .collect();
+    assert_eq!(types.first().map(String::as_str), Some("task"), "{types:?}");
+    assert_eq!(
+        types.last().map(String::as_str),
+        Some("result"),
+        "{types:?}"
+    );
+    assert!(types.contains(&"stage".to_owned()), "{types:?}");
+    let seqs: Vec<u64> = live.iter().map(|(seq, _)| *seq).collect();
+    assert_eq!(seqs, (1..=seqs.len() as u64).collect::<Vec<_>>());
+
+    // The log holds exactly what was sent live.
+    let replay = engine.canvas("demo", 1).unwrap();
+    assert_eq!(
+        replay
+            .events
+            .iter()
+            .map(|r| (r.seq, r.ev.clone()))
+            .collect::<Vec<_>>(),
+        live
+    );
+    assert_eq!(replay.next, seqs.len() as u64 + 1);
+    let tail = engine.canvas("demo", 3).unwrap();
+    assert_eq!(tail.events.first().map(|r| r.seq), Some(3));
+    assert!(
+        engine
+            .canvas("demo", replay.next)
+            .unwrap()
+            .events
+            .is_empty()
+    );
+    assert!(engine.canvas("nope", 1).is_err());
+
+    // The next run continues the numbering in a new session.
+    run(&engine, task("codex", true));
+    let all = engine.canvas("demo", 1).unwrap().events;
+    assert_eq!(
+        all.get(seqs.len()).map(|r| r.seq),
+        Some(seqs.len() as u64 + 1)
+    );
+    assert_ne!(
+        all.first().map(|r| &r.session),
+        all.last().map(|r| &r.session)
+    );
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+#[test]
+fn a_chosen_offer_is_the_prompt_of_a_kept_offer() {
+    let (base, engine, _) = setup();
+    // Never described: nothing to choose; an unknown project has nothing either.
+    assert_eq!(
+        engine.offer_prompt("demo", 0, None),
+        Err(OfferRejected::NoOffers)
+    );
+    assert_eq!(
+        engine.offer_prompt("../demo", 0, None),
+        Err(OfferRejected::NoOffers)
+    );
+    std::fs::create_dir_all(base.join("state/projects")).unwrap();
+    std::fs::write(
+        base.join("state/projects/demo.map.json"),
+        r#"{"revision":"r","by":"t","parts":[],"links":[],"offers":[
+            {"title":"Tags for notes","text":"Notes can be grouped by tag.","why":"Notes have no grouping."},
+            {"title":"Dark theme","text":"","why":"Only a light theme."}]}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        engine.offer_prompt("demo", 0, None).as_deref(),
+        Ok("Tags for notes\n\nNotes can be grouped by tag.")
+    );
+    assert_eq!(
+        engine
+            .offer_prompt("demo", 1, Some("Dark theme"))
+            .as_deref(),
+        Ok("Dark theme")
+    );
+    assert_eq!(
+        engine.offer_prompt("demo", 2, None),
+        Err(OfferRejected::BadIndex)
+    );
+    // The offers changed since the person saw them: not another offer in its place.
+    assert_eq!(
+        engine.offer_prompt("demo", 0, Some("Dark theme")),
+        Err(OfferRejected::BadIndex)
+    );
+    assert_eq!(
+        engine.offer_prompt("demo", u32::MAX, None),
+        Err(OfferRejected::BadIndex)
+    );
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+#[test]
+fn a_task_reports_its_changes_by_part_in_the_journal_and_the_stream() {
+    let (base, engine, _) = setup();
+    // A map whose part "Notes" covers the file the scripted model writes.
+    std::fs::create_dir_all(base.join("state/projects")).unwrap();
+    std::fs::write(
+        base.join("state/projects/demo.map.json"),
+        r#"{"revision":"r","by":"t","parts":[{"name":"Notes","summary":"","paths":["1.txt"]}],"links":[]}"#,
+    )
+    .unwrap();
+    run(&engine, task("codex", false));
+
+    let journal = engine.journal("demo").unwrap();
+    let artifacts = &journal.entries.last().unwrap().artifacts;
+    assert_eq!(artifacts.len(), 1, "{artifacts:?}");
+    let note = artifacts[0]
+        .files
+        .iter()
+        .find(|f| f.path == "1.txt")
+        .unwrap();
+    assert_eq!(note.node.as_deref(), Some("p1"));
+    assert_eq!(note.diff, ["+x"]);
+    assert!(
+        artifacts[0]
+            .files
+            .iter()
+            .any(|f| f.path == "left.txt" && f.node.is_none())
+    );
+
+    let stream: Vec<CanvasEvent> = engine
+        .canvas("demo", 1)
+        .unwrap()
+        .events
+        .into_iter()
+        .map(|r| r.ev)
+        .collect();
+    assert!(
+        stream.contains(&CanvasEvent::Change {
+            id: "p1".into(),
+            files: vec!["1.txt".into()]
+        }),
+        "{stream:?}"
+    );
+    let Some(CanvasEvent::Result { artifacts, .. }) = stream.last() else {
+        panic!("{stream:?}")
+    };
+    assert_eq!(artifacts.len(), 1);
+    assert_eq!(artifacts[0].nodes, ["p1"]);
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+/// Messages of a rollback of one part: its session stream and any error.
+fn rollback_part(engine: &Engine, id: &str) -> Vec<ServerMessage> {
+    let mut msgs = vec![];
+    engine.rollback_part("demo", id, &mut |m| msgs.push(m));
+    msgs
+}
+
+#[test]
+fn rolling_back_one_part_keeps_the_others_and_is_journaled() {
+    let (base, engine, _) = setup();
+    let dir = base.join("projects/demo");
+    // Each task of the scripted model writes `n.txt` and `left.txt`; `README.md` is the user's.
+    std::fs::create_dir_all(base.join("state/projects")).unwrap();
+    std::fs::write(
+        base.join("state/projects/demo.map.json"),
+        r#"{"revision":"r","by":"t","parts":[{"name":"Notes","summary":"","paths":["1.txt"]},{"name":"Drafts","summary":"","paths":["left.txt"]},{"name":"Archive","summary":"","paths":["2.txt"]},{"name":"Guide","summary":"","paths":["README.md"]}],"links":[]}"#,
+    )
+    .unwrap();
+    assert!(
+        matches!(
+            &rollback_part(&engine, "p1")[..],
+            [ServerMessage::Error { code: Some(c), .. }] if c == "nothing_to_roll_back"
+        ),
+        "no task yet"
+    );
+    run(&engine, task("codex", false));
+    run(&engine, task("codex", false));
+    assert!(matches!(
+        &rollback_part(&engine, "p3")[..],
+        [ServerMessage::Canvas { .. }, ..]
+    ));
+    assert!(!dir.join("2.txt").exists());
+    let msgs = rollback_part(&engine, "p3");
+    assert!(
+        matches!(&msgs[..], [ServerMessage::Error { code: Some(c), .. }] if c == "nothing_to_roll_back"),
+        "{msgs:?}"
+    );
+    assert_eq!(std::fs::read_to_string(dir.join("left.txt")).unwrap(), "2");
+
+    // A file of the part the last task changed returns to how it was before that task.
+    let msgs = rollback_part(&engine, "p2");
+    assert_eq!(std::fs::read_to_string(dir.join("left.txt")).unwrap(), "1");
+    assert!(dir.join("1.txt").exists());
+    let events: Vec<CanvasEvent> = msgs
+        .into_iter()
+        .filter_map(|m| match m {
+            ServerMessage::Canvas { ev, .. } => Some(ev),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        events.first(),
+        Some(&CanvasEvent::Change {
+            id: "p2".into(),
+            files: vec!["left.txt".into()]
+        })
+    );
+    let Some(CanvasEvent::Result { artifacts, .. }) = events.last() else {
+        panic!("{events:?}")
+    };
+    assert_eq!(artifacts[0].nodes, ["p2"]);
+    assert_eq!(artifacts[0].files[0].diff, ["-2", "+1"]);
+
+    let last = engine.journal("demo").unwrap().entries.pop().unwrap();
+    assert_eq!(last.provider, "rollback");
+    assert_eq!(last.commits.len(), 1, "a checkpoint of its own");
+    assert_eq!(last.artifacts[0].files.len(), 1, "{:?}", last.artifacts);
+
+    // Again: nothing left to roll back in this part.
+    assert!(matches!(
+        &rollback_part(&engine, "p2")[..],
+        [ServerMessage::Error { code: Some(c), .. }] if c == "nothing_to_roll_back"
+    ));
+
+    // A file the agent added to a part is removed; the other parts stay.
+    rollback_part(&engine, "p1");
+    assert!(!dir.join("1.txt").exists());
+    assert!(dir.join("README.md").exists());
+    assert_eq!(std::fs::read_to_string(dir.join("left.txt")).unwrap(), "1");
+
+    assert!(
+        matches!(
+            &rollback_part(&engine, "p4")[..],
+            [ServerMessage::Error { code: Some(c), .. }] if c == "nothing_to_roll_back"
+        ),
+        "no task changed it"
+    );
+    assert!(matches!(
+        &rollback_part(&engine, "p9")[..],
+        [ServerMessage::Error { code: Some(c), .. }] if c == "not_found"
+    ));
+    assert!(matches!(
+        &engine.journal("demo").unwrap().entries[..],
+        [_, _, a, b, c] if [a, b, c].iter().all(|e| e.provider == "rollback")
+    ));
     let _ = std::fs::remove_dir_all(&base);
 }
 
@@ -482,6 +811,37 @@ fn viewer_does_not_follow_links_out_of_the_project() {
         engine.read_file("demo", "link.txt"),
         Err(vf_protocol::BackendError::Forbidden(_))
     ));
+}
+
+#[test]
+fn file_tree_lists_what_git_sees_without_secrets() {
+    let (base, engine, _) = setup();
+    let demo = base.join("projects/demo");
+    std::fs::create_dir_all(demo.join("src/ui")).unwrap();
+    std::fs::write(demo.join("src/ui/list.ts"), "x").unwrap();
+    std::fs::write(
+        demo.join(".gitignore"),
+        "build/
+*.log
+",
+    )
+    .unwrap();
+    vf_git::Repo::init_with(demo.clone(), "start").unwrap();
+    // New files show, ignored ones and secret files do not, deleted ones are gone.
+    std::fs::write(demo.join("notes.md"), "new").unwrap();
+    std::fs::create_dir_all(demo.join("build")).unwrap();
+    std::fs::write(demo.join("build/out.js"), "x").unwrap();
+    std::fs::write(demo.join("debug.log"), "x").unwrap();
+    std::fs::write(demo.join(".env"), "TOKEN=x").unwrap();
+    std::fs::remove_file(demo.join("README.md")).unwrap();
+    let r = engine.project_files("demo").unwrap();
+    assert_eq!(r.files, [".gitignore", "notes.md", "src/ui/list.ts"]);
+    assert!(!r.truncated);
+    assert!(matches!(
+        engine.project_files("missing"),
+        Err(vf_protocol::BackendError::NotFound(_))
+    ));
+    let _ = std::fs::remove_dir_all(&base);
 }
 
 #[test]
@@ -568,6 +928,37 @@ fn a_model_draws_the_map_in_plain_words() {
         engine.graph("demo", false).unwrap().source,
         vf_protocol::http::GraphSource::Model
     );
+    // The analysis is in the project's session stream, with the map's part ids.
+    let stream: Vec<serde_json::Value> = engine
+        .canvas("demo", 1)
+        .unwrap()
+        .events
+        .iter()
+        .map(|r| serde_json::to_value(&r.ev).unwrap())
+        .collect();
+    let types: Vec<&str> = stream.iter().map(|v| v["type"].as_str().unwrap()).collect();
+    assert_eq!(
+        types,
+        [
+            "project", "stage", "think", "found", "focus", "insight", "found", "focus", "stage",
+            "touch", "offers", "stage"
+        ]
+    );
+    assert_eq!(stream[2]["text"], "Смотрю, из чего состоит проект");
+    assert_eq!(stream[3]["id"], "p1");
+    assert_eq!(stream[3]["parent"], "root");
+    assert_eq!(stream[3]["files"], serde_json::json!(["README.md"]));
+    assert_eq!(stream[5]["text"], "Short and clear");
+    assert_eq!(
+        stream[9],
+        serde_json::json!({"type": "touch", "from": "p1", "to": "p2"})
+    );
+    assert_eq!(stream[10]["items"][0]["title"], "Dark theme");
+    assert_eq!(
+        stream[10]["items"][1]["source"],
+        serde_json::json!({"kind": "analysis", "text": "Notes stay inside."})
+    );
+    assert_eq!(stream[11]["id"], "summary");
 }
 
 #[test]
@@ -712,10 +1103,7 @@ fn lang_reaches_provider_instruction_and_falls_back_to_os() {
         .expect("system instruction required");
     assert!(last_sys.contains("The user is not a programmer"));
     let os_lang = vf_platform::system_language();
-    match os_lang {
-        vf_core::Language::Ru => assert!(last_sys.contains("Answer in Russian.")),
-        vf_core::Language::En => assert!(last_sys.contains("Answer in English.")),
-    }
+    assert!(last_sys.contains(&vf_core::catalog::lang_rule(os_lang.as_str())));
 
     // 4. Injections (backtick, newline, long string) are rejected and fall back to OS language
     for bad in [
@@ -733,15 +1121,17 @@ fn lang_reaches_provider_instruction_and_falls_back_to_os() {
             .pop()
             .flatten()
             .expect("system instruction required");
-        assert!(!last_sys.contains('`'));
+        // Only the OS language's own rule may quote a code (`de`), never the rejected input.
+        assert!(
+            !last_sys
+                .replace(&vf_core::catalog::lang_rule(os_lang.as_str()), "")
+                .contains('`')
+        );
         assert!(!last_sys.contains('\n'));
         assert!(!last_sys.contains("Ignore"));
         assert!(!last_sys.contains("rm -rf"));
         assert!(!last_sys.contains(&"a".repeat(20)));
-        match os_lang {
-            vf_core::Language::Ru => assert!(last_sys.contains("Answer in Russian.")),
-            vf_core::Language::En => assert!(last_sys.contains("Answer in English.")),
-        }
+        assert!(last_sys.contains(&vf_core::catalog::lang_rule(os_lang.as_str())));
     }
 
     let _ = std::fs::remove_dir_all(&base);

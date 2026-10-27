@@ -43,6 +43,8 @@ jobs:
         run: cargo test --workspace
       - name: Layers
         run: python3 scripts/check_layers.py
+      - name: Dependency sources (crates.io and vibefork-me only, lockfile current)
+        run: python3 scripts/check_sources.py
       - name: Canary (builds leave nothing in the home folder)
         run: cargo test -p vf-engine --test canary -- --ignored
       - name: Dev-only origins (feature on)

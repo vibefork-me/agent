@@ -462,6 +462,9 @@ pub struct JournalEntry {
     /// Prompt version used, if applicable (e.g. `plan:1`, `loop:1`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt_version: Option<String>,
+    /// What the step produced: its changes by file and part, …
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub artifacts: Vec<crate::canvas::Artifact>,
 }
 
 /// Request of `POST /v1/rollback`: reset the project to a checkpoint of its journal.
@@ -504,6 +507,17 @@ pub struct FileResponse {
     pub too_large: bool,
     /// Not UTF-8 text.
     pub binary: bool,
+}
+
+/// `GET /v1/files?project=…`: the files of a project for the editor's file tree.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectFilesResponse {
+    /// Project-relative paths, `/`-separated, sorted: tracked files and new files `.gitignore`
+    /// does not exclude; no git data or files that usually hold secrets.
+    pub files: Vec<String>,
+    /// Some files were left out: too many, or nested too deep.
+    pub truncated: bool,
 }
 
 /// `GET /v1/diff?project=…&path=…`: a file as the project was taken and as it is now.
@@ -554,7 +568,11 @@ pub struct GraphNode {
     /// What the part does, one sentence (model's map only).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
-    /// Number of files in it (including deeper folders shown as their own parts).
+    /// The part this one is a smaller piece of (model's map only: `p1` for `p1.2`); absent — a top
+    /// part. Folders show their nesting by edges.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
+    /// Number of files in it (including deeper folders and pieces shown as their own parts).
     pub files: u32,
     /// Files in it added, changed or deleted since the project was taken.
     pub changed: u32,

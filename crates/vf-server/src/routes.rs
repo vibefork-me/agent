@@ -245,6 +245,31 @@ pub(crate) async fn projects(
     with_backend(state, &headers, &origin.0, |b| b.projects()).await
 }
 
+/// The session stream of a project from event `from` (query: `project`, `from`, default 1).
+pub(crate) async fn canvas(
+    State(state): State<AppState>,
+    Extension(origin): Extension<EffectiveOrigin>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let project = q.get("project").cloned().unwrap_or_default();
+    let from = match q.get("from").map(|f| f.parse::<u64>()) {
+        None => 1,
+        Some(Ok(from)) => from,
+        Some(Err(_)) => return error(StatusCode::BAD_REQUEST, "from must be a number"),
+    };
+    if session_from(&state, &headers, &origin.0).is_none() {
+        return no_session();
+    }
+    if !project_allowed(&state, &headers, &origin.0, &project).await {
+        return error(StatusCode::FORBIDDEN, "no access to this project");
+    }
+    with_backend(state, &headers, &origin.0, move |b| {
+        b.canvas(&project, from)
+    })
+    .await
+}
+
 pub(crate) async fn journal(
     State(state): State<AppState>,
     Extension(origin): Extension<EffectiveOrigin>,
@@ -378,7 +403,7 @@ pub(crate) async fn ai_connect(
         let auth = state.auth.clone();
         let o = origin.0.clone();
         let endpoint_prompt = vf_core::catalog::custom_openai_endpoint_prompt(lang);
-        let endpoint_val = tokio::task::spawn_blocking(move || auth.ask_text(&o, endpoint_prompt))
+        let endpoint_val = tokio::task::spawn_blocking(move || auth.ask_text(&o, &endpoint_prompt))
             .await
             .unwrap_or(None);
 
@@ -410,7 +435,7 @@ pub(crate) async fn ai_connect(
         let confirm_title = vf_core::catalog::confirm_action_title(lang);
         let confirm_text = vf_core::catalog::custom_openai_confirm_text(lang, &o, &clean_endpoint);
         let confirmed = tokio::task::spawn_blocking(move || {
-            auth.dialog().confirm(confirm_title, &confirm_text)
+            auth.dialog().confirm(&confirm_title, &confirm_text)
         })
         .await
         .unwrap_or(false);
@@ -433,7 +458,7 @@ pub(crate) async fn ai_connect(
         let o = origin.0.clone();
         let key_prompt = vf_core::catalog::custom_openai_key_prompt(lang);
         let key_secret =
-            tokio::task::spawn_blocking(move || auth.ask_secret_optional(&o, key_prompt))
+            tokio::task::spawn_blocking(move || auth.ask_secret_optional(&o, &key_prompt))
                 .await
                 .unwrap_or(None);
 
@@ -468,7 +493,7 @@ pub(crate) async fn ai_connect(
             let auth = state.auth.clone();
             let o = origin.0.clone();
             let model_prompt = vf_core::catalog::custom_openai_model_prompt(lang);
-            let model_val = tokio::task::spawn_blocking(move || auth.ask_text(&o, model_prompt))
+            let model_val = tokio::task::spawn_blocking(move || auth.ask_text(&o, &model_prompt))
                 .await
                 .unwrap_or(None);
 
@@ -536,7 +561,7 @@ pub(crate) async fn ai_connect(
         } else {
             vf_core::catalog::openrouter_key_prompt(lang)
         };
-        let secret = tokio::task::spawn_blocking(move || auth.ask_secret(&o, secret_prompt))
+        let secret = tokio::task::spawn_blocking(move || auth.ask_secret(&o, &secret_prompt))
             .await
             .unwrap_or(None);
 
@@ -638,6 +663,26 @@ pub(crate) async fn file(
     .await
 }
 
+/// The files of a project for the file tree; the browser needs access to the project.
+pub(crate) async fn files(
+    State(state): State<AppState>,
+    Extension(origin): Extension<EffectiveOrigin>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let project = q.get("project").cloned().unwrap_or_default();
+    if session_from(&state, &headers, &origin.0).is_none() {
+        return no_session();
+    }
+    if !project_allowed(&state, &headers, &origin.0, &project).await {
+        return error(StatusCode::FORBIDDEN, "no access to this project");
+    }
+    with_backend(state, &headers, &origin.0, move |b| {
+        b.project_files(&project)
+    })
+    .await
+}
+
 /// A project file as taken and as it is now; the browser needs access to the project.
 pub(crate) async fn diff(
     State(state): State<AppState>,
@@ -721,7 +766,7 @@ pub(crate) async fn rollback(
         format!("{} → {}", req.project, req.commit),
     );
     let approved =
-        tokio::task::spawn_blocking(move || auth.confirm_action(&o, prompt, Some(&target)))
+        tokio::task::spawn_blocking(move || auth.confirm_action(&o, &prompt, Some(&target)))
             .await
             .unwrap_or(false);
     if !approved {
@@ -819,7 +864,7 @@ pub(crate) async fn save(
     let lang = auth.dialog().language();
     let prompt = vf_core::catalog::action_save(lang);
     let approved = tokio::task::spawn_blocking(move || {
-        !backend.save_needs_confirm(&p) || auth.confirm_action(&o, prompt, Some(&p))
+        !backend.save_needs_confirm(&p) || auth.confirm_action(&o, &prompt, Some(&p))
     })
     .await
     .unwrap_or(false);

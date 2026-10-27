@@ -10,7 +10,8 @@ can see there are no hidden traps.
 
 ## Code rules
 - No `unsafe` (forbidden by lint). Only `vf-platform` / `vf-sandbox` may use it, each site with a `// SAFETY:` comment.
-- No `unwrap` / `expect` / `panic!` outside tests. Libraries return typed errors (`thiserror`); `anyhow` only in binaries.
+- The agent never panics on input. Outside tests: no `unwrap` / `expect` / `panic!` / `unreachable!` / `todo!` / `unimplemented!`, no byte slicing of strings (`get(..)`, `split_once`, char APIs) — all denied by lint. Tests may unwrap (`clippy.toml`). Libraries return typed errors (`thiserror`); `anyhow` only in binaries.
+- Everything from the network is hostile: read bodies through `vf_core::LimitedBody` with a bound from `vf_core::limits` (never `.json()` / `.text()` / `.bytes()` of a response), index slices of network data with `get()`, size arithmetic is checked or saturating.
 - Untrusted input gets a type: paths → `ProjectPath`, secrets → `Secret<T>`, tokens → `SessionToken`.
 - Domain crates (layer 0–1) do no IO; put IO behind a trait implemented in an adapter crate.
 - Explicit over clever: no macro tricks, no deep generics, no hidden global state.
@@ -20,15 +21,19 @@ can see there are no hidden traps.
 ## Dependencies
 - Add a dependency only with a reason in the PR (what it saves, why not std / an existing crate).
 - Versions live in the root `Cargo.toml` (`[workspace.dependencies]`).
-- `cargo deny check` must pass (licenses, advisories, duplicates).
+- `cargo deny check` must pass (licenses, advisories, duplicates, sources).
+- Dependencies come only from crates.io or git repositories of `vibefork-me`; no `[patch]` / `[replace]`, no source overrides in `.cargo/config*`, `Cargo.lock` committed and current — `python3 scripts/check_sources.py`.
+- Dependabot opens one grouped PR a day per ecosystem (cargo, GitHub Actions); third-party actions are pinned by commit SHA with the version in a comment.
 
 ## Before you open a PR
 ```sh
 cargo fmt --all
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-python3 scripts/check_layers.py
+cargo xtask ci
 ```
+`cargo xtask ci` runs every check CI runs on each PR: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `scripts/check_layers.py`, `scripts/check_sources.py`; it stops at the first failure.
+
+## Version
+The agent version lives only in `[workspace.package] version` of the root `Cargo.toml`; every crate inherits it and `vibefork --version` prints it. `cargo xtask version` shows it, `cargo xtask version set X.Y.Z[-pre]` sets it (and refreshes `Cargo.lock`).
 Protocol types changed → regenerate `schema/`: `VF_UPDATE_SCHEMA=1 cargo test -p vf-server --test schema`.
 
 ## Commits

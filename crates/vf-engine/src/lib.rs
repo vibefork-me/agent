@@ -6,11 +6,16 @@
 //! environment, then a checkpoint and a journal entry (`vf-journal`).
 
 mod build;
+mod canvas;
+mod changes;
 mod files;
 mod github;
 mod graph;
 mod map;
+mod notes;
 mod orchestrate;
+mod program;
+mod rollback;
 mod step;
 
 use std::collections::HashSet;
@@ -19,13 +24,14 @@ use std::sync::{Arc, Mutex};
 
 use vf_core::Secret;
 use vf_git::Repo;
-use vf_journal::JournalStore as _;
-use vf_platform::{JournalFiles, ProjectError, Projects, Settings};
+use vf_journal::{CanvasLog as _, JournalStore as _};
+use vf_platform::{CanvasFiles, JournalFiles, ProjectError, Projects, Settings};
+use vf_protocol::canvas::{CanvasEvent, CanvasResponse, MAX_CANVAS_PAGE, Stage};
 use vf_protocol::http::{
-    AiConnected, AiKind, AiProvider, AiResponse, DescribeRequest, EnvironmentResponse,
-    FileDiffResponse, FileResponse, GithubConnectResponse, GithubStatusResponse, GraphResponse,
-    ImportProgressResponse, ImportRequest, ImportResponse, JournalResponse, ModelsResponse,
-    ProjectInfo, ProjectsResponse, RollbackResponse, SaveRequest, SaveResponse,
+    AiConnected, AiKind, AiProvider, AiResponse, DescribeRequest, FileDiffResponse, FileResponse,
+    GithubConnectResponse, GithubStatusResponse, GraphResponse, ImportRequest, ImportResponse,
+    JournalResponse, ModelsResponse, ProjectFilesResponse, ProjectInfo, ProjectsResponse,
+    RollbackResponse, SaveRequest, SaveResponse,
 };
 use vf_protocol::ws::ServerMessage;
 use vf_protocol::{Backend, BackendError, Cancel, ModelInfo, TaskRequest};
@@ -46,6 +52,7 @@ pub const MAX_DIFF: usize = 200_000;
 pub struct Engine {
     projects: Projects,
     journal: JournalFiles,
+    canvas: CanvasFiles,
     providers: Vec<Arc<dyn Provider>>,
     busy: Mutex<HashSet<String>>,
     simulate_clean_machine: bool,
@@ -55,7 +62,6 @@ pub struct Engine {
     sandbox_helper: Option<PathBuf>,
     state_dir: PathBuf,
     sign_in: github::SignInState,
-    import_state: github::ImportState,
     /// CLIs being installed now.
     installing: Mutex<HashSet<String>>,
 }
@@ -76,6 +82,7 @@ impl Engine {
         Self {
             projects: Projects::new(&settings.storage.projects),
             journal: JournalFiles::new(settings.journal_dir()),
+            canvas: CanvasFiles::new(settings.canvas_dir()),
             providers,
             busy: Mutex::new(HashSet::new()),
             simulate_clean_machine: settings.simulate_clean_machine,
@@ -85,7 +92,6 @@ impl Engine {
             sandbox_helper: None,
             state_dir: settings.state_dir.clone(),
             sign_in: Default::default(),
-            import_state: Default::default(),
             installing: Mutex::new(HashSet::new()),
         }
     }
@@ -127,24 +133,28 @@ impl Engine {
     }
 
     fn task(&self, task: TaskRequest, out: &mut dyn FnMut(ServerMessage), cancel: &Cancel) {
-        let error = |out: &mut dyn FnMut(ServerMessage), e: &str| {
+        let error = |out: &mut dyn FnMut(ServerMessage), e: &str, code: &str| {
             out(ServerMessage::Error {
                 error: e.to_owned(),
-                code: None,
+                code: Some(code.to_owned()),
             })
         };
         let dir = match self.projects.resolve(&task.project) {
             Ok(d) => d,
-            Err(_) => return error(out, "unknown project"),
+            Err(_) => return error(out, "unknown project", "not_found"),
         };
         if task.prompt.trim().is_empty() || task.prompt.chars().count() > MAX_PROMPT {
-            return error(out, &format!("prompt required (≤ {MAX_PROMPT} chars)"));
+            return error(
+                out,
+                &format!("prompt required (≤ {MAX_PROMPT} chars)"),
+                "bad_prompt",
+            );
         }
         let repo = Repo::open(&dir);
         if !repo.is_ready()
             && let Err(e) = Repo::init(&dir)
         {
-            return error(out, &format!("cannot prepare git: {e}"));
+            return error(out, &format!("cannot prepare git: {e}"), "git_failed");
         }
         let provider = task.provider.clone().unwrap_or_else(|| "auto".into());
         let model = task.model.clone().unwrap_or_default();
@@ -155,6 +165,9 @@ impl Engine {
             .and_then(vf_core::catalog::lang_code)
             .map(str::to_owned)
             .unwrap_or_else(|| vf_platform::system_language().as_str().to_owned());
+        // Where the task started: cancelling it while paused goes back here.
+        let start = vf_journal::Vcs::head(&repo).ok();
+        let inbox = notes::Inbox::new(&self.caches, &task.project, &lang);
         let t = Task {
             project: &task.project,
             dir: &dir,
@@ -162,6 +175,7 @@ impl Engine {
             prompt: &task.prompt,
             continue_: task.continue_,
             lang: &lang,
+            inbox: &inbox,
         };
         match provider.as_str() {
             "auto" => self.auto(&t, &inventory, out, cancel),
@@ -173,10 +187,20 @@ impl Engine {
                     } else {
                         &model
                     };
-                    return error(out, &format!("model not available: {provider} {shown}"));
+                    return error(
+                        out,
+                        &format!("model not available: {provider} {shown}"),
+                        "model_unavailable",
+                    );
                 }
                 self.single(&t, &provider, &model, out, cancel);
             }
+        }
+        if cancel.wants_undo()
+            && let Some(start) = start
+            && let Err(e) = repo.reset_hard(&start)
+        {
+            tracing::warn!(project = %task.project, error = %e, "cancelled task not undone");
         }
     }
 
@@ -192,21 +216,23 @@ impl Engine {
         let Some(p) = self.provider(provider).cloned() else {
             return out(ServerMessage::Error {
                 error: format!("unknown provider {provider}"),
-                code: None,
+                code: Some("model_unavailable".into()),
             });
         };
+        orchestrate::think(out, orchestrate::Thought::Task, t.lang);
         let system_instruction = vf_core::catalog::system_instruction(t.lang);
         let req = StepRequest {
             project: t.project,
             dir: t.dir,
             prompt: t.prompt,
             prefix: "",
+            notes: "",
             model,
             continue_: t.continue_,
             step: None,
             system: Some(&system_instruction),
         };
-        let r = self.step(t.repo, p.as_ref(), &req, out, cancel);
+        let r = self.step_noted(t.repo, p.as_ref(), &req, Some(t.inbox), out, cancel);
         if r.cancelled {
             return out(ServerMessage::Cancelled);
         }
@@ -231,7 +257,56 @@ fn project_error(e: ProjectError) -> BackendError {
     }
 }
 
+/// A project held by one run (task, build, analysis); released when dropped.
+pub(crate) struct Hold<'a> {
+    engine: &'a Engine,
+    project: String,
+}
+
+impl Drop for Hold<'_> {
+    fn drop(&mut self) {
+        self.engine
+            .busy
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&self.project);
+    }
+}
+
 impl Engine {
+    /// A build; while the person has paused it, waits, then builds again from the start.
+    fn pausable_build(&self, project: &str, out: &mut dyn FnMut(ServerMessage), cancel: &Cancel) {
+        loop {
+            // The interrupted build's "cancelled" is not the end of a paused build.
+            self.run_build(
+                project,
+                &mut |m| {
+                    if !(matches!(m, ServerMessage::Cancelled) && cancel.is_paused()) {
+                        out(m);
+                    }
+                },
+                cancel,
+            );
+            if !cancel.is_paused() {
+                return;
+            }
+            out(ServerMessage::Paused);
+            if !cancel.wait_resumed() {
+                return out(ServerMessage::Cancelled);
+            }
+            out(ServerMessage::Resumed);
+        }
+    }
+
+    /// Holds a project for one run; `None` while another run holds it.
+    pub(crate) fn hold(&self, project: &str) -> Option<Hold<'_>> {
+        let mut busy = self.busy.lock().unwrap_or_else(|p| p.into_inner());
+        busy.insert(project.to_owned()).then(|| Hold {
+            engine: self,
+            project: project.to_owned(),
+        })
+    }
+
     /// One task, build or rollback per project at a time.
     fn exclusive(
         &self,
@@ -244,7 +319,7 @@ impl Engine {
             if !busy.insert(project.to_owned()) {
                 return out(ServerMessage::Error {
                     error: "a task is already running in this project".into(),
-                    code: None,
+                    code: Some("task_already_running".into()),
                 });
             }
         }
@@ -482,11 +557,92 @@ impl Backend for Engine {
 
     fn run_task(&self, task: TaskRequest, out: &mut dyn FnMut(ServerMessage), cancel: &Cancel) {
         let project = task.project.clone();
-        self.exclusive(&project, out, |out| self.task(task, out, cancel));
+        self.exclusive(&project, out, |out| {
+            if self.projects.resolve(&project).is_err() {
+                return self.task(task, out, cancel);
+            }
+            let mut stream = canvas::Stream::new(&self.canvas, &project, out);
+            stream.emit(CanvasEvent::Task {
+                text: task.prompt.clone(),
+                nodes: Vec::new(),
+            });
+            stream.emit(CanvasEvent::Stage {
+                id: Stage::Understand,
+            });
+            // Steps journaled before this task are not its own.
+            let before = self.journal.read(&project).map(|e| e.len()).unwrap_or(0);
+            self.task(
+                task,
+                &mut |m| {
+                    let step_ended = matches!(
+                        m,
+                        ServerMessage::StepDone { .. } | ServerMessage::Done { plan: false, .. }
+                    );
+                    let task_ended = matches!(m, ServerMessage::Done { .. });
+                    if step_ended || task_ended {
+                        let entries = self.journal.read(&project).unwrap_or_default();
+                        if step_ended
+                            && let Some(last) = entries.get(before..).and_then(<[_]>::last)
+                        {
+                            for ev in changes::change_events(&last.artifacts) {
+                                stream.emit(ev);
+                            }
+                        }
+                        if task_ended {
+                            let own = entries
+                                .into_iter()
+                                .skip(before)
+                                .flat_map(|e| e.artifacts)
+                                .collect();
+                            stream.result_artifacts(changes::merge(own));
+                        }
+                    }
+                    stream.forward(m);
+                },
+                cancel,
+            );
+        });
+    }
+
+    fn offer_prompt(
+        &self,
+        project: &str,
+        index: u32,
+        title: Option<&str>,
+    ) -> Result<String, vf_protocol::OfferRejected> {
+        if self.projects.resolve(project).is_err() {
+            return Err(vf_protocol::OfferRejected::NoOffers);
+        }
+        self.kept_offer_prompt(project, index, title)
+    }
+
+    fn canvas(&self, project: &str, from: u64) -> Result<CanvasResponse, BackendError> {
+        self.projects
+            .resolve(project)
+            .map_err(|_| BackendError::NotFound("unknown project".into()))?;
+        let from = from.max(1);
+        let events = self
+            .canvas
+            .read_from(project, from, MAX_CANVAS_PAGE)
+            .map_err(|e| BackendError::Internal(e.to_string()))?;
+        let next = events.last().map_or(from, |r| r.seq.saturating_add(1));
+        Ok(CanvasResponse { events, next })
     }
 
     fn build(&self, project: &str, out: &mut dyn FnMut(ServerMessage), cancel: &Cancel) {
-        self.exclusive(project, out, |out| self.run_build(project, out, cancel));
+        self.exclusive(project, out, |out| {
+            if self.projects.resolve(project).is_err() {
+                return self.pausable_build(project, out, cancel);
+            }
+            let mut stream = canvas::Stream::new(&self.canvas, project, out);
+            self.pausable_build(project, &mut |m| stream.forward(m), cancel);
+        });
+    }
+
+    fn run_program(&self, project: &str, out: &mut dyn FnMut(ServerMessage), cancel: &Cancel) {
+        self.exclusive(project, out, |out| {
+            self.run_project_program(project, out, cancel);
+        });
     }
 
     fn github_connect(&self) -> Result<GithubConnectResponse, BackendError> {
@@ -499,25 +655,6 @@ impl Backend for Engine {
 
     fn import(&self, req: &ImportRequest) -> Result<ImportResponse, BackendError> {
         self.import_project(req)
-    }
-
-    fn import_progress(&self) -> Result<ImportProgressResponse, BackendError> {
-        Ok(self
-            .import_state
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone())
-    }
-
-    fn environment(&self, project: &str) -> Result<EnvironmentResponse, BackendError> {
-        let dir = self.projects.resolve(project).map_err(project_error)?;
-        let (tools, total_bytes, total_download_bytes) =
-            vf_toolchains::estimate_environment(&dir, &self.tools);
-        Ok(EnvironmentResponse {
-            tools,
-            total_bytes,
-            total_download_bytes,
-        })
     }
 
     fn save_needs_confirm(&self, project: &str) -> bool {
@@ -535,6 +672,10 @@ impl Backend for Engine {
 
     fn read_file(&self, project: &str, path: &str) -> Result<FileResponse, BackendError> {
         self.read_project_file(project, path)
+    }
+
+    fn project_files(&self, project: &str) -> Result<ProjectFilesResponse, BackendError> {
+        self.list_project_files(project)
     }
 
     fn read_diff(&self, project: &str, path: &str) -> Result<FileDiffResponse, BackendError> {
@@ -558,5 +699,36 @@ impl Backend for Engine {
             result = self.reset_to(project, commit)
         });
         result
+    }
+
+    fn rollback_part(&self, project: &str, id: &str, out: &mut dyn FnMut(ServerMessage)) {
+        self.exclusive(project, out, |out| match self.roll_back_part(project, id) {
+            Ok(done) => {
+                let mut stream = canvas::Stream::new(&self.canvas, project, out);
+                stream.emit(CanvasEvent::Change {
+                    id: id.to_owned(),
+                    files: done.files,
+                });
+                stream.emit(CanvasEvent::Result {
+                    text: "Part rolled back".into(),
+                    detail: done.summary,
+                    artifacts: done.artifacts,
+                    kind: Some(vf_protocol::canvas::ResultKind::PartRolledBack),
+                    exit: None,
+                    id: Some(id.to_owned()),
+                });
+            }
+            Err(e) => out(ServerMessage::Error {
+                error: e.to_string(),
+                code: Some(
+                    match e {
+                        BackendError::NotFound(_) => "not_found",
+                        BackendError::BadRequest(_) => "nothing_to_roll_back",
+                        _ => "internal",
+                    }
+                    .into(),
+                ),
+            }),
+        });
     }
 }

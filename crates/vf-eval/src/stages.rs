@@ -87,6 +87,22 @@ pub(crate) struct StageRunResult {
     pub(crate) error: Option<String>,
 }
 
+/// Why the offers of a map answer are not usable: 2 to 4 offers, each with a title, a text and a
+/// reason.
+fn offers_error(v: &serde_json::Value) -> Option<String> {
+    let Some(offers) = v["offers"].as_array() else {
+        return Some("Missing 'offers' array".into());
+    };
+    if !(2..=4).contains(&offers.len()) {
+        return Some(format!("Invalid offers count: {}", offers.len()));
+    }
+    let blank = |o: &serde_json::Value, k: &str| o[k].as_str().is_none_or(|s| s.trim().is_empty());
+    offers
+        .iter()
+        .any(|o| blank(o, "title") || blank(o, "text") || blank(o, "why"))
+        .then(|| "Offer without a title, a text or a reason".into())
+}
+
 /// Takes a snapshot of all file contents in `dir` to detect modifications.
 fn snapshot_dir(dir: &Path) -> BTreeMap<String, Vec<u8>> {
     let mut map = BTreeMap::new();
@@ -127,7 +143,7 @@ pub(crate) fn run_stage(
     match stage {
         EvalStage::Map => {
             let prompt_text = format!(
-                "Write the names and summaries in the language with code `ru`.\n\nPROJECT DATA\n\nFiles:\n{}\n\nREADME:\n{}",
+                "Write the names, summaries, insights and offers in the language with code `ru`.\n\nPROJECT DATA\n\nFiles:\n{}\n\nREADME:\n{}",
                 files.join("\n"),
                 readme
             );
@@ -212,6 +228,8 @@ pub(crate) fn run_stage(
 
                                         if let Some(e) = path_err {
                                             (false, false, Some(e))
+                                        } else if let Some(e) = offers_error(&v) {
+                                            (true, false, Some(e))
                                         } else {
                                             (true, true, None)
                                         }

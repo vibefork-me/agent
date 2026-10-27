@@ -195,6 +195,852 @@
       ],
       "type": "object"
     },
+    "Artifact": {
+      "description": "Something a task produced.",
+      "properties": {
+        "about": {
+          "description": "What it is.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "checks": {
+          "description": "Checks ([`ArtifactKind::Report`]).",
+          "items": {
+            "$ref": "#/components/schemas/ArtifactCheck"
+          },
+          "type": "array"
+        },
+        "files": {
+          "description": "Changed files ([`ArtifactKind::Changes`]).",
+          "items": {
+            "$ref": "#/components/schemas/ArtifactFile"
+          },
+          "type": "array"
+        },
+        "kind": {
+          "$ref": "#/components/schemas/ArtifactKind",
+          "description": "Kind."
+        },
+        "lines": {
+          "description": "Lines ([`ArtifactKind::Log`]).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "name": {
+          "description": "Name shown to the person.",
+          "type": "string"
+        },
+        "nodes": {
+          "description": "Parts it is about.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "path": {
+          "description": "Where it lies, in the person's words.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "size": {
+          "description": "Size, in the person's words (`12 MB`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "name"
+      ],
+      "type": "object"
+    },
+    "ArtifactCheck": {
+      "description": "One check inside a [`ArtifactKind::Report`] artifact.",
+      "properties": {
+        "node": {
+          "description": "The part it is about.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ok": {
+          "description": "Whether it passed.",
+          "type": "boolean"
+        },
+        "text": {
+          "description": "What was checked.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ok",
+        "text"
+      ],
+      "type": "object"
+    },
+    "ArtifactFile": {
+      "description": "A changed file inside a [`ArtifactKind::Changes`] artifact.",
+      "properties": {
+        "diff": {
+          "description": "Changed lines, prefixed with `-` or `+`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "node": {
+          "description": "The part the file belongs to.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "note": {
+          "description": "What changed, in plain words.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "description": "Path inside the project.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "ArtifactKind": {
+      "description": "Kind of a result artifact.",
+      "oneOf": [
+        {
+          "description": "A build output.",
+          "enum": [
+            "build"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A report of the checks.",
+          "enum": [
+            "report"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A copy of the project before the change.",
+          "enum": [
+            "backup"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The changes, file by file.",
+          "enum": [
+            "changes"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The log of the work.",
+          "enum": [
+            "log"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "CanvasEvent": {
+      "description": "What the agent does, as the canvas shows it. Tagged by `type`.",
+      "oneOf": [
+        {
+          "description": "The agent enters a stage.",
+          "properties": {
+            "id": {
+              "$ref": "#/components/schemas/Stage",
+              "description": "The stage."
+            },
+            "type": {
+              "enum": [
+                "stage"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Progress of the current stage (download, tool install, build).",
+          "properties": {
+            "done": {
+              "description": "Done so far, in `unit`.",
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "eta": {
+              "description": "Seconds left.",
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "id": {
+              "description": "The part this work is about.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "text": {
+              "description": "What is being done.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "total": {
+              "description": "Total, in `unit`.",
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "type": {
+              "enum": [
+                "progress"
+              ],
+              "type": "string"
+            },
+            "unit": {
+              "description": "Unit: `bytes`, `files`, `steps`…",
+              "type": "string"
+            }
+          },
+          "required": [
+            "done",
+            "eta",
+            "total",
+            "type",
+            "unit"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Overall time left.",
+          "properties": {
+            "scope": {
+              "$ref": "#/components/schemas/EtaScope",
+              "description": "What is estimated."
+            },
+            "seconds": {
+              "description": "Seconds left.",
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "type": {
+              "enum": [
+                "eta"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "scope",
+            "seconds",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The agent waits for the AI: what it is thinking about, in plain words.",
+          "properties": {
+            "id": {
+              "description": "The part it is about.",
+              "type": "string"
+            },
+            "text": {
+              "description": "The thought.",
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "think"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "text",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The root of the map.",
+          "properties": {
+            "files": {
+              "description": "Files of the node.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "id": {
+              "description": "Node id.",
+              "type": "string"
+            },
+            "label": {
+              "description": "Name.",
+              "type": "string"
+            },
+            "summary": {
+              "description": "What it is.",
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "project"
+              ],
+              "type": "string"
+            },
+            "versionOf": {
+              "description": "Another version (a fork) of this project: the project it is a version of.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "label",
+            "summary",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A part of the project was found.",
+          "properties": {
+            "files": {
+              "description": "Files of the part.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "id": {
+              "description": "Node id.",
+              "type": "string"
+            },
+            "label": {
+              "description": "Name.",
+              "type": "string"
+            },
+            "parent": {
+              "description": "Parent node id.",
+              "type": "string"
+            },
+            "summary": {
+              "description": "What it is.",
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "found"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "label",
+            "parent",
+            "summary",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A smaller piece inside a part.",
+          "properties": {
+            "files": {
+              "description": "Files of the piece.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "id": {
+              "description": "Node id.",
+              "type": "string"
+            },
+            "label": {
+              "description": "Name.",
+              "type": "string"
+            },
+            "parent": {
+              "description": "Parent node id.",
+              "type": "string"
+            },
+            "summary": {
+              "description": "What it is.",
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "subsystem"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "label",
+            "parent",
+            "summary",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The agent looks at a part now.",
+          "properties": {
+            "id": {
+              "description": "Node id.",
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "focus"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The agent moves from one part to another.",
+          "properties": {
+            "from": {
+              "description": "Node id it leaves.",
+              "type": "string"
+            },
+            "to": {
+              "description": "Node id it enters.",
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "touch"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "from",
+            "to",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "What the agent understood about a part, in plain words.",
+          "properties": {
+            "id": {
+              "description": "Node id.",
+              "type": "string"
+            },
+            "text": {
+              "description": "The insight.",
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "insight"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "text",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "What the person can do next, offered when the analysis ends.",
+          "properties": {
+            "items": {
+              "description": "The offers.",
+              "items": {
+                "$ref": "#/components/schemas/Offer"
+              },
+              "type": "array"
+            },
+            "type": {
+              "enum": [
+                "offers"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "items",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The task the person gave.",
+          "properties": {
+            "nodes": {
+              "description": "Parts it is about.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "text": {
+              "description": "The task, in the person's words.",
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "task"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "nodes",
+            "text",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The plan of the task.",
+          "properties": {
+            "steps": {
+              "description": "Step titles.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": {
+              "enum": [
+                "plan"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "steps",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The agent starts a plan step.",
+          "properties": {
+            "index": {
+              "description": "Step index, from 0.",
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "type": {
+              "enum": [
+                "step"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "index",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The agent changed a part.",
+          "properties": {
+            "files": {
+              "description": "Changed files of the part.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "id": {
+              "description": "Node id.",
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "change"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A build or a check finished.",
+          "properties": {
+            "exit": {
+              "description": "Exit code of the check's process.",
+              "format": "int32",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "id": {
+              "description": "The part where a failed check broke.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/CheckKind"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "What was checked."
+            },
+            "ok": {
+              "description": "Whether it passed.",
+              "type": "boolean"
+            },
+            "text": {
+              "description": "What happened, in plain English; an editor words it itself by `kind` when given.",
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "check"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "ok",
+            "text",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The person paused the task; the interrupted step runs again on resume.",
+          "properties": {
+            "type": {
+              "enum": [
+                "paused"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The paused task goes on.",
+          "properties": {
+            "type": {
+              "enum": [
+                "resumed"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The agent took a message of the person into account.",
+          "properties": {
+            "noteId": {
+              "description": "The message.",
+              "type": "string"
+            },
+            "related": {
+              "description": "Parts it is about.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "reply": {
+              "description": "The agent's answer.",
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "note.taken"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "noteId",
+            "related",
+            "reply",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The task ended.",
+          "properties": {
+            "artifacts": {
+              "description": "What the task produced.",
+              "items": {
+                "$ref": "#/components/schemas/Artifact"
+              },
+              "type": "array"
+            },
+            "detail": {
+              "description": "Details, in plain English (for `done` and `failed`: the changed files' summary).",
+              "type": "string"
+            },
+            "exit": {
+              "description": "Exit code of the task (`done` and `failed`).",
+              "format": "int32",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "id": {
+              "description": "The part it is about (`part_rolled_back`).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ResultKind"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "How it ended."
+            },
+            "text": {
+              "description": "The outcome, in plain English; an editor words it itself by `kind` when given.",
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "result"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "detail",
+            "text",
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "CanvasRecord": {
+      "description": "A numbered event of a project's stream, as kept in its event log.",
+      "properties": {
+        "at": {
+          "description": "When, Unix time in milliseconds.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "ev": {
+          "$ref": "#/components/schemas/CanvasEvent",
+          "description": "The event."
+        },
+        "seq": {
+          "description": "Number within the project, from 1, without gaps.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "session": {
+          "description": "The run it belongs to (a task, a build, an analysis).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "at",
+        "ev",
+        "seq",
+        "session"
+      ],
+      "type": "object"
+    },
+    "CanvasResponse": {
+      "description": "Response of `GET /v1/canvas?project=…&from=N[&session=…]`.",
+      "properties": {
+        "events": {
+          "description": "Events with `seq ≥ from`, oldest first, at most [`MAX_CANVAS_PAGE`].",
+          "items": {
+            "$ref": "#/components/schemas/CanvasRecord"
+          },
+          "type": "array"
+        },
+        "next": {
+          "description": "`from` for the next page: one past the last returned event (or `from` when none).",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "events",
+        "next"
+      ],
+      "type": "object"
+    },
     "ChallengeRequest": {
       "description": "`POST /v1/auth/challenge`.",
       "properties": {
@@ -220,6 +1066,18 @@
         "nonce"
       ],
       "type": "object"
+    },
+    "CheckKind": {
+      "description": "What a [`CanvasEvent::Check`] checked.",
+      "oneOf": [
+        {
+          "description": "The project's build (`exit` is its code).",
+          "enum": [
+            "build"
+          ],
+          "type": "string"
+        }
+      ]
     },
     "CliHomeMode": {
       "description": "Where a CLI keeps its sign-in, settings, and sessions.",
@@ -338,7 +1196,27 @@
           "type": "object"
         },
         {
-          "description": "Cancel the running task or build.",
+          "description": "Run the project's program (confirmed in the native dialog); its output comes as `program_log`, the end as `program_done`. `cancel` stops it.",
+          "properties": {
+            "project": {
+              "description": "Project name.",
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "run"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "project",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Cancel the running task or build. While it is paused, its changes are undone as well.",
           "properties": {
             "type": {
               "enum": [
@@ -348,6 +1226,158 @@
             }
           },
           "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A message to the agent while it works; it is taken into account at the next point that allows it (answered with `note.taken`).",
+          "properties": {
+            "attachments": {
+              "default": [],
+              "description": "Attached files or long pasted text.",
+              "items": {
+                "$ref": "#/components/schemas/NoteAttachment"
+              },
+              "type": "array"
+            },
+            "project": {
+              "description": "Project name.",
+              "type": "string"
+            },
+            "text": {
+              "description": "The message.",
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "note"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "project",
+            "text",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Pause the running task or build at once.",
+          "properties": {
+            "type": {
+              "enum": [
+                "stop"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Continue a paused task or build.",
+          "properties": {
+            "type": {
+              "enum": [
+                "resume"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Run a task with what an offer of the analysis suggests (its title and text), like `task`.",
+          "properties": {
+            "continue": {
+              "default": false,
+              "description": "Continue with the history of the project.",
+              "type": "boolean"
+            },
+            "index": {
+              "description": "Index in the last `offers` event of the project.",
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "lang": {
+              "default": null,
+              "description": "Language of the UI/response (`en`, `ru`, …); default is the OS language.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "model": {
+              "default": null,
+              "description": "Model of the provider; empty = its default.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "project": {
+              "description": "Project name.",
+              "type": "string"
+            },
+            "provider": {
+              "default": null,
+              "description": "`auto`, `plan`, or a provider, as in `task`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "title": {
+              "default": null,
+              "description": "Title of the offer as shown; when given, the kept offer at `index` must have it (the offers changed since otherwise: `bad_index`).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "enum": [
+                "choose_offer"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "index",
+            "project",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Undo the changes of one part.",
+          "properties": {
+            "id": {
+              "description": "Node id of the part.",
+              "type": "string"
+            },
+            "project": {
+              "description": "Project name.",
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "rollback_part"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "project",
             "type"
           ],
           "type": "object"
@@ -429,6 +1459,25 @@
         "error"
       ],
       "type": "object"
+    },
+    "EtaScope": {
+      "description": "What an [`CanvasEvent::Eta`] estimates.",
+      "oneOf": [
+        {
+          "description": "The analysis of the project.",
+          "enum": [
+            "analysis"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The running task.",
+          "enum": [
+            "task"
+          ],
+          "type": "string"
+        }
+      ]
     },
     "Event": {
       "description": "A normalized event, tagged by `kind`.",
@@ -859,7 +1908,7 @@
           "type": "integer"
         },
         "files": {
-          "description": "Number of files in it (including deeper folders shown as their own parts).",
+          "description": "Number of files in it (including deeper folders and pieces shown as their own parts).",
           "format": "uint32",
           "minimum": 0.0,
           "type": "integer"
@@ -871,6 +1920,13 @@
         "label": {
           "description": "Name to show; empty for the files no part of a model's map covers (id `other`).",
           "type": "string"
+        },
+        "parent": {
+          "description": "The part this one is a smaller piece of (model's map only: `p1` for `p1.2`); absent — a top part. Folders show their nesting by edges.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "summary": {
           "description": "What the part does, one sentence (model's map only).",
@@ -1034,6 +2090,13 @@
     "JournalEntry": {
       "description": "One journal entry: a task or a plan step.",
       "properties": {
+        "artifacts": {
+          "description": "What the step produced: its changes by file and part, …",
+          "items": {
+            "$ref": "#/components/schemas/Artifact"
+          },
+          "type": "array"
+        },
         "at": {
           "description": "RFC 3339 time.",
           "type": "string"
@@ -1221,6 +2284,102 @@
       ],
       "type": "object"
     },
+    "NoteAttachment": {
+      "description": "A file or text the person attaches to a message.",
+      "properties": {
+        "data": {
+          "description": "Text as is, binary data as base64.",
+          "type": "string"
+        },
+        "mime": {
+          "description": "MIME type (`text/plain`, `image/png`…).",
+          "type": "string"
+        },
+        "name": {
+          "description": "File name, or a short label for pasted text.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "data",
+        "mime",
+        "name"
+      ],
+      "type": "object"
+    },
+    "Offer": {
+      "description": "Something the person can do next.",
+      "properties": {
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/components/schemas/OfferSource"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why it is offered."
+        },
+        "text": {
+          "description": "What it means.",
+          "type": "string"
+        },
+        "title": {
+          "description": "Short title.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "title"
+      ],
+      "type": "object"
+    },
+    "OfferSource": {
+      "description": "Where an offer comes from, in plain words.",
+      "properties": {
+        "kind": {
+          "$ref": "#/components/schemas/OfferSourceKind",
+          "description": "Kind of source."
+        },
+        "text": {
+          "description": "The reason, in the person's words.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "text"
+      ],
+      "type": "object"
+    },
+    "OfferSourceKind": {
+      "description": "Why an offer is made.",
+      "oneOf": [
+        {
+          "description": "Found in the project's code.",
+          "enum": [
+            "analysis"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "What people ask for in similar projects.",
+          "enum": [
+            "similar"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "What is asked in the project's issues.",
+          "enum": [
+            "issues"
+          ],
+          "type": "string"
+        }
+      ]
+    },
     "PairInfo": {
       "description": "One paired browser in `GET /v1/pairs`.",
       "properties": {
@@ -1367,6 +2526,46 @@
       ],
       "type": "object"
     },
+    "ProgramStream": {
+      "description": "The output of a program a line came from.",
+      "oneOf": [
+        {
+          "description": "Standard output.",
+          "enum": [
+            "stdout"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Standard error.",
+          "enum": [
+            "stderr"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "ProjectFilesResponse": {
+      "description": "`GET /v1/files?project=…`: the files of a project for the editor's file tree.",
+      "properties": {
+        "files": {
+          "description": "Project-relative paths, `/`-separated, sorted: tracked files and new files `.gitignore` does not exclude; no git data or files that usually hold secrets.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "truncated": {
+          "description": "Some files were left out: too many, or nested too deep.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "files",
+        "truncated"
+      ],
+      "type": "object"
+    },
     "ProjectInfo": {
       "description": "A project and where its code comes from.",
       "properties": {
@@ -1492,6 +2691,39 @@
         "reason"
       ],
       "type": "object"
+    },
+    "ResultKind": {
+      "description": "How a [`CanvasEvent::Result`] ended: the editor words it in the person's language.",
+      "oneOf": [
+        {
+          "description": "The task finished (exit code 0).",
+          "enum": [
+            "done"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The task failed (`exit` is its code).",
+          "enum": [
+            "failed"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The task was cancelled.",
+          "enum": [
+            "cancelled"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "One part was rolled back (`id` is the part).",
+          "enum": [
+            "part_rolled_back"
+          ],
+          "type": "string"
+        }
+      ]
     },
     "RevokeRequest": {
       "description": "`POST /v1/pairs/revoke`.",
@@ -2018,6 +3250,36 @@
           "type": "object"
         },
         {
+          "description": "The task is paused (`stop`): the step in progress was interrupted; `resume` runs it again, `cancel` ends the task and undoes its changes.",
+          "properties": {
+            "type": {
+              "enum": [
+                "paused"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The paused task goes on: the interrupted step runs again.",
+          "properties": {
+            "type": {
+              "enum": [
+                "resumed"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
           "description": "The task was cancelled.",
           "properties": {
             "type": {
@@ -2184,17 +3446,118 @@
           "type": "object"
         },
         {
+          "description": "A line of the running program's output (at most 4 KiB; at most 1 MiB in all per run).",
+          "properties": {
+            "stream": {
+              "$ref": "#/components/schemas/ProgramStream",
+              "description": "Which output the line came from."
+            },
+            "text": {
+              "description": "Text.",
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "program_log"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "stream",
+            "text",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The program ended.",
+          "properties": {
+            "code": {
+              "description": "Exit code (0 = success; -1 — no code, e.g. killed by a signal).",
+              "format": "int32",
+              "type": "integer"
+            },
+            "cut": {
+              "description": "Some output was cut: a line too long, or more output than is sent.",
+              "type": "boolean"
+            },
+            "seconds": {
+              "description": "Seconds it ran.",
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "enum": [
+                "program_done"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "cut",
+            "seconds",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A numbered event of the project's session stream (see [`crate::canvas`]).",
+          "properties": {
+            "at": {
+              "description": "When, Unix time in milliseconds.",
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "ev": {
+              "$ref": "#/components/schemas/CanvasEvent",
+              "description": "The event."
+            },
+            "project": {
+              "description": "Project.",
+              "type": "string"
+            },
+            "seq": {
+              "description": "Number within the project, from 1, without gaps.",
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "session": {
+              "description": "The run it belongs to.",
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "canvas"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "at",
+            "ev",
+            "project",
+            "seq",
+            "session",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
           "description": "An error; for auth errors the connection is closed after it.",
           "properties": {
             "code": {
-              "description": "Machine-readable error code.",
+              "description": "Machine-readable error code. Of a task or a build: `not_found` (unknown project), `bad_prompt` (empty or too long), `model_unavailable`, `no_models`, `no_model_for_step`, `planning_failed`, `plan_stopped` (a plan step failed), `git_failed`, `task_already_running`, `no_build_recipe`, `not_enough_resources`, `build_start_failed`.",
               "type": [
                 "string",
                 "null"
               ]
             },
             "error": {
-              "description": "Reason.",
+              "description": "Reason, in plain English; an editor words it itself by `code` when it knows the code.",
               "type": "string"
             },
             "type": {
@@ -2254,6 +3617,81 @@
         "token"
       ],
       "type": "object"
+    },
+    "Stage": {
+      "description": "A stage of the analysis (`download` … `summary`) or of a task (`understand` … `done`).",
+      "oneOf": [
+        {
+          "description": "Analysis: the project is being downloaded.",
+          "enum": [
+            "download"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Analysis: what the project consists of.",
+          "enum": [
+            "parts"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Analysis: how the parts are linked.",
+          "enum": [
+            "links"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Analysis: tools for the build are being prepared.",
+          "enum": [
+            "tools"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Analysis: what can be done with the project.",
+          "enum": [
+            "summary"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Task: understanding the task.",
+          "enum": [
+            "understand"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Task: making a plan.",
+          "enum": [
+            "plan"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Task: changing the project.",
+          "enum": [
+            "change"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Task: building and checking.",
+          "enum": [
+            "check"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Task: finished.",
+          "enum": [
+            "done"
+          ],
+          "type": "string"
+        }
+      ]
     },
     "StepInfo": {
       "description": "Position of a step in a plan.",

@@ -101,6 +101,14 @@ pub const ROUTES: &[Route] = &[
     },
     Route {
         method: "GET",
+        path: "/v1/canvas",
+        summary: "Session stream of a project from event `from` (query: project, from) — replay after a reload",
+        request: None,
+        response: Some("CanvasResponse"),
+        session: true,
+    },
+    Route {
+        method: "GET",
         path: "/v1/ai",
         summary: "Whether AI is connected, per way to connect it (subscription CLIs, free models)",
         request: None,
@@ -137,6 +145,14 @@ pub const ROUTES: &[Route] = &[
         summary: "A project file for the code viewer (?project=&path=); read-only, at most 2 MiB, no git data or secret files",
         request: None,
         response: Some("FileResponse"),
+        session: true,
+    },
+    Route {
+        method: "GET",
+        path: "/v1/files",
+        summary: "Files of a project for the file tree (?project=): `.gitignore` respected, no git data or secret files; bounded, `truncated` when files were left out",
+        request: None,
+        response: Some("ProjectFilesResponse"),
         session: true,
     },
     Route {

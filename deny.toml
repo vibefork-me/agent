@@ -9,9 +9,6 @@ yanked = "deny"
 ignore = [
     # Unmaintained (no known vulnerability); pulled in only on Linux by the tray: tray-icon → gtk 0.18 → glib macros.
     { id = "RUSTSEC-2024-0370", reason = "Linux tray only (gtk 0.18); replaced when tray-icon moves to gtk4" },
-    # crypto-bigint 0.5 (via p256 0.13 → elliptic-curve): timing variability on secret integers. vf-auth only verifies
-    # browser ECDSA signatures (public key, signature and challenge are public); no secret scalar is used outside tests.
-    { id = "RUSTSEC-2026-0387", reason = "verify-only use of p256: no secret integers; upgrade when p256 moves to crypto-bigint 0.7" },
 ]
 
 [licenses]
@@ -36,3 +33,5 @@ allow-wildcard-paths = true
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
+# Git dependencies only from our own organization.
+allow-org = { github = ["vibefork-me"] }

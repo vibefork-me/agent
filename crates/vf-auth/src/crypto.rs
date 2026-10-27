@@ -2,7 +2,6 @@
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use p256::EncodedPoint;
 use p256::ecdsa::signature::Verifier as _;
 use p256::ecdsa::{Signature, VerifyingKey};
 use rand::rngs::OsRng;
@@ -19,8 +18,11 @@ pub(crate) fn verifying_key(jwk: &PublicJwk) -> Result<VerifyingKey, AuthError> 
     }
     let x = decode_coordinate(&jwk.x)?;
     let y = decode_coordinate(&jwk.y)?;
-    let point = EncodedPoint::from_affine_coordinates(&x.into(), &y.into(), false);
-    VerifyingKey::from_encoded_point(&point).map_err(|_| AuthError::BadKey)
+    let mut sec1 = [0u8; 65];
+    sec1[0] = 0x04;
+    sec1[1..33].copy_from_slice(&x);
+    sec1[33..65].copy_from_slice(&y);
+    VerifyingKey::from_sec1_bytes(&sec1).map_err(|_| AuthError::BadKey)
 }
 
 fn decode_coordinate(b64: &str) -> Result<[u8; 32], AuthError> {

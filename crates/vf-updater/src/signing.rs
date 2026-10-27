@@ -49,6 +49,9 @@ pub enum SignatureError {
     /// The subkey certificate's expiry has passed.
     #[error("subkey certificate expired")]
     SubkeyCertExpired,
+    /// A subkey certificate is required, but missing. Direct signing with root key is rejected.
+    #[error("subkey certificate missing")]
+    SubkeyCertMissing,
     /// The subkey certificate has an unsupported or unexpected purpose.
     #[error("subkey certificate purpose mismatch")]
     SubkeyCertMismatch,

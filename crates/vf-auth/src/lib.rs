@@ -159,7 +159,7 @@ impl Auth {
         let title = vf_core::catalog::pair_title(lang);
         let text = vf_core::catalog::pair_text(lang, &origin, &name, &code);
         std::thread::spawn(move || {
-            let allowed = me.dialog.confirm(title, &text);
+            let allowed = me.dialog.confirm(&title, &text);
             let saved = allowed
                 && me
                     .store
@@ -270,7 +270,7 @@ impl Auth {
         let title = vf_core::catalog::confirm_action_title(lang);
         let text =
             vf_core::catalog::confirm_action_text(lang, origin, &action, target_clean.as_deref());
-        self.dialog.confirm(title, &text)
+        self.dialog.confirm(&title, &text)
     }
 
     /// Asks the user for a secret in the native dialog with input masked. Blocks.
@@ -279,7 +279,7 @@ impl Auth {
         let prompt = vf_core::dialog_field(prompt, 200);
         let title = vf_core::catalog::ask_secret_title(lang);
         let text = vf_core::catalog::ask_secret_text(lang, origin, &prompt);
-        self.dialog.ask_secret(title, &text)
+        self.dialog.ask_secret(&title, &text)
     }
 
     /// Asks the user for a text input in the native dialog unmasked. Blocks.
@@ -288,7 +288,7 @@ impl Auth {
         let prompt = vf_core::dialog_field(prompt, 200);
         let title = vf_core::catalog::ask_text_title(lang);
         let text = vf_core::catalog::ask_text_text(lang, origin, &prompt);
-        self.dialog.ask_text(title, &text)
+        self.dialog.ask_text(&title, &text)
     }
 
     /// Asks the user for a secret in the native dialog with input masked, allowing empty input. Blocks.
@@ -297,7 +297,7 @@ impl Auth {
         let prompt = vf_core::dialog_field(prompt, 200);
         let title = vf_core::catalog::ask_secret_title(lang);
         let text = vf_core::catalog::ask_secret_text(lang, origin, &prompt);
-        self.dialog.ask_secret_optional(title, &text)
+        self.dialog.ask_secret_optional(&title, &text)
     }
 
     /// The native confirm dialog.
@@ -321,7 +321,7 @@ impl Auth {
         let title = vf_core::catalog::project_access_title(lang);
         let text =
             vf_core::catalog::project_access_text(lang, &origin_clean, &name_clean, &project_shown);
-        let allowed = self.dialog.confirm(title, &text);
+        let allowed = self.dialog.confirm(&title, &text);
         allowed && self.store.add_project(key_id, project).is_ok()
     }
 
@@ -356,7 +356,6 @@ fn now_secs() -> u64 {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use std::sync::Mutex;

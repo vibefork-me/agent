@@ -62,23 +62,21 @@ impl UiBundle {
             .map_err(|_| SignatureError::BadSignature)?;
         let cert_json = fetch_optional(&client, &format!("{base}/subkey.cert.json")).await?;
         let cert_sig = fetch_optional(&client, &format!("{base}/subkey.cert.sig")).await?;
-        let cert = match (cert_json, cert_sig) {
-            (None, None) => None,
+        let (cert_json, cert_sig, subkey) = match (cert_json, cert_sig) {
             (Some(cert_json), Some(cert_sig)) => {
-                let cert_sig =
+                let cert_sig_str =
                     String::from_utf8(cert_sig).map_err(|_| SignatureError::BadSignature)?;
-                let subkey = verify_subkey_cert(&cert_json, &cert_sig, key)?;
+                let subkey = verify_subkey_cert(&cert_json, &cert_sig_str, key)?;
                 let cert: SubkeyCert =
                     serde_json::from_slice(&cert_json).map_err(|_| SignatureError::BadManifest)?;
                 if cert.purpose != "bundle" {
                     return Err(SignatureError::SubkeyCertMismatch.into());
                 }
-                Some((cert_json, cert_sig, subkey))
+                (cert_json, cert_sig_str, subkey)
             }
-            _ => return Err(SignatureError::SubkeyCertMismatch.into()),
+            _ => return Err(SignatureError::SubkeyCertMissing.into()),
         };
-        let manifest_key = cert.as_ref().map(|(_, _, subkey)| subkey).unwrap_or(key);
-        let manifest = verify_manifest(&manifest_bytes, &signature, manifest_key)?;
+        let manifest = verify_manifest(&manifest_bytes, &signature, &subkey)?;
         check_fresh(&manifest)?;
 
         if let Ok(current) = std::fs::read_to_string(cache_dir.join("current")) {
@@ -105,8 +103,12 @@ impl UiBundle {
             version: manifest.version.clone(),
             files,
         };
-        let cert = cert.map(|(json, sig, _)| (json, sig));
-        bundle.save(cache_dir, &manifest_bytes, &signature, cert)?;
+        bundle.save(
+            cache_dir,
+            &manifest_bytes,
+            &signature,
+            (cert_json, cert_sig),
+        )?;
         Ok(bundle)
     }
 
@@ -116,22 +118,14 @@ impl UiBundle {
         let dir = cache_dir.join(current.trim());
         let manifest_bytes = std::fs::read(dir.join("manifest.json")).ok()?;
         let signature = std::fs::read_to_string(dir.join("manifest.sig")).ok()?;
-        let cert_json = std::fs::read(dir.join("subkey.cert.json")).ok();
-        let cert_sig = std::fs::read_to_string(dir.join("subkey.cert.sig")).ok();
-        let subkey = match (cert_json, cert_sig) {
-            (None, None) => None,
-            (Some(cert_json), Some(cert_sig)) => {
-                let subkey = verify_subkey_cert(&cert_json, &cert_sig, key).ok()?;
-                let cert: SubkeyCert = serde_json::from_slice(&cert_json).ok()?;
-                if cert.purpose != "bundle" {
-                    return None;
-                }
-                Some(subkey)
-            }
-            _ => return None,
-        };
-        let manifest_key = subkey.as_ref().unwrap_or(key);
-        let manifest: Manifest = verify_manifest(&manifest_bytes, &signature, manifest_key).ok()?;
+        let cert_json = std::fs::read(dir.join("subkey.cert.json")).ok()?;
+        let cert_sig = std::fs::read_to_string(dir.join("subkey.cert.sig")).ok()?;
+        let subkey = verify_subkey_cert(&cert_json, &cert_sig, key).ok()?;
+        let cert: SubkeyCert = serde_json::from_slice(&cert_json).ok()?;
+        if cert.purpose != "bundle" {
+            return None;
+        }
+        let manifest: Manifest = verify_manifest(&manifest_bytes, &signature, &subkey).ok()?;
         let mut files = HashMap::new();
         for path in manifest.files.keys() {
             let bytes = std::fs::read(dir.join(path)).ok()?;
@@ -149,7 +143,7 @@ impl UiBundle {
         cache_dir: &Path,
         manifest_bytes: &[u8],
         signature: &str,
-        cert: Option<(Vec<u8>, String)>,
+        cert: (Vec<u8>, String),
     ) -> std::io::Result<()> {
         let version: String = self
             .version
@@ -170,21 +164,8 @@ impl UiBundle {
         }
         std::fs::write(dir.join("manifest.json"), manifest_bytes)?;
         std::fs::write(dir.join("manifest.sig"), signature)?;
-        match cert {
-            Some((cert_json, cert_sig)) => {
-                std::fs::write(dir.join("subkey.cert.json"), cert_json)?;
-                std::fs::write(dir.join("subkey.cert.sig"), cert_sig)?;
-            }
-            None => {
-                for path in ["subkey.cert.json", "subkey.cert.sig"] {
-                    match std::fs::remove_file(dir.join(path)) {
-                        Ok(()) => {}
-                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                        Err(error) => return Err(error),
-                    }
-                }
-            }
-        }
+        std::fs::write(dir.join("subkey.cert.json"), cert.0)?;
+        std::fs::write(dir.join("subkey.cert.sig"), cert.1)?;
         std::fs::write(cache_dir.join("current"), version)
     }
 }
@@ -201,11 +182,9 @@ async fn fetch(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, BundleErr
             res.status()
         )));
     }
-    Ok(res
-        .bytes()
+    crate::read_file(res)
         .await
-        .map_err(|e| BundleError::Download(e.to_string()))?
-        .to_vec())
+        .map_err(|e| BundleError::Download(format!("{url}: {e}")))
 }
 
 async fn fetch_optional(
@@ -226,12 +205,10 @@ async fn fetch_optional(
             res.status()
         )));
     }
-    Ok(Some(
-        res.bytes()
-            .await
-            .map_err(|e| BundleError::Download(e.to_string()))?
-            .to_vec(),
-    ))
+    crate::read_file(res)
+        .await
+        .map(Some)
+        .map_err(|e| BundleError::Download(format!("{url}: {e}")))
 }
 
 /// Content type by file extension.

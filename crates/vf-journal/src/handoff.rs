@@ -68,6 +68,7 @@ mod tests {
             cost_usd: None,
             usage: None,
             prompt_version: None,
+            artifacts: Vec::new(),
         }
     }
 

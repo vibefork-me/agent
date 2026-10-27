@@ -23,10 +23,12 @@ use vf_github::{
     install_url_any, installation_url, new_repo_url, parse_repo,
 };
 use vf_journal::{JournalStore as _, Vcs as _};
+use vf_protocol::canvas::{CanvasEvent, Stage};
 use vf_protocol::http::{
-    ForeignChanges, GithubConnectResponse, GithubStatusResponse, ImportProgressResponse,
-    ImportStatus, ImportRequest, ImportResponse, SaveRequest, SaveResponse, SaveStep,
+    ForeignChanges, GithubConnectResponse, GithubStatusResponse, ImportRequest, ImportResponse,
+    SaveRequest, SaveResponse, SaveStep,
 };
+use vf_protocol::ws::ServerMessage;
 use vf_protocol::{BackendError, Cancel};
 
 use crate::Engine;
@@ -261,14 +263,6 @@ impl Engine {
         &self,
         req: &ImportRequest,
     ) -> Result<ImportResponse, BackendError> {
-        {
-            let mut state = self.import_state.lock().unwrap_or_else(|e| e.into_inner());
-            *state = ImportProgressResponse {
-                status: ImportStatus::Resolving,
-                repo: Some(req.repo.clone()),
-                ..Default::default()
-            };
-        }
         let upstream = parse_repo(&req.repo)
             .ok_or_else(|| BackendError::BadRequest("not a GitHub project (owner/name)".into()))?;
         let git_ref = match req
@@ -314,37 +308,7 @@ impl Engine {
         let foreign = (matches!(git_ref, Some(GitRef::Pull(_)))
             || !original.eq_ignore_ascii_case(&info.full_name))
         .then(|| foreign_changes(&client, &original, &info, git_ref.as_ref()));
-
-        let size_hint = info.size_kib.map(|k| k * 1024);
-        let import_state = self.import_state.clone();
-        let archive = match client.tarball_with_progress(
-            &info.full_name,
-            &sha,
-            size_hint,
-            &mut |p| {
-                if let Ok(mut state) = import_state.lock() {
-                    state.status = ImportStatus::Downloading;
-                    state.downloaded_bytes = Some(p.downloaded_bytes);
-                    state.total_bytes = p.total_bytes;
-                    state.bytes_per_second = Some(p.bytes_per_second);
-                    state.eta_seconds = p.eta_seconds;
-                }
-            },
-        ) {
-            Ok(a) => a,
-            Err(e) => {
-                let err = gh(e);
-                if let Ok(mut state) = self.import_state.lock() {
-                    state.status = ImportStatus::Failed;
-                    state.error = Some(format!("{err:?}"));
-                }
-                return Err(err);
-            }
-        };
-
-        if let Ok(mut state) = self.import_state.lock() {
-            state.status = ImportStatus::Extracting;
-        }
+        let archive = client.tarball(&info.full_name, &sha).map_err(gh)?;
         let base = info
             .full_name
             .split('/')
@@ -379,7 +343,7 @@ impl Engine {
             &format!(
                 "vibefork: start from {}@{}",
                 info.full_name,
-                &sha[..7.min(sha.len())]
+                sha.get(..7).unwrap_or(&sha)
             ),
         )
         .map_err(|e| BackendError::Internal(e.0))?;
@@ -395,11 +359,22 @@ impl Engine {
                 ..ProjectMeta::default()
             },
         )?;
-        if let Ok(mut state) = self.import_state.lock() {
-            state.status = ImportStatus::Ready;
-            state.downloaded_bytes = Some(archive.len() as u64);
-            state.total_bytes = Some(archive.len() as u64);
-            state.eta_seconds = Some(0.0);
+        // The project's session stream starts with its download.
+        if let Some(_hold) = self.hold(&name) {
+            let size = u64::try_from(archive.len()).unwrap_or(u64::MAX);
+            let mut sink = |_: ServerMessage| {};
+            let mut stream = crate::canvas::Stream::new(&self.canvas, &name, &mut sink);
+            stream.emit(CanvasEvent::Stage {
+                id: Stage::Download,
+            });
+            stream.emit(CanvasEvent::Progress {
+                done: size,
+                total: size,
+                unit: "bytes".into(),
+                eta: 0,
+                text: None,
+                id: None,
+            });
         }
         Ok(ImportResponse {
             project: name,
@@ -766,10 +741,8 @@ impl LowercaseFirst for str {
 }
 
 pub(crate) type SignInState = Arc<Mutex<SignIn>>;
-pub(crate) type ImportState = Arc<Mutex<ImportProgressResponse>>;
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
