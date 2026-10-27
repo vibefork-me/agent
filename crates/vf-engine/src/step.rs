@@ -11,6 +11,7 @@ use vf_providers::{ChildEnv, Output, Provider, RunRequest};
 use vf_sandbox::IsolationLevel;
 use vf_toolchains::Progress;
 
+use crate::notes::Inbox;
 use crate::{Engine, MAX_DIFF};
 
 /// `PATH` entries hidden by the clean-machine simulation.
@@ -27,6 +28,8 @@ pub struct StepRequest<'a> {
     pub prompt: &'a str,
     /// Text put before the prompt (plan context).
     pub prefix: &'a str,
+    /// Text put after the prompt: messages of the person taken during the task.
+    pub notes: &'a str,
     /// Model.
     pub model: &'a str,
     /// Continue with the project's history.
@@ -232,9 +235,39 @@ impl Engine {
         out: &mut dyn FnMut(ServerMessage),
         cancel: &Cancel,
     ) -> StepResult {
+        self.step_noted(repo, provider, req, None, out, cancel)
+    }
+
+    /// [`Engine::step_pausable`] that takes the person's messages before the step and before it
+    /// runs again; every message taken so far goes after the step's prompt.
+    pub(crate) fn step_noted(
+        &self,
+        repo: &Repo,
+        provider: &dyn Provider,
+        req: &StepRequest<'_>,
+        inbox: Option<&Inbox>,
+        out: &mut dyn FnMut(ServerMessage),
+        cancel: &Cancel,
+    ) -> StepResult {
         let mut req = *req;
         loop {
-            let r = self.step(repo, provider, &req, out, cancel);
+            let notes = match inbox {
+                Some(inbox) => {
+                    inbox.pick_up(cancel, out);
+                    format!("{}{}", req.notes, inbox.addendum())
+                }
+                None => req.notes.to_owned(),
+            };
+            let r = self.step(
+                repo,
+                provider,
+                &StepRequest {
+                    notes: &notes,
+                    ..req
+                },
+                out,
+                cancel,
+            );
             if !cancel.is_paused() {
                 return r;
             }
@@ -261,7 +294,7 @@ impl Engine {
         let journal = self.journal.read(req.project).unwrap_or_default();
         let mut resume = None;
         let mut handoff = false;
-        let mut prompt = format!("{}{}", req.prefix, req.prompt);
+        let mut prompt = format!("{}{}{}", req.prefix, req.prompt, req.notes);
         if req.continue_
             && let Some(last) = journal.last()
         {

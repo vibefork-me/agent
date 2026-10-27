@@ -3975,6 +3975,7 @@ dependencies = [
 name = "vf-engine"
 version = "0.0.0"
 dependencies = [
+ "base64 0.22.1",
  "serde",
  "serde_json",
  "tracing",

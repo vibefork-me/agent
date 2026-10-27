@@ -12,6 +12,7 @@ mod files;
 mod github;
 mod graph;
 mod map;
+mod notes;
 mod orchestrate;
 mod step;
 
@@ -160,6 +161,7 @@ impl Engine {
             .unwrap_or_else(|| vf_platform::system_language().as_str().to_owned());
         // Where the task started: cancelling it while paused goes back here.
         let start = vf_journal::Vcs::head(&repo).ok();
+        let inbox = notes::Inbox::new(&self.caches, &task.project, &lang);
         let t = Task {
             project: &task.project,
             dir: &dir,
@@ -167,6 +169,7 @@ impl Engine {
             prompt: &task.prompt,
             continue_: task.continue_,
             lang: &lang,
+            inbox: &inbox,
         };
         match provider.as_str() {
             "auto" => self.auto(&t, &inventory, out, cancel),
@@ -212,12 +215,13 @@ impl Engine {
             dir: t.dir,
             prompt: t.prompt,
             prefix: "",
+            notes: "",
             model,
             continue_: t.continue_,
             step: None,
             system: Some(&system_instruction),
         };
-        let r = self.step_pausable(t.repo, p.as_ref(), &req, out, cancel);
+        let r = self.step_noted(t.repo, p.as_ref(), &req, Some(t.inbox), out, cancel);
         if r.cancelled {
             return out(ServerMessage::Cancelled);
         }
