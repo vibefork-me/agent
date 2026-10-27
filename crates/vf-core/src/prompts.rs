@@ -169,16 +169,14 @@ pub fn embedded_raw(stage: Stage) -> &'static str {
 pub fn parse_prompt(raw: &str) -> Result<Prompt, PromptParseError> {
     let normalized = raw.replace("\r\n", "\n");
     let trimmed = normalized.trim_start();
-    if !trimmed.starts_with("---") {
+    let Some(after_open) = trimmed.strip_prefix("---") else {
         return Err(PromptParseError::InvalidFrontmatter);
-    }
-    let after_open = &trimmed[3..];
+    };
     let after_open = after_open.strip_prefix('\n').unwrap_or(after_open);
-    let Some(closing_pos) = after_open.find("\n---") else {
+    let Some((header_str, rest)) = after_open.split_once("\n---") else {
         return Err(PromptParseError::InvalidFrontmatter);
     };
 
-    let header_str = &after_open[..closing_pos];
     let mut stage = None;
     let mut version = None;
     let mut when = None;
@@ -221,7 +219,6 @@ pub fn parse_prompt(raw: &str) -> Result<Prompt, PromptParseError> {
     let output = output.unwrap_or_default();
 
     // Body is everything after \n---\n
-    let rest = &after_open[closing_pos + 4..];
     let body = rest.strip_prefix('\n').unwrap_or(rest);
     let body = body.strip_suffix('\n').unwrap_or(body);
 
@@ -238,12 +235,21 @@ pub fn parse_prompt(raw: &str) -> Result<Prompt, PromptParseError> {
     })
 }
 
-/// Retrieves the embedded built-in prompt for a given stage.
+/// Retrieves the embedded built-in prompt for a given stage. Embedded prompts are validated by
+/// tests; should one still fail to parse, its whole text is the template (version 0).
 pub fn get(stage: Stage) -> Prompt {
-    match parse_prompt(embedded_raw(stage)) {
-        Ok(p) => p,
-        Err(_) => unreachable!("embedded prompt is validated by tests"),
-    }
+    let raw = embedded_raw(stage);
+    parse_prompt(raw).unwrap_or_else(|_| Prompt {
+        header: PromptHeader {
+            stage,
+            version: 0,
+            when: String::new(),
+            model: String::new(),
+            input: String::new(),
+            output: String::new(),
+        },
+        template: raw.to_owned(),
+    })
 }
 
 /// Looks up an embedded prompt by stage name.
@@ -257,7 +263,6 @@ pub fn all() -> Vec<Prompt> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

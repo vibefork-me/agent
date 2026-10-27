@@ -7,7 +7,7 @@ use serde_json::Value;
 use vf_core::Secret;
 use vf_protocol::Cancel;
 
-use crate::{CLIENT_ID, GithubError, Tokens, block_on, http, now};
+use crate::{CLIENT_ID, GithubError, Tokens, block_on, http, now, read_json};
 
 /// A started sign-in.
 #[derive(Debug)]
@@ -33,9 +33,7 @@ fn form(url: &str, params: &[(&str, &str)]) -> Result<Value, GithubError> {
             .send()
             .await
             .map_err(|e| GithubError::Http(e.to_string()))?;
-        res.json::<Value>()
-            .await
-            .map_err(|e| GithubError::Http(e.to_string()))
+        read_json(res).await
     })?
 }
 

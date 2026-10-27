@@ -18,7 +18,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use vf_core::Secret;
+use vf_core::{LimitedBody, Secret, limits};
 
 pub use archive::extract;
 pub use changes::{ChangedFiles, GitRef, is_binary, is_build_script, is_dependency_file};
@@ -189,6 +189,27 @@ fn block_on<F: Future>(f: F) -> Result<F::Output, GithubError> {
     }
 }
 
+/// Reads a response body of at most `limit` bytes ([`vf_core::limits`]).
+async fn read_body(mut res: reqwest::Response, limit: usize) -> Result<Vec<u8>, GithubError> {
+    let mut body = LimitedBody::new(limit, res.content_length())
+        .map_err(|e| GithubError::Data(e.to_string()))?;
+    while let Some(chunk) = res
+        .chunk()
+        .await
+        .map_err(|e| GithubError::Http(e.to_string()))?
+    {
+        body.push(&chunk)
+            .map_err(|e| GithubError::Data(e.to_string()))?;
+    }
+    Ok(body.into_vec())
+}
+
+/// Reads a JSON body of at most [`limits::API_RESPONSE`] bytes.
+async fn read_json(res: reqwest::Response) -> Result<Value, GithubError> {
+    let bytes = read_body(res, limits::API_RESPONSE).await?;
+    serde_json::from_slice(&bytes).map_err(|e| GithubError::Data(e.to_string()))
+}
+
 fn http() -> Result<reqwest::Client, GithubError> {
     reqwest::Client::builder()
         .timeout(Duration::from_secs(120))
@@ -254,7 +275,7 @@ impl Client {
                 .map_err(|e| GithubError::Http(e.to_string()))?;
             let status = res.status();
             let limit = rate_limited(status.as_u16(), res.headers());
-            let v: Value = res.json().await.unwrap_or(Value::Null);
+            let v = read_json(res).await.unwrap_or(Value::Null);
             if let Some(e) = limit {
                 return Err(e);
             }
@@ -388,11 +409,7 @@ impl Client {
                         .await
                         .map_err(|e| GithubError::Http(e.to_string()))?;
                     if res.status().is_success() {
-                        let bytes = res
-                            .bytes()
-                            .await
-                            .map_err(|e| GithubError::Http(e.to_string()))?;
-                        Ok(bytes.to_vec())
+                        read_body(res, limits::PROJECT_ARCHIVE).await
                     } else {
                         Err(GithubError::Http(format!("HTTP {}", res.status())))
                     }
@@ -423,11 +440,7 @@ impl Client {
                     GithubError::Http(format!("HTTP {status}"))
                 });
             }
-            Ok(res
-                .bytes()
-                .await
-                .map_err(|e| GithubError::Http(e.to_string()))?
-                .to_vec())
+            read_body(res, limits::PROJECT_ARCHIVE).await
         })?
     }
 
@@ -665,7 +678,6 @@ impl Client {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

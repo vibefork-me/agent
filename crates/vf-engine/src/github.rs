@@ -341,7 +341,7 @@ impl Engine {
             &format!(
                 "vibefork: start from {}@{}",
                 info.full_name,
-                &sha[..7.min(sha.len())]
+                sha.get(..7).unwrap_or(&sha)
             ),
         )
         .map_err(|e| BackendError::Internal(e.0))?;
@@ -724,7 +724,6 @@ impl LowercaseFirst for str {
 pub(crate) type SignInState = Arc<Mutex<SignIn>>;
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

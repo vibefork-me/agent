@@ -224,7 +224,8 @@ fn hello(port: u16) -> Option<String> {
     )
     .ok()?;
     let mut text = String::new();
-    s.read_to_string(&mut text).ok()?;
+    // Any process can listen on the port: read at most 64 KiB of its answer.
+    s.take(64 * 1024).read_to_string(&mut text).ok()?;
     let v: serde_json::Value = serde_json::from_str(text.split("\r\n\r\n").nth(1)?.trim()).ok()?;
     (v["agent"] == "vibefork").then(|| v["version"].as_str().unwrap_or_default().to_owned())
 }

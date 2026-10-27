@@ -34,7 +34,6 @@ fn load_from_env(stage: Stage) -> Option<Prompt> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

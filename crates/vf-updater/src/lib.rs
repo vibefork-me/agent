@@ -17,6 +17,16 @@ pub use signing::{
     Manifest, SignatureError, SubkeyCert, check_fresh, verify_manifest, verify_subkey_cert,
 };
 
+/// Reads a downloaded file of at most [`vf_core::limits::RELEASE_FILE`] bytes.
+pub(crate) async fn read_file(mut res: reqwest::Response) -> Result<Vec<u8>, String> {
+    let mut body = vf_core::LimitedBody::new(vf_core::limits::RELEASE_FILE, res.content_length())
+        .map_err(|e| e.to_string())?;
+    while let Some(chunk) = res.chunk().await.map_err(|e| e.to_string())? {
+        body.push(&chunk).map_err(|e| e.to_string())?;
+    }
+    Ok(body.into_vec())
+}
+
 /// Public key of the UI bundle signer (base64, 32 bytes). The private key is kept offline.
 pub const UI_BUNDLE_PUBLIC_KEY: &str = include_str!("../../../keys/ui-bundle.pub");
 /// Public key of the release signer (base64, 32 bytes) — a separate key: a signed UI bundle can never

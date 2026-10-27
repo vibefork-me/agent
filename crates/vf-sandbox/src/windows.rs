@@ -258,7 +258,7 @@ fn program_line() -> Option<Vec<u16>> {
         String::from_utf16_lossy(std::slice::from_raw_parts(p, n))
     };
     let marker = format!("{} -- ", crate::EXEC_COMMAND);
-    let tail = &line[line.find(&marker)? + marker.len()..];
+    let (_, tail) = line.split_once(&marker)?;
     Some(tail.encode_utf16().chain(std::iter::once(0)).collect())
 }
 

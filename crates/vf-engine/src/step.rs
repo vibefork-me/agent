@@ -508,7 +508,6 @@ pub(crate) fn now_rfc3339() -> String {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

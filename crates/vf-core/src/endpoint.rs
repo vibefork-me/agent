@@ -37,10 +37,9 @@ pub fn validate_custom_openai_endpoint(raw: &str) -> Result<String, &'static str
 
     let host = if host_and_port.starts_with('[') {
         // IPv6 bracketed address e.g. [::1]:11434
-        if let Some(end_bracket) = host_and_port.find(']') {
-            &host_and_port[1..end_bracket]
-        } else {
-            return Err("Invalid IPv6 host syntax");
+        match host_and_port.get(1..).and_then(|r| r.split_once(']')) {
+            Some((host, _)) => host,
+            None => return Err("Invalid IPv6 host syntax"),
         }
     } else {
         host_and_port.split(':').next().unwrap_or_default()

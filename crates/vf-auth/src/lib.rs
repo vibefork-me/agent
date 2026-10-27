@@ -356,7 +356,6 @@ fn now_secs() -> u64 {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use std::sync::Mutex;

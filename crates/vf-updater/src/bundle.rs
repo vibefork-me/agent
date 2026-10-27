@@ -182,11 +182,9 @@ async fn fetch(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, BundleErr
             res.status()
         )));
     }
-    Ok(res
-        .bytes()
+    crate::read_file(res)
         .await
-        .map_err(|e| BundleError::Download(e.to_string()))?
-        .to_vec())
+        .map_err(|e| BundleError::Download(format!("{url}: {e}")))
 }
 
 async fn fetch_optional(
@@ -207,12 +205,10 @@ async fn fetch_optional(
             res.status()
         )));
     }
-    Ok(Some(
-        res.bytes()
-            .await
-            .map_err(|e| BundleError::Download(e.to_string()))?
-            .to_vec(),
-    ))
+    crate::read_file(res)
+        .await
+        .map(Some)
+        .map_err(|e| BundleError::Download(format!("{url}: {e}")))
 }
 
 /// Content type by file extension.

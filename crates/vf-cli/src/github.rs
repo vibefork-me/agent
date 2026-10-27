@@ -33,7 +33,7 @@ pub(crate) fn import(backend: &dyn Backend, args: &[String]) -> ExitCode {
                 "project {} — from {} at {}",
                 r.project,
                 r.upstream,
-                &r.commit[..7.min(r.commit.len())]
+                r.commit.get(..7).unwrap_or(&r.commit)
             );
             if let Some(f) = &r.foreign {
                 println!(
