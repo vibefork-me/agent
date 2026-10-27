@@ -155,7 +155,7 @@ impl Engine {
         let head = repo.head().map_err(|e| BackendError::Internal(e.0))?;
         let entry = JournalEntry {
             at: now_rfc3339(),
-            provider: "rollback".into(),
+            provider: crate::rollback::ROLLBACK.into(),
             model: String::new(),
             prompt: format!("roll back to {commit}"),
             session: None,

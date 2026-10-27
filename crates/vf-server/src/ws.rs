@@ -3,9 +3,9 @@
 //! (connectivity check without a session).
 //!
 //! After authentication: `task` starts a task (one at a time per connection), `cancel` cancels it,
-//! `stop` pauses it, `resume` continues it, cancelling a paused task undoes its changes; `note`,
-//! `choose_offer`, `rollback_part` answer `not_supported` for now, other
-//! text is echoed. A running task also sends its session stream (`canvas` messages). Closing the connection cancels the running task.
+//! `stop` pauses it, `resume` continues it, cancelling a paused task undoes its changes;
+//! `rollback_part` rolls one part back after the native dialog confirms it (not while a task of the
+//! connection runs); `note`, `choose_offer` answer `not_supported` for now, other text is echoed. A running task also sends its session stream (`canvas` messages). Closing the connection cancels the running task.
 
 use std::time::Duration;
 
@@ -166,15 +166,25 @@ async fn connection(mut socket: WebSocket, state: AppState, origin: String) {
                 }
                 None
             }
+            Ok(ClientMessage::RollbackPart { project, id }) => {
+                if running.is_some() {
+                    Some(ServerMessage::Error {
+                        error: "a task is already running".into(),
+                        code: Some("task_already_running".into()),
+                    })
+                } else {
+                    let key = authed.clone().unwrap_or_default();
+                    rollback_part(&state, origin.clone(), key, project, id, tx.clone());
+                    None
+                }
+            }
             // The protocol has them; the engine handles them in later versions.
-            Ok(
-                ClientMessage::Note { .. }
-                | ClientMessage::ChooseOffer { .. }
-                | ClientMessage::RollbackPart { .. },
-            ) => Some(ServerMessage::Error {
-                error: "not supported by this version of the agent".into(),
-                code: Some("not_supported".into()),
-            }),
+            Ok(ClientMessage::Note { .. } | ClientMessage::ChooseOffer { .. }) => {
+                Some(ServerMessage::Error {
+                    error: "not supported by this version of the agent".into(),
+                    code: Some("not_supported".into()),
+                })
+            }
             Ok(ClientMessage::Auth { .. }) => None,
             Err(_) => Some(ServerMessage::Echo {
                 data: text.to_owned(),
@@ -224,6 +234,48 @@ fn start_build(
         let _ = tx.send(Out::Finished);
     });
     cancel
+}
+
+/// Rolls one part back after the user confirms it in the native dialog (invariant 3); the dialog
+/// names the part as the map shows it. Its messages go to `tx`; the engine refuses while a task
+/// runs in the project.
+fn rollback_part(
+    state: &AppState,
+    origin: String,
+    key_id: String,
+    project: String,
+    id: String,
+    tx: mpsc::UnboundedSender<Out>,
+) {
+    let (backend, auth) = (state.backend.clone(), state.auth.clone());
+    tokio::task::spawn_blocking(move || {
+        let mut out = |m| {
+            let _ = tx.send(Out::Message(m));
+        };
+        if !auth.project_allowed(&key_id, &origin, &project) {
+            return out(ServerMessage::Error {
+                error: "no access to this project".into(),
+                code: Some("project_forbidden".into()),
+            });
+        }
+        let lang = auth.dialog().language();
+        let prompt = vf_core::catalog::action_rollback_part(lang);
+        let part = backend
+            .graph(&project, false)
+            .ok()
+            .and_then(|g| g.nodes.into_iter().find(|n| n.id == id))
+            .map(|n| n.label)
+            .filter(|l| !l.is_empty())
+            .unwrap_or_else(|| id.clone());
+        if auth.confirm_action(&origin, prompt, Some(&format!("{project} → {part}"))) {
+            backend.rollback_part(&project, &id, &mut out);
+        } else {
+            out(ServerMessage::Error {
+                error: "rollback not confirmed".into(),
+                code: Some("rollback_not_confirmed".into()),
+            });
+        }
+    });
 }
 
 /// The next message; `None` when `deadline` passed first.

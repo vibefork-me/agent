@@ -436,6 +436,16 @@ impl Repo {
             .collect())
     }
 
+    /// Whether `commit` is in the history of `head` (or is `head`); a commit a reset dropped is not.
+    pub fn in_history(&self, commit: &str, head: &str) -> Result<bool, JournalError> {
+        let repo = self.repo()?;
+        let (c, h) = (
+            repo.revparse_single(commit).map_err(err)?.id(),
+            repo.revparse_single(head).map_err(err)?.id(),
+        );
+        Ok(c == h || repo.graph_descendant_of(h, c).map_err(err)?)
+    }
+
     /// Git blob ids of `paths` at `commit` (a path that is not a file there is absent; `commit`
     /// empty — none).
     pub fn blob_ids(

@@ -13,6 +13,7 @@ mod github;
 mod graph;
 mod map;
 mod orchestrate;
+mod rollback;
 mod step;
 
 use std::collections::HashSet;
@@ -662,5 +663,33 @@ impl Backend for Engine {
             result = self.reset_to(project, commit)
         });
         result
+    }
+
+    fn rollback_part(&self, project: &str, id: &str, out: &mut dyn FnMut(ServerMessage)) {
+        self.exclusive(project, out, |out| match self.roll_back_part(project, id) {
+            Ok(done) => {
+                let mut stream = canvas::Stream::new(&self.canvas, project, out);
+                stream.emit(CanvasEvent::Change {
+                    id: id.to_owned(),
+                    files: done.files,
+                });
+                stream.emit(CanvasEvent::Result {
+                    text: "Part rolled back".into(),
+                    detail: done.summary,
+                    artifacts: done.artifacts,
+                });
+            }
+            Err(e) => out(ServerMessage::Error {
+                error: e.to_string(),
+                code: Some(
+                    match e {
+                        BackendError::NotFound(_) => "not_found",
+                        BackendError::BadRequest(_) => "nothing_to_roll_back",
+                        _ => "internal",
+                    }
+                    .into(),
+                ),
+            }),
+        });
     }
 }

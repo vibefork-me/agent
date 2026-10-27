@@ -114,6 +114,18 @@ pub fn action_rollback(lang: Language) -> &'static str {
     }
 }
 
+/// Action prompt: roll one part of the project back.
+pub fn action_rollback_part(lang: Language) -> &'static str {
+    match lang {
+        Language::En => {
+            "return this part of the project to how it was before the last task changed it (other parts are kept)"
+        }
+        Language::Ru => {
+            "вернуть эту часть проекта к виду до последней задачи, которая её меняла (остальные части не меняются)"
+        }
+    }
+}
+
 /// Action prompt: save to GitHub fork.
 pub fn action_save(lang: Language) -> &'static str {
     match lang {
@@ -578,6 +590,7 @@ mod tests {
             assert!(!confirm_action_text(lang, "site", "action", None).is_empty());
             assert!(!action_build(lang).is_empty());
             assert!(!action_rollback(lang).is_empty());
+            assert!(!action_rollback_part(lang).is_empty());
             assert!(!action_save(lang).is_empty());
             assert!(!action_connect_ai_subscription(lang, "Claude").is_empty());
             assert!(!action_connect_ai_key(lang, "OpenRouter").is_empty());
@@ -631,6 +644,10 @@ mod tests {
         );
         assert_ne!(action_build(Language::En), action_build(Language::Ru));
         assert_ne!(action_rollback(Language::En), action_rollback(Language::Ru));
+        assert_ne!(
+            action_rollback_part(Language::En),
+            action_rollback_part(Language::Ru)
+        );
         assert_ne!(action_save(Language::En), action_save(Language::Ru));
         assert_ne!(
             ask_secret_title(Language::En),

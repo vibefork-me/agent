@@ -237,6 +237,17 @@ pub trait Backend: Send + Sync {
     fn build(&self, project: &str, out: &mut dyn FnMut(ServerMessage), cancel: &Cancel);
     /// Resets a project to a commit of its journal. The caller has confirmed it with the user.
     fn rollback(&self, project: &str, commit: &str) -> Result<RollbackResponse, BackendError>;
+    /// Returns the files of one part of the map (node `id`) to how they were before the last task
+    /// that changed them, as a checkpoint with a journal entry; other parts stay as they are. Only
+    /// while no task runs in the project. The session stream gets a `change` and a `result` event;
+    /// a failure is one [`ServerMessage::Error`]. The caller has confirmed it with the user.
+    fn rollback_part(&self, project: &str, id: &str, out: &mut dyn FnMut(ServerMessage)) {
+        let _ = (project, id);
+        out(ServerMessage::Error {
+            error: "not supported by this version of the agent".into(),
+            code: Some("not_supported".into()),
+        });
+    }
     /// Starts the agent's own GitHub sign-in (device flow); the token comes to the agent directly.
     fn github_connect(&self) -> Result<GithubConnectResponse, BackendError>;
     /// The GitHub sign-in.
