@@ -1,3 +1,7 @@
+[alias]
+# Project tasks: `cargo xtask ci`, `cargo xtask version [set X.Y.Z]` (xtask/src/main.rs).
+xtask = "run --quiet --package xtask --"
+
 # The oldest macOS the agent supports (Intel and Apple silicon builds).
 [env]
 MACOSX_DEPLOYMENT_TARGET = "10.15"
