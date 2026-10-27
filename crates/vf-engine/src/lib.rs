@@ -22,10 +22,10 @@ use vf_git::Repo;
 use vf_journal::JournalStore as _;
 use vf_platform::{JournalFiles, ProjectError, Projects, Settings};
 use vf_protocol::http::{
-    AiConnected, AiKind, AiProvider, AiResponse, DescribeRequest, FileDiffResponse, FileResponse,
-    GithubConnectResponse, GithubStatusResponse, GraphResponse, ImportRequest, ImportResponse,
-    JournalResponse, ModelsResponse, ProjectInfo, ProjectsResponse, RollbackResponse, SaveRequest,
-    SaveResponse,
+    AiConnected, AiKind, AiProvider, AiResponse, DescribeRequest, EnvironmentResponse,
+    FileDiffResponse, FileResponse, GithubConnectResponse, GithubStatusResponse, GraphResponse,
+    ImportProgressResponse, ImportRequest, ImportResponse, JournalResponse, ModelsResponse,
+    ProjectInfo, ProjectsResponse, RollbackResponse, SaveRequest, SaveResponse,
 };
 use vf_protocol::ws::ServerMessage;
 use vf_protocol::{Backend, BackendError, Cancel, ModelInfo, TaskRequest};
@@ -55,6 +55,7 @@ pub struct Engine {
     sandbox_helper: Option<PathBuf>,
     state_dir: PathBuf,
     sign_in: github::SignInState,
+    import_state: github::ImportState,
     /// CLIs being installed now.
     installing: Mutex<HashSet<String>>,
 }
@@ -84,6 +85,7 @@ impl Engine {
             sandbox_helper: None,
             state_dir: settings.state_dir.clone(),
             sign_in: Default::default(),
+            import_state: Default::default(),
             installing: Mutex::new(HashSet::new()),
         }
     }
@@ -497,6 +499,25 @@ impl Backend for Engine {
 
     fn import(&self, req: &ImportRequest) -> Result<ImportResponse, BackendError> {
         self.import_project(req)
+    }
+
+    fn import_progress(&self) -> Result<ImportProgressResponse, BackendError> {
+        Ok(self
+            .import_state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone())
+    }
+
+    fn environment(&self, project: &str) -> Result<EnvironmentResponse, BackendError> {
+        let dir = self.projects.resolve(project).map_err(project_error)?;
+        let (tools, total_bytes, total_download_bytes) =
+            vf_toolchains::estimate_environment(&dir, &self.tools);
+        Ok(EnvironmentResponse {
+            tools,
+            total_bytes,
+            total_download_bytes,
+        })
     }
 
     fn save_needs_confirm(&self, project: &str) -> bool {

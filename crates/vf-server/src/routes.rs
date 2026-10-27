@@ -762,6 +762,36 @@ pub(crate) async fn import(
     with_backend(state, &headers, &origin.0, move |b| b.import(&req)).await
 }
 
+pub(crate) async fn import_progress(
+    State(state): State<AppState>,
+    Extension(origin): Extension<EffectiveOrigin>,
+    headers: HeaderMap,
+) -> Response {
+    with_backend(state, &headers, &origin.0, |b| b.import_progress()).await
+}
+
+pub(crate) async fn project_environment(
+    State(state): State<AppState>,
+    Extension(origin): Extension<EffectiveOrigin>,
+    headers: HeaderMap,
+    axum::extract::Path(project): axum::extract::Path<String>,
+) -> Response {
+    if session_from(&state, &headers, &origin.0).is_none() {
+        return no_session();
+    }
+    if !project_allowed(&state, &headers, &origin.0, &project).await {
+        return error_with_code(
+            StatusCode::FORBIDDEN,
+            "no access to this project",
+            Some("project_forbidden"),
+        );
+    }
+    with_backend(state, &headers, &origin.0, move |b| {
+        b.environment(&project)
+    })
+    .await
+}
+
 /// Saves to the user's copy on GitHub. The first save of a project is confirmed in the native
 /// dialog: it publishes the work (invariant 3).
 pub(crate) async fn save(

@@ -10,6 +10,7 @@
 pub mod cli;
 pub mod detect;
 pub mod download;
+pub mod estimates;
 pub mod mise;
 
 use std::path::{Path, PathBuf};
@@ -18,6 +19,7 @@ use std::time::Instant;
 use vf_protocol::Cancel;
 
 pub use detect::{Need, detect};
+pub use estimates::{SizeEstimate, estimate_environment, estimate_tool};
 pub use mise::Mise;
 
 /// Progress of [`prepare`].
@@ -25,6 +27,22 @@ pub use mise::Mise;
 pub enum Progress {
     /// Installing a tool (or `mise` itself).
     Installing {
+        /// Tool spec.
+        tool: String,
+    },
+    /// Downloading installer or archive with byte count and ETA if known.
+    Downloading {
+        /// Tool spec.
+        tool: String,
+        /// Downloaded bytes.
+        downloaded: u64,
+        /// Total expected download bytes.
+        total: Option<u64>,
+        /// Estimated seconds remaining.
+        eta: Option<f64>,
+    },
+    /// Extracting archive files.
+    Extracting {
         /// Tool spec.
         tool: String,
     },
@@ -174,7 +192,7 @@ pub fn prepare(
         progress(Progress::Installing {
             tool: need.spec.clone(),
         });
-        match mise.install(&need.spec, cancel) {
+        match mise.install_with_progress(&need.spec, cancel, progress) {
             Ok(home) => {
                 // `mise where rust` is the proxies folder itself (`CARGO_HOME/bin`).
                 let bin = home.join("bin");

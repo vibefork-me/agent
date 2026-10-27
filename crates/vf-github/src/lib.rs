@@ -157,6 +157,21 @@ pub struct RepoInfo {
     pub parent: Option<String>,
     /// Private.
     pub private: bool,
+    /// Size of the repository in kilobytes (from GitHub API `size`).
+    pub size_kib: Option<u64>,
+}
+
+/// Progress of a file or tarball download.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DownloadProgress {
+    /// Bytes received so far.
+    pub downloaded_bytes: u64,
+    /// Total bytes expected (Content-Length or repository size estimate).
+    pub total_bytes: Option<u64>,
+    /// Download speed in bytes per second.
+    pub bytes_per_second: f64,
+    /// Estimated seconds remaining until download finishes.
+    pub eta_seconds: Option<f64>,
 }
 
 /// The signed-in user.
@@ -195,6 +210,63 @@ fn http() -> Result<reqwest::Client, GithubError> {
         .user_agent("vibefork-agent")
         .build()
         .map_err(|e| GithubError::Http(e.to_string()))
+}
+
+async fn stream_body(
+    mut res: reqwest::Response,
+    size_hint_bytes: Option<u64>,
+    on_progress: &mut dyn FnMut(DownloadProgress),
+) -> Result<Vec<u8>, GithubError> {
+    let content_len = res.content_length();
+    let total = content_len.or(size_hint_bytes);
+    let mut bytes = Vec::with_capacity(content_len.unwrap_or(0).min(64 * 1024 * 1024) as usize);
+    let started = std::time::Instant::now();
+    let mut last_emit = std::time::Instant::now();
+
+    while let Some(chunk) = res.chunk().await.map_err(|e| GithubError::Http(e.to_string()))? {
+        bytes.extend_from_slice(&chunk);
+        let downloaded = bytes.len() as u64;
+        let elapsed = started.elapsed().as_secs_f64();
+        if last_emit.elapsed().as_millis() >= 100 || total.is_some_and(|t| downloaded >= t) {
+            let speed = if elapsed > 0.05 {
+                downloaded as f64 / elapsed
+            } else {
+                0.0
+            };
+            let eta = if let Some(tot) = total {
+                if speed > 0.0 && tot > downloaded {
+                    Some((tot - downloaded) as f64 / speed)
+                } else {
+                    Some(0.0)
+                }
+            } else {
+                None
+            };
+            on_progress(DownloadProgress {
+                downloaded_bytes: downloaded,
+                total_bytes: total,
+                bytes_per_second: speed,
+                eta_seconds: eta,
+            });
+            last_emit = std::time::Instant::now();
+        }
+    }
+
+    let downloaded = bytes.len() as u64;
+    let elapsed = started.elapsed().as_secs_f64();
+    let speed = if elapsed > 0.05 {
+        downloaded as f64 / elapsed
+    } else {
+        0.0
+    };
+    on_progress(DownloadProgress {
+        downloaded_bytes: downloaded,
+        total_bytes: total.or(Some(downloaded)),
+        bytes_per_second: speed,
+        eta_seconds: Some(0.0),
+    });
+
+    Ok(bytes)
 }
 
 /// The error for a request refused by GitHub's limit of requests (60 an hour per address without
@@ -299,6 +371,7 @@ impl Client {
                 default_branch: v["default_branch"].as_str().unwrap_or("main").to_owned(),
                 parent: v["parent"]["full_name"].as_str().map(str::to_owned),
                 private: v["private"].as_bool().unwrap_or(false),
+                size_kib: v["size"].as_u64(),
             })),
             Err(GithubError::NotFound) => Ok(None),
             Err(e) => Err(e),
@@ -377,6 +450,17 @@ impl Client {
 
     /// The `.tar.gz` of a repository at a commit.
     pub fn tarball(&self, full_name: &str, sha: &str) -> Result<Vec<u8>, GithubError> {
+        self.tarball_with_progress(full_name, sha, None, &mut |_| {})
+    }
+
+    /// The `.tar.gz` of a repository at a commit, reporting download progress.
+    pub fn tarball_with_progress(
+        &self,
+        full_name: &str,
+        sha: &str,
+        size_hint_bytes: Option<u64>,
+        on_progress: &mut dyn FnMut(DownloadProgress),
+    ) -> Result<Vec<u8>, GithubError> {
         // For anonymous public repositories, download via codeload without consuming REST API quota.
         if self.token.is_none() {
             let codeload_url = format!("https://codeload.github.com/{full_name}/tar.gz/{sha}");
@@ -388,11 +472,7 @@ impl Client {
                         .await
                         .map_err(|e| GithubError::Http(e.to_string()))?;
                     if res.status().is_success() {
-                        let bytes = res
-                            .bytes()
-                            .await
-                            .map_err(|e| GithubError::Http(e.to_string()))?;
-                        Ok(bytes.to_vec())
+                        stream_body(res, size_hint_bytes, on_progress).await
                     } else {
                         Err(GithubError::Http(format!("HTTP {}", res.status())))
                     }
@@ -423,11 +503,7 @@ impl Client {
                     GithubError::Http(format!("HTTP {status}"))
                 });
             }
-            Ok(res
-                .bytes()
-                .await
-                .map_err(|e| GithubError::Http(e.to_string()))?
-                .to_vec())
+            stream_body(res, size_hint_bytes, on_progress).await
         })?
     }
 

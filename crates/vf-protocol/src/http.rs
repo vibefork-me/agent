@@ -255,6 +255,79 @@ pub struct ForeignChanges {
     pub compare_url: String,
 }
 
+/// Status and progress of a project import.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportProgressResponse {
+    /// State of the import: `idle`, `resolving`, `downloading`, `extracting`, `ready`, `failed`.
+    pub status: ImportStatus,
+    /// Repo being imported (e.g. `owner/name`), if an import is active or just completed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
+    /// Bytes downloaded so far.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub downloaded_bytes: Option<u64>,
+    /// Total bytes expected (from Content-Length or GitHub repository size).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_bytes: Option<u64>,
+    /// Download speed in bytes per second.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bytes_per_second: Option<f64>,
+    /// Estimated seconds remaining until download finishes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub eta_seconds: Option<f64>,
+    /// Error message if `status == Failed`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Status of an import.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ImportStatus {
+    /// No import running.
+    #[default]
+    Idle,
+    /// Resolving repository and commit info.
+    Resolving,
+    /// Downloading commit archive.
+    Downloading,
+    /// Extracting archive files.
+    Extracting,
+    /// Import completed successfully.
+    Ready,
+    /// Import failed.
+    Failed,
+}
+
+/// What toolchains a project needs and how much disk space they will use.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct EnvironmentResponse {
+    /// Tools needed by the project.
+    pub tools: Vec<ToolEstimate>,
+    /// Total disk space needed for missing tools (in bytes). 0 if everything is already installed.
+    pub total_bytes: u64,
+    /// Total download size for missing tools (in bytes). 0 if everything is already installed.
+    pub total_download_bytes: u64,
+}
+
+/// Estimate for one toolchain.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolEstimate {
+    /// Tool category: `java`, `node`, `python`, `go`, `rust`, `gradle`, `maven`.
+    pub name: String,
+    /// Exact tool spec: e.g. `java@temurin-21`, `node@lts`.
+    pub spec: String,
+    /// Whether this tool is already installed in the agent's tools folder.
+    pub installed: bool,
+    /// Estimated disk space when installed (in bytes). 0 if already installed.
+    pub bytes: u64,
+    /// Estimated download archive size (in bytes). 0 if already installed.
+    pub download_bytes: u64,
+}
+
 /// Request of `POST /v1/save`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct SaveRequest {

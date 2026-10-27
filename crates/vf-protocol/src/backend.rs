@@ -5,9 +5,10 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 use crate::http::{
-    AiResponse, DescribeRequest, FileDiffResponse, FileResponse, GithubConnectResponse,
-    GithubStatusResponse, GraphResponse, ImportRequest, ImportResponse, JournalResponse,
-    ModelsResponse, ProjectsResponse, RollbackResponse, SaveRequest, SaveResponse,
+    AiResponse, DescribeRequest, EnvironmentResponse, FileDiffResponse, FileResponse,
+    GithubConnectResponse, GithubStatusResponse, GraphResponse, ImportProgressResponse,
+    ImportRequest, ImportResponse, JournalResponse, ModelsResponse, ProjectsResponse,
+    RollbackResponse, SaveRequest, SaveResponse,
 };
 use crate::ws::ServerMessage;
 
@@ -173,6 +174,10 @@ pub trait Backend: Send + Sync {
     fn github_status(&self) -> Result<GithubStatusResponse, BackendError>;
     /// Takes a project from GitHub (an archive of one commit; no git on the machine).
     fn import(&self, req: &ImportRequest) -> Result<ImportResponse, BackendError>;
+    /// Current or last project import progress.
+    fn import_progress(&self) -> Result<ImportProgressResponse, BackendError>;
+    /// What toolchains a project needs and how much disk space they will use.
+    fn environment(&self, project: &str) -> Result<EnvironmentResponse, BackendError>;
     /// Whether saving this project must be confirmed by the user first (first save).
     fn save_needs_confirm(&self, project: &str) -> bool;
     /// Saves the project's work into the user's copy on GitHub, or tells the next step.

@@ -4,6 +4,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::event::Event;
+use crate::http::ImportStatus;
 use crate::model::ModelInfo;
 
 /// Messages from the browser.
@@ -84,6 +85,10 @@ pub struct StepInfo {
 pub enum ToolchainStatus {
     /// Installing.
     Installing,
+    /// Downloading installer or archive.
+    Downloading,
+    /// Extracting archive files.
+    Extracting,
     /// Ready.
     Ready,
     /// Failed.
@@ -133,6 +138,15 @@ pub enum ServerMessage {
         status: ToolchainStatus,
         /// Tool, e.g. `java@temurin-21`.
         tool: String,
+        /// Downloaded bytes so far (if known).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        downloaded: Option<u64>,
+        /// Total bytes to download (if known).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        total: Option<u64>,
+        /// Estimated seconds remaining.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        eta: Option<f64>,
         /// Install path when ready.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         path: Option<String>,
@@ -140,6 +154,29 @@ pub enum ServerMessage {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         seconds: Option<String>,
         /// Error, when failed.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    },
+    /// Project import progress.
+    ImportProgress {
+        /// Status.
+        status: ImportStatus,
+        /// Repo being imported.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        repo: Option<String>,
+        /// Downloaded bytes.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        downloaded: Option<u64>,
+        /// Total bytes.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        total: Option<u64>,
+        /// Speed in bytes per second.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        speed: Option<f64>,
+        /// ETA in seconds.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        eta: Option<f64>,
+        /// Error message if failed.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<String>,
     },

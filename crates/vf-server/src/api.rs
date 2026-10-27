@@ -196,6 +196,22 @@ pub const ROUTES: &[Route] = &[
         session: true,
     },
     Route {
+        method: "GET",
+        path: "/v1/projects/import/progress",
+        summary: "Current or last project import progress",
+        request: None,
+        response: Some("ImportProgressResponse"),
+        session: false,
+    },
+    Route {
+        method: "GET",
+        path: "/v1/projects/{project}/environment",
+        summary: "Toolchains needed by a project and their disk space estimates",
+        request: None,
+        response: Some("EnvironmentResponse"),
+        session: true,
+    },
+    Route {
         method: "POST",
         path: "/v1/save",
         summary: "Save the project to the user's copy on GitHub, or the next step; the first save is confirmed in the native dialog",
