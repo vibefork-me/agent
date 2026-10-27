@@ -54,7 +54,7 @@ impl Engine {
         let Some(choice) = pick_model(inventory, complexity, &[], &[]) else {
             return out(ServerMessage::Error {
                 error: "no models available".into(),
-                code: None,
+                code: Some("no_models".into()),
             });
         };
         out(ServerMessage::Routing {
@@ -121,7 +121,7 @@ impl Engine {
             Err(e) => {
                 return out(ServerMessage::Error {
                     error: format!("git: {e}"),
-                    code: None,
+                    code: Some("git_failed".into()),
                 });
             }
         };
@@ -145,7 +145,7 @@ impl Engine {
             Err(e) => {
                 out(ServerMessage::Error {
                     error: format!("planning failed: {e}"),
-                    code: None,
+                    code: Some("planning_failed".into()),
                 });
                 return done(out, 1, None, String::new(), String::new(), true);
             }
@@ -215,7 +215,7 @@ impl Engine {
             let Some(m) = m else {
                 out(ServerMessage::Error {
                     error: format!("no model for step {n}"),
-                    code: None,
+                    code: Some("no_model_for_step".into()),
                 });
                 code = 1;
                 break;
@@ -257,7 +257,7 @@ impl Engine {
                 if !cancel.is_cancelled() {
                     out(ServerMessage::Error {
                         error: format!("step {n} failed — stopping the plan"),
-                        code: None,
+                        code: Some("plan_stopped".into()),
                     });
                     code = if code == 0 { 1 } else { code };
                 }
