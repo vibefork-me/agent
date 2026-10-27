@@ -50,7 +50,7 @@ impl Provider for Scripted {
             .is_some_and(|s| s.contains("does not write code"))
         {
             assert!(req.prompt.contains("PROJECT DATA"));
-            r#"{"parts":[{"name":"Guide","summary":"Explains the project.","paths":["README.md"],"insights":["Short and clear"]},{"name":"Program","summary":"Does the work.","paths":["src"]}],"links":[{"from":"Guide","to":"Program"}]}"#
+            r#"{"parts":[{"name":"Guide","summary":"Explains the project.","paths":["README.md"],"insights":["Short and clear"]},{"name":"Program","summary":"Does the work.","paths":["src"]}],"links":[{"from":"Guide","to":"Program"}],"offers":[{"title":"Dark theme","text":"Easier to read at night.","why":"Only a light look now."},{"title":"Export","text":"Save notes as a file.","why":"Notes stay inside."}]}"#
         } else if req.system.is_some() {
             r#"{"complexity":"medium","decompose":true,"reason":"two parts"}"#
         } else {
@@ -708,7 +708,7 @@ fn a_model_draws_the_map_in_plain_words() {
         types,
         [
             "project", "stage", "think", "found", "focus", "insight", "found", "focus", "stage",
-            "touch", "stage"
+            "touch", "offers", "stage"
         ]
     );
     assert_eq!(stream[2]["text"], "Смотрю, из чего состоит проект");
@@ -720,7 +720,12 @@ fn a_model_draws_the_map_in_plain_words() {
         stream[9],
         serde_json::json!({"type": "touch", "from": "p1", "to": "p2"})
     );
-    assert_eq!(stream[10]["id"], "summary");
+    assert_eq!(stream[10]["items"][0]["title"], "Dark theme");
+    assert_eq!(
+        stream[10]["items"][1]["source"],
+        serde_json::json!({"kind": "analysis", "text": "Notes stay inside."})
+    );
+    assert_eq!(stream[11]["id"], "summary");
 }
 
 #[test]
