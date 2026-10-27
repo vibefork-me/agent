@@ -421,6 +421,43 @@ impl Repo {
         Ok(out)
     }
 
+    /// Paths (`/`-separated, sorted) of the files of the working tree as git sees them: tracked
+    /// files still present and new files `.gitignore` does not exclude; git data never. At most
+    /// `max` paths, none deeper than `max_depth` folders; `true` — some were left out.
+    pub fn working_files(
+        &self,
+        max: usize,
+        max_depth: usize,
+    ) -> Result<(Vec<String>, bool), JournalError> {
+        let repo = self.repo()?;
+        let mut opts = StatusOptions::new();
+        opts.include_unmodified(true)
+            .include_untracked(true)
+            .recurse_untracked_dirs(true)
+            .include_ignored(false)
+            .exclude_submodules(true);
+        let statuses = repo.statuses(Some(&mut opts)).map_err(err)?;
+        let mut out = Vec::new();
+        let mut truncated = false;
+        for e in statuses.iter() {
+            if e.status()
+                .intersects(Status::WT_DELETED | Status::INDEX_DELETED)
+            {
+                continue;
+            }
+            let Ok(path) = e.path() else { continue };
+            let path = path.replace('\\', "/");
+            if path.split('/').count() > max_depth.saturating_add(1) || out.len() >= max {
+                truncated = true;
+                continue;
+            }
+            out.push(path);
+        }
+        out.sort();
+        out.dedup();
+        Ok((out, truncated))
+    }
+
     /// Paths of the files added, changed or deleted from `base` to `head`.
     pub fn changed_paths(&self, base: &str, head: &str) -> Result<Vec<String>, JournalError> {
         let repo = self.repo()?;

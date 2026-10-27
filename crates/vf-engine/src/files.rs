@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use vf_core::ProjectPath;
 use vf_git::Repo;
 use vf_protocol::BackendError;
-use vf_protocol::http::{FileDiffResponse, FileResponse};
+use vf_protocol::http::{FileDiffResponse, FileResponse, ProjectFilesResponse};
 
 use crate::Engine;
 
@@ -133,6 +133,27 @@ impl Engine {
             too_large: c.too_large,
             binary: c.binary,
         })
+    }
+
+    /// The files of the working tree for the editor's file tree: as git sees them (`.gitignore`
+    /// respected), without git data or files that usually hold secrets, bounded by
+    /// [`vf_core::limits::PROJECT_FILES`] and [`vf_core::limits::PROJECT_FILE_DEPTH`].
+    pub(crate) fn list_project_files(
+        &self,
+        project: &str,
+    ) -> Result<ProjectFilesResponse, BackendError> {
+        let root = self
+            .projects
+            .resolve(project)
+            .map_err(|_| BackendError::NotFound("no such project".into()))?;
+        let (files, truncated) = Repo::open(root)
+            .working_files(
+                vf_core::limits::PROJECT_FILES,
+                vf_core::limits::PROJECT_FILE_DEPTH,
+            )
+            .map_err(|e| BackendError::Internal(e.0))?;
+        let files = files.into_iter().filter(|f| !is_denied(f)).collect();
+        Ok(ProjectFilesResponse { files, truncated })
     }
 
     /// The file as the project was taken (the start commit) and as it is now.

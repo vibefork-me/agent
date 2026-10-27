@@ -59,6 +59,7 @@ fn definitions() -> Map<String, Value> {
         SaveRequest,
         SaveResponse,
         FileResponse,
+        ProjectFilesResponse,
         FileDiffResponse,
         GraphResponse,
         GraphSource,

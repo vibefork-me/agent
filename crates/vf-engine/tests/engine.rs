@@ -756,6 +756,37 @@ fn viewer_does_not_follow_links_out_of_the_project() {
 }
 
 #[test]
+fn file_tree_lists_what_git_sees_without_secrets() {
+    let (base, engine, _) = setup();
+    let demo = base.join("projects/demo");
+    std::fs::create_dir_all(demo.join("src/ui")).unwrap();
+    std::fs::write(demo.join("src/ui/list.ts"), "x").unwrap();
+    std::fs::write(
+        demo.join(".gitignore"),
+        "build/
+*.log
+",
+    )
+    .unwrap();
+    vf_git::Repo::init_with(demo.clone(), "start").unwrap();
+    // New files show, ignored ones and secret files do not, deleted ones are gone.
+    std::fs::write(demo.join("notes.md"), "new").unwrap();
+    std::fs::create_dir_all(demo.join("build")).unwrap();
+    std::fs::write(demo.join("build/out.js"), "x").unwrap();
+    std::fs::write(demo.join("debug.log"), "x").unwrap();
+    std::fs::write(demo.join(".env"), "TOKEN=x").unwrap();
+    std::fs::remove_file(demo.join("README.md")).unwrap();
+    let r = engine.project_files("demo").unwrap();
+    assert_eq!(r.files, [".gitignore", "notes.md", "src/ui/list.ts"]);
+    assert!(!r.truncated);
+    assert!(matches!(
+        engine.project_files("missing"),
+        Err(vf_protocol::BackendError::NotFound(_))
+    ));
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+#[test]
 fn viewer_diff_is_against_the_start_of_the_project() {
     let (base, engine, _) = setup();
     let demo = base.join("projects/demo");

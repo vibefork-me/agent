@@ -663,6 +663,26 @@ pub(crate) async fn file(
     .await
 }
 
+/// The files of a project for the file tree; the browser needs access to the project.
+pub(crate) async fn files(
+    State(state): State<AppState>,
+    Extension(origin): Extension<EffectiveOrigin>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let project = q.get("project").cloned().unwrap_or_default();
+    if session_from(&state, &headers, &origin.0).is_none() {
+        return no_session();
+    }
+    if !project_allowed(&state, &headers, &origin.0, &project).await {
+        return error(StatusCode::FORBIDDEN, "no access to this project");
+    }
+    with_backend(state, &headers, &origin.0, move |b| {
+        b.project_files(&project)
+    })
+    .await
+}
+
 /// A project file as taken and as it is now; the browser needs access to the project.
 pub(crate) async fn diff(
     State(state): State<AppState>,

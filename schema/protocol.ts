@@ -153,6 +153,9 @@ export type PairStatusResponse = { keyId?: string | null; status: PairState };
 /** A plan step as shown to the user. */
 export type PlanStepInfo = { complexity: string; label: string; title: string };
 
+/** `GET /v1/files?project=…`: the files of a project for the editor's file tree. */
+export type ProjectFilesResponse = { files: (string)[]; truncated: boolean };
+
 /** A project and where its code comes from. */
 export type ProjectInfo = { commit?: string | null; name: string; original?: string | null; source?: string | null };
 

@@ -9,7 +9,8 @@ use crate::canvas::{CanvasResponse, NoteAttachment};
 use crate::http::{
     AiResponse, DescribeRequest, FileDiffResponse, FileResponse, GithubConnectResponse,
     GithubStatusResponse, GraphResponse, ImportRequest, ImportResponse, JournalResponse,
-    ModelsResponse, ProjectsResponse, RollbackResponse, SaveRequest, SaveResponse,
+    ModelsResponse, ProjectFilesResponse, ProjectsResponse, RollbackResponse, SaveRequest,
+    SaveResponse,
 };
 use crate::note::{MAX_PENDING_NOTES, MAX_TASK_NOTES, Note, NoteRejected};
 use crate::ws::ServerMessage;
@@ -349,6 +350,13 @@ pub trait Backend: Send + Sync {
     fn save(&self, req: &SaveRequest) -> Result<SaveResponse, BackendError>;
     /// A project file for the viewer (read-only; no git data, no secret files, at most 2 MiB).
     fn read_file(&self, project: &str, path: &str) -> Result<FileResponse, BackendError>;
+    /// The files of a project for the editor's file tree, bounded by `vf_core::limits`.
+    fn project_files(&self, project: &str) -> Result<ProjectFilesResponse, BackendError> {
+        let _ = project;
+        Err(BackendError::NotFound(
+            "not supported by this version of the agent".into(),
+        ))
+    }
     /// A project file as it was taken and as it is now, for the viewer's diff.
     fn read_diff(&self, project: &str, path: &str) -> Result<FileDiffResponse, BackendError>;
     /// The map of a project: its parts by folder and what changed since it was taken.

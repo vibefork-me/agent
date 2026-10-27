@@ -2442,6 +2442,27 @@
       ],
       "type": "object"
     },
+    "ProjectFilesResponse": {
+      "description": "`GET /v1/files?project=…`: the files of a project for the editor's file tree.",
+      "properties": {
+        "files": {
+          "description": "Project-relative paths, `/`-separated, sorted: tracked files and new files `.gitignore` does not exclude; no git data or files that usually hold secrets.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "truncated": {
+          "description": "Some files were left out: too many, or nested too deep.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "files",
+        "truncated"
+      ],
+      "type": "object"
+    },
     "ProjectInfo": {
       "description": "A project and where its code comes from.",
       "properties": {
