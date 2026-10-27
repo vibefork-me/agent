@@ -29,8 +29,8 @@ use vf_protocol::canvas::{CanvasEvent, CanvasResponse, MAX_CANVAS_PAGE, Stage};
 use vf_protocol::http::{
     AiConnected, AiKind, AiProvider, AiResponse, DescribeRequest, FileDiffResponse, FileResponse,
     GithubConnectResponse, GithubStatusResponse, GraphResponse, ImportRequest, ImportResponse,
-    JournalResponse, ModelsResponse, ProjectInfo, ProjectsResponse, RollbackResponse, SaveRequest,
-    SaveResponse,
+    JournalResponse, ModelsResponse, ProjectFilesResponse, ProjectInfo, ProjectsResponse,
+    RollbackResponse, SaveRequest, SaveResponse,
 };
 use vf_protocol::ws::ServerMessage;
 use vf_protocol::{Backend, BackendError, Cancel, ModelInfo, TaskRequest};
@@ -657,6 +657,10 @@ impl Backend for Engine {
 
     fn read_file(&self, project: &str, path: &str) -> Result<FileResponse, BackendError> {
         self.read_project_file(project, path)
+    }
+
+    fn project_files(&self, project: &str) -> Result<ProjectFilesResponse, BackendError> {
+        self.list_project_files(project)
     }
 
     fn read_diff(&self, project: &str, path: &str) -> Result<FileDiffResponse, BackendError> {

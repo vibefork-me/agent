@@ -950,6 +950,7 @@ async fn files_need_a_session_and_a_project_grant() {
     for path in [
         "/v1/file?project=demo&path=a.txt",
         "/v1/diff?project=demo&path=a.txt",
+        "/v1/files?project=demo",
         "/v1/graph?project=demo",
     ] {
         assert_eq!(
@@ -978,6 +979,10 @@ async fn files_need_a_session_and_a_project_grant() {
             .0,
         StatusCode::OK
     );
+    let (status, v, _) = call(&allowing, get("/v1/files?project=demo")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(v["files"], json!(["README.md", "src/main.rs"]));
+    assert_eq!(v["truncated"], json!(false));
     // Describing the map needs the project grant too.
     let body = json!({ "project": "demo" });
     assert_eq!(

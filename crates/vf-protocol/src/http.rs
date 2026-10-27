@@ -436,6 +436,17 @@ pub struct FileResponse {
     pub binary: bool,
 }
 
+/// `GET /v1/files?project=…`: the files of a project for the editor's file tree.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectFilesResponse {
+    /// Project-relative paths, `/`-separated, sorted: tracked files and new files `.gitignore`
+    /// does not exclude; no git data or files that usually hold secrets.
+    pub files: Vec<String>,
+    /// Some files were left out: too many, or nested too deep.
+    pub truncated: bool,
+}
+
 /// `GET /v1/diff?project=…&path=…`: a file as the project was taken and as it is now.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]

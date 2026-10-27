@@ -7,8 +7,8 @@ use std::sync::Arc;
 use vf_protocol::http::{
     AiResponse, DescribeRequest, FileDiffResponse, FileResponse, GithubConnectResponse,
     GithubStatusResponse, GraphResponse, GraphSource, ImportRequest, ImportResponse,
-    JournalResponse, ModelsResponse, ProjectsResponse, RollbackResponse, SaveRequest, SaveResponse,
-    SaveStep,
+    JournalResponse, ModelsResponse, ProjectFilesResponse, ProjectsResponse, RollbackResponse,
+    SaveRequest, SaveResponse, SaveStep,
 };
 use vf_protocol::ws::ServerMessage;
 use vf_protocol::{Backend, BackendError, Cancel, TaskRequest};
@@ -78,6 +78,12 @@ impl Backend for FakeBackend {
             size: 4,
             too_large: false,
             binary: false,
+        })
+    }
+    fn project_files(&self, _: &str) -> Result<ProjectFilesResponse, BackendError> {
+        Ok(ProjectFilesResponse {
+            files: vec!["README.md".into(), "src/main.rs".into()],
+            truncated: false,
         })
     }
     fn read_diff(&self, _: &str, path: &str) -> Result<FileDiffResponse, BackendError> {

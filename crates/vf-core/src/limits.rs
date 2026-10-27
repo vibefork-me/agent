@@ -10,6 +10,12 @@ pub const PROJECT_ARCHIVE: usize = 500 * 1024 * 1024;
 /// One file of an agent release or of the editor bundle.
 pub const RELEASE_FILE: usize = 512 * 1024 * 1024;
 
+/// Most files listed for the editor's file tree; the rest are left out and the list says so.
+pub const PROJECT_FILES: usize = 20_000;
+
+/// Deepest folder nesting listed for the editor's file tree; deeper files are left out.
+pub const PROJECT_FILE_DEPTH: usize = 32;
+
 /// Initial capacity reserved for a body whose size is declared; the rest grows on demand.
 const RESERVE_CAP: usize = 1024 * 1024;
 
