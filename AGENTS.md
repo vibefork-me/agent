@@ -21,7 +21,9 @@ can see there are no hidden traps.
 ## Dependencies
 - Add a dependency only with a reason in the PR (what it saves, why not std / an existing crate).
 - Versions live in the root `Cargo.toml` (`[workspace.dependencies]`).
-- `cargo deny check` must pass (licenses, advisories, duplicates).
+- `cargo deny check` must pass (licenses, advisories, duplicates, sources).
+- Dependencies come only from crates.io or git repositories of `vibefork-me`; no `[patch]` / `[replace]`, no source overrides in `.cargo/config*`, `Cargo.lock` committed and current — `python3 scripts/check_sources.py`.
+- Dependabot opens one grouped PR a day per ecosystem (cargo, GitHub Actions); third-party actions are pinned by commit SHA with the version in a comment.
 
 ## Before you open a PR
 ```sh
