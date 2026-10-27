@@ -233,7 +233,32 @@ fn project_error(e: ProjectError) -> BackendError {
     }
 }
 
+/// A project held by one run (task, build, analysis); released when dropped.
+pub(crate) struct Hold<'a> {
+    engine: &'a Engine,
+    project: String,
+}
+
+impl Drop for Hold<'_> {
+    fn drop(&mut self) {
+        self.engine
+            .busy
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&self.project);
+    }
+}
+
 impl Engine {
+    /// Holds a project for one run; `None` while another run holds it.
+    pub(crate) fn hold(&self, project: &str) -> Option<Hold<'_>> {
+        let mut busy = self.busy.lock().unwrap_or_else(|p| p.into_inner());
+        busy.insert(project.to_owned()).then(|| Hold {
+            engine: self,
+            project: project.to_owned(),
+        })
+    }
+
     /// One task, build or rollback per project at a time.
     fn exclusive(
         &self,

@@ -50,7 +50,7 @@ impl Provider for Scripted {
             .is_some_and(|s| s.contains("does not write code"))
         {
             assert!(req.prompt.contains("PROJECT DATA"));
-            r#"{"parts":[{"name":"Guide","summary":"Explains the project.","paths":["README.md"]},{"name":"Program","summary":"Does the work.","paths":["src"]}],"links":[{"from":"Guide","to":"Program"}]}"#
+            r#"{"parts":[{"name":"Guide","summary":"Explains the project.","paths":["README.md"],"insights":["Short and clear"]},{"name":"Program","summary":"Does the work.","paths":["src"]}],"links":[{"from":"Guide","to":"Program"}]}"#
         } else if req.system.is_some() {
             r#"{"complexity":"medium","decompose":true,"reason":"two parts"}"#
         } else {
@@ -644,6 +644,32 @@ fn a_model_draws_the_map_in_plain_words() {
         engine.graph("demo", false).unwrap().source,
         vf_protocol::http::GraphSource::Model
     );
+    // The analysis is in the project's session stream, with the map's part ids.
+    let stream: Vec<serde_json::Value> = engine
+        .canvas("demo", 1)
+        .unwrap()
+        .events
+        .iter()
+        .map(|r| serde_json::to_value(&r.ev).unwrap())
+        .collect();
+    let types: Vec<&str> = stream.iter().map(|v| v["type"].as_str().unwrap()).collect();
+    assert_eq!(
+        types,
+        [
+            "project", "stage", "think", "found", "focus", "insight", "found", "focus", "stage",
+            "touch", "stage"
+        ]
+    );
+    assert_eq!(stream[2]["text"], "Смотрю, из чего состоит проект");
+    assert_eq!(stream[3]["id"], "p1");
+    assert_eq!(stream[3]["parent"], "root");
+    assert_eq!(stream[3]["files"], serde_json::json!(["README.md"]));
+    assert_eq!(stream[5]["text"], "Short and clear");
+    assert_eq!(
+        stream[9],
+        serde_json::json!({"type": "touch", "from": "p1", "to": "p2"})
+    );
+    assert_eq!(stream[10]["id"], "summary");
 }
 
 #[test]
