@@ -103,6 +103,8 @@ pub struct StepReport {
     pub usage: Option<Usage>,
     /// Prompt version used, if applicable (e.g. `loop:1`).
     pub prompt_version: Option<String>,
+    /// What the step produced (kept with its journal entry).
+    pub artifacts: Vec<vf_protocol::canvas::Artifact>,
 }
 
 /// A started step: remembers where it began.
@@ -181,6 +183,7 @@ impl StepStart {
             cost_usd: report.cost_usd,
             usage: report.usage,
             prompt_version: report.prompt_version,
+            artifacts: report.artifacts,
         };
         store.append(project, &entry)?;
         Ok(StepOutcome { entry, diff })

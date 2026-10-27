@@ -7,6 +7,7 @@
 
 mod build;
 mod canvas;
+mod changes;
 mod files;
 mod github;
 mod graph;
@@ -557,7 +558,38 @@ impl Backend for Engine {
             stream.emit(CanvasEvent::Stage {
                 id: Stage::Understand,
             });
-            self.task(task, &mut |m| stream.forward(m), cancel);
+            // Steps journaled before this task are not its own.
+            let before = self.journal.read(&project).map(|e| e.len()).unwrap_or(0);
+            self.task(
+                task,
+                &mut |m| {
+                    let step_ended = matches!(
+                        m,
+                        ServerMessage::StepDone { .. } | ServerMessage::Done { plan: false, .. }
+                    );
+                    let task_ended = matches!(m, ServerMessage::Done { .. });
+                    if step_ended || task_ended {
+                        let entries = self.journal.read(&project).unwrap_or_default();
+                        if step_ended
+                            && let Some(last) = entries.get(before..).and_then(<[_]>::last)
+                        {
+                            for ev in changes::change_events(&last.artifacts) {
+                                stream.emit(ev);
+                            }
+                        }
+                        if task_ended {
+                            let own = entries
+                                .into_iter()
+                                .skip(before)
+                                .flat_map(|e| e.artifacts)
+                                .collect();
+                            stream.result_artifacts(changes::merge(own));
+                        }
+                    }
+                    stream.forward(m);
+                },
+                cancel,
+            );
         });
     }
 

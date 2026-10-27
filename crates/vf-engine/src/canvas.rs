@@ -16,6 +16,8 @@ pub(crate) struct Stream<'a> {
     session: String,
     next: u64,
     out: &'a mut dyn FnMut(ServerMessage),
+    /// What the run produced, put into its `result` event.
+    artifacts: Vec<vf_protocol::canvas::Artifact>,
 }
 
 impl<'a> Stream<'a> {
@@ -36,7 +38,13 @@ impl<'a> Stream<'a> {
             session: format!("{}-{next}", now_ms()),
             next,
             out,
+            artifacts: Vec::new(),
         }
+    }
+
+    /// What the run produced: the `result` event carries it.
+    pub(crate) fn result_artifacts(&mut self, artifacts: Vec<vf_protocol::canvas::Artifact>) {
+        self.artifacts = artifacts;
     }
 
     /// Records and sends a canvas event.
@@ -67,7 +75,12 @@ impl<'a> Stream<'a> {
         if let ServerMessage::Canvas { ev, .. } = message {
             return self.emit(ev);
         }
-        for ev in events_for(&message) {
+        for mut ev in events_for(&message) {
+            if let CanvasEvent::Result { artifacts, .. } = &mut ev
+                && artifacts.is_empty()
+            {
+                *artifacts = std::mem::take(&mut self.artifacts);
+            }
             self.emit(ev);
         }
         (self.out)(message);

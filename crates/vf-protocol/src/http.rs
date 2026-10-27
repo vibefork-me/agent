@@ -389,6 +389,9 @@ pub struct JournalEntry {
     /// Prompt version used, if applicable (e.g. `plan:1`, `loop:1`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt_version: Option<String>,
+    /// What the step produced: its changes by file and part, …
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub artifacts: Vec<crate::canvas::Artifact>,
 }
 
 /// Request of `POST /v1/rollback`: reset the project to a checkpoint of its journal.
