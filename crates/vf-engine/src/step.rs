@@ -205,6 +205,31 @@ impl Engine {
         (env, paths, level)
     }
 
+    /// Runs one step; while the person has paused the task, waits, then runs the interrupted step
+    /// again, with the project's history (what it did before the pause is kept).
+    pub fn step_pausable(
+        &self,
+        repo: &Repo,
+        provider: &dyn Provider,
+        req: &StepRequest<'_>,
+        out: &mut dyn FnMut(ServerMessage),
+        cancel: &Cancel,
+    ) -> StepResult {
+        let mut req = *req;
+        loop {
+            let r = self.step(repo, provider, &req, out, cancel);
+            if !cancel.is_paused() {
+                return r;
+            }
+            out(ServerMessage::Paused);
+            if !cancel.wait_resumed() {
+                return r;
+            }
+            out(ServerMessage::Resumed);
+            req.continue_ = true;
+        }
+    }
+
     /// Runs one step and journals it.
     pub fn step(
         &self,

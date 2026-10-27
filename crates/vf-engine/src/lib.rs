@@ -157,6 +157,8 @@ impl Engine {
             .and_then(vf_core::catalog::lang_code)
             .map(str::to_owned)
             .unwrap_or_else(|| vf_platform::system_language().as_str().to_owned());
+        // Where the task started: cancelling it while paused goes back here.
+        let start = vf_journal::Vcs::head(&repo).ok();
         let t = Task {
             project: &task.project,
             dir: &dir,
@@ -179,6 +181,12 @@ impl Engine {
                 }
                 self.single(&t, &provider, &model, out, cancel);
             }
+        }
+        if cancel.wants_undo()
+            && let Some(start) = start
+            && let Err(e) = repo.reset_hard(&start)
+        {
+            tracing::warn!(project = %task.project, error = %e, "cancelled task not undone");
         }
     }
 
@@ -208,7 +216,7 @@ impl Engine {
             step: None,
             system: Some(&system_instruction),
         };
-        let r = self.step(t.repo, p.as_ref(), &req, out, cancel);
+        let r = self.step_pausable(t.repo, p.as_ref(), &req, out, cancel);
         if r.cancelled {
             return out(ServerMessage::Cancelled);
         }
@@ -250,6 +258,30 @@ impl Drop for Hold<'_> {
 }
 
 impl Engine {
+    /// A build; while the person has paused it, waits, then builds again from the start.
+    fn pausable_build(&self, project: &str, out: &mut dyn FnMut(ServerMessage), cancel: &Cancel) {
+        loop {
+            // The interrupted build's "cancelled" is not the end of a paused build.
+            self.run_build(
+                project,
+                &mut |m| {
+                    if !(matches!(m, ServerMessage::Cancelled) && cancel.is_paused()) {
+                        out(m);
+                    }
+                },
+                cancel,
+            );
+            if !cancel.is_paused() {
+                return;
+            }
+            out(ServerMessage::Paused);
+            if !cancel.wait_resumed() {
+                return out(ServerMessage::Cancelled);
+            }
+            out(ServerMessage::Resumed);
+        }
+    }
+
     /// Holds a project for one run; `None` while another run holds it.
     pub(crate) fn hold(&self, project: &str) -> Option<Hold<'_>> {
         let mut busy = self.busy.lock().unwrap_or_else(|p| p.into_inner());
@@ -541,10 +573,10 @@ impl Backend for Engine {
     fn build(&self, project: &str, out: &mut dyn FnMut(ServerMessage), cancel: &Cancel) {
         self.exclusive(project, out, |out| {
             if self.projects.resolve(project).is_err() {
-                return self.run_build(project, out, cancel);
+                return self.pausable_build(project, out, cancel);
             }
             let mut stream = canvas::Stream::new(&self.canvas, project, out);
-            self.run_build(project, &mut |m| stream.forward(m), cancel);
+            self.pausable_build(project, &mut |m| stream.forward(m), cancel);
         });
     }
 

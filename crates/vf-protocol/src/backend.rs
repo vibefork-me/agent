@@ -63,9 +63,21 @@ pub struct TaskRequest {
     pub lang: Option<String>,
 }
 
-/// Cancellation of a running task, shared between the requester and the worker.
+/// What the person asked of a running task.
+#[derive(Debug, Default)]
+struct Control {
+    cancelled: bool,
+    paused: bool,
+    undo: bool,
+}
+
+/// Cancellation and pause of a running task, shared between the requester and the worker.
+///
+/// Work in progress (a model, a build, a call to an AI) stops when [`Cancel::is_cancelled`] turns
+/// true: on cancel, and also on pause. A paused task waits in [`Cancel::wait_resumed`] and runs the
+/// interrupted step again once resumed.
 #[derive(Debug, Clone, Default)]
-pub struct Cancel(Arc<(Mutex<bool>, Condvar)>);
+pub struct Cancel(Arc<(Mutex<Control>, Condvar)>);
 
 impl Cancel {
     /// A new, not cancelled token.
@@ -73,27 +85,75 @@ impl Cancel {
         Self::default()
     }
 
-    /// Requests cancellation.
-    pub fn cancel(&self) {
-        let (flag, cv) = &*self.0;
-        if let Ok(mut f) = flag.lock() {
-            *f = true;
+    fn set(&self, f: impl FnOnce(&mut Control)) {
+        let (state, cv) = &*self.0;
+        if let Ok(mut s) = state.lock() {
+            f(&mut s);
         }
         cv.notify_all();
     }
 
-    /// Whether cancellation was requested.
-    pub fn is_cancelled(&self) -> bool {
-        self.0.0.lock().map(|f| *f).unwrap_or(true)
+    fn read<T>(&self, f: impl FnOnce(&Control) -> T, poisoned: T) -> T {
+        self.0.0.lock().map(|s| f(&s)).unwrap_or(poisoned)
     }
 
-    /// Waits up to `timeout`; returns `true` when cancelled.
+    /// Requests cancellation; what the task changed stays.
+    pub fn cancel(&self) {
+        self.set(|s| s.cancelled = true);
+    }
+
+    /// Requests cancellation and that the task's changes are undone.
+    pub fn cancel_and_undo(&self) {
+        self.set(|s| {
+            s.cancelled = true;
+            s.undo = true;
+        });
+    }
+
+    /// Pauses the task: the work in progress stops at once.
+    pub fn pause(&self) {
+        self.set(|s| s.paused = true);
+    }
+
+    /// Continues a paused task.
+    pub fn resume(&self) {
+        self.set(|s| s.paused = false);
+    }
+
+    /// Whether the work in progress must stop now (cancelled or paused).
+    pub fn is_cancelled(&self) -> bool {
+        self.read(|s| s.cancelled || s.paused, true)
+    }
+
+    /// Whether the task is paused (and not cancelled).
+    pub fn is_paused(&self) -> bool {
+        self.read(|s| s.paused && !s.cancelled, false)
+    }
+
+    /// Whether the task's changes must be undone.
+    pub fn wants_undo(&self) -> bool {
+        self.read(|s| s.cancelled && s.undo, false)
+    }
+
+    /// Waits up to `timeout`; returns `true` when the work must stop (cancelled or paused).
     pub fn wait(&self, timeout: Duration) -> bool {
-        let (flag, cv) = &*self.0;
-        let Ok(guard) = flag.lock() else { return true };
-        match cv.wait_timeout_while(guard, timeout, |f| !*f) {
-            Ok((f, _)) => *f,
+        let (state, cv) = &*self.0;
+        let Ok(guard) = state.lock() else { return true };
+        match cv.wait_timeout_while(guard, timeout, |s| !s.cancelled && !s.paused) {
+            Ok((s, _)) => s.cancelled || s.paused,
             Err(_) => true,
+        }
+    }
+
+    /// Waits while the task is paused; `true` when it was resumed, `false` when cancelled.
+    pub fn wait_resumed(&self) -> bool {
+        let (state, cv) = &*self.0;
+        let Ok(guard) = state.lock() else {
+            return false;
+        };
+        match cv.wait_while(guard, |s| s.paused && !s.cancelled) {
+            Ok(s) => !s.cancelled,
+            Err(_) => false,
         }
     }
 }
@@ -211,5 +271,26 @@ mod tests {
         c.cancel();
         assert!(t.join().unwrap_or(false));
         assert!(c.is_cancelled());
+        assert!(!c.wants_undo());
+    }
+
+    #[test]
+    fn a_pause_stops_the_work_and_waits_for_resume_or_cancel() {
+        let c = Cancel::new();
+        c.pause();
+        assert!(c.is_cancelled() && c.is_paused());
+        assert!(c.wait(Duration::from_millis(1)));
+        let c2 = c.clone();
+        let t = std::thread::spawn(move || c2.wait_resumed());
+        c.resume();
+        assert!(t.join().unwrap_or(false));
+        assert!(!c.is_cancelled() && !c.is_paused());
+
+        c.pause();
+        let c2 = c.clone();
+        let t = std::thread::spawn(move || c2.wait_resumed());
+        c.cancel_and_undo();
+        assert!(!t.join().unwrap_or(true));
+        assert!(c.is_cancelled() && !c.is_paused() && c.wants_undo());
     }
 }
