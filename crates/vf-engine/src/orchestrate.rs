@@ -4,12 +4,14 @@
 use std::path::Path;
 use std::time::Duration;
 
+use vf_core::catalog::Language;
 use vf_git::Repo;
 use vf_journal::{JournalStore as _, Vcs as _};
 use vf_orchestrator::{
     Complexity, PlanStep, classifier_candidates, heuristic_rating, model_for_step, parse_plan,
     parse_rating, pick_model, plan_preamble, plan_prompt, wants_plan,
 };
+use vf_protocol::canvas::CanvasEvent;
 use vf_protocol::http::JournalEntry;
 use vf_protocol::ws::{PlanStepInfo, Rating, ServerMessage, StepInfo};
 use vf_protocol::{Cancel, ModelInfo};
@@ -44,7 +46,7 @@ impl Engine {
         out: &mut dyn FnMut(ServerMessage),
         cancel: &Cancel,
     ) {
-        let rating = self.classify(t, inventory, cancel);
+        let rating = self.classify(t, inventory, out, cancel);
         if wants_plan(&rating) {
             return self.plan(t, inventory, Some(rating), out, cancel);
         }
@@ -63,7 +65,13 @@ impl Engine {
     }
 
     /// The rating by a free classifier model; a heuristic when none answers.
-    fn classify(&self, t: &Task<'_>, inventory: &[ModelInfo], cancel: &Cancel) -> Rating {
+    fn classify(
+        &self,
+        t: &Task<'_>,
+        inventory: &[ModelInfo],
+        out: &mut dyn FnMut(ServerMessage),
+        cancel: &Cancel,
+    ) -> Rating {
         let free: Vec<String> = inventory
             .iter()
             .filter(|m| m.provider == "openrouter")
@@ -73,7 +81,11 @@ impl Engine {
             let env = ChildEnv::from_current();
             let prompt: String = t.prompt.chars().take(4000).collect();
             let classifier_prompt = vf_platform::prompts::get(vf_core::prompts::Stage::Classify);
-            for model in classifier_candidates(&free) {
+            let candidates = classifier_candidates(&free);
+            if !candidates.is_empty() {
+                think(out, Thought::Rating, t.lang);
+            }
+            for model in candidates {
                 let req = AskRequest {
                     dir: t.dir,
                     system: Some(&classifier_prompt.template),
@@ -117,6 +129,7 @@ impl Engine {
         // Paused while planning: plan again once resumed.
         let planned = loop {
             t.inbox.pick_up(cancel, out);
+            think(out, Thought::Planning, t.lang);
             let planned = self.make_plan(t, inventory, cancel);
             if planned.is_ok() || !cancel.is_paused() {
                 break planned;
@@ -216,6 +229,7 @@ impl Engine {
                 of,
                 title: s.title.clone(),
             };
+            think(out, Thought::Step(&info), t.lang);
             let prefix = plan_preamble(t.prompt, &steps, i);
             let system_instruction = vf_core::catalog::system_instruction(t.lang);
             let req = StepRequest {
@@ -339,6 +353,48 @@ impl Engine {
     }
 }
 
+/// What the agent waits for a model to do during a task.
+pub(crate) enum Thought<'a> {
+    /// Rate how big the task is.
+    Rating,
+    /// Split the task into steps.
+    Planning,
+    /// Do the whole task in one go.
+    Task,
+    /// Do one step of a plan.
+    Step(&'a StepInfo),
+}
+
+/// What the agent is doing while it waits for a model, in the person's language (no call to a model).
+pub(crate) fn thought(what: &Thought<'_>, lang: &str) -> String {
+    let ru = Language::parse(lang) == Language::Ru;
+    match (what, ru) {
+        (Thought::Rating, true) => "Оцениваю, насколько велика задача".into(),
+        (Thought::Rating, false) => "Working out how big the task is".into(),
+        (Thought::Planning, true) => "Разбиваю задачу на шаги".into(),
+        (Thought::Planning, false) => "Splitting the task into steps".into(),
+        (Thought::Task, true) => "Делаю задачу".into(),
+        (Thought::Task, false) => "Working on the task".into(),
+        (Thought::Step(s), true) => format!("Шаг {} из {}: {}", s.n, s.of, s.title),
+        (Thought::Step(s), false) => format!("Step {} of {}: {}", s.n, s.of, s.title),
+    }
+}
+
+/// Sends a `think` event before a call to a model (a canvas event raised by the work; the session
+/// stream numbers it). It is about the whole project: a task's steps are not tied to a part.
+pub(crate) fn think(out: &mut dyn FnMut(ServerMessage), what: Thought<'_>, lang: &str) {
+    out(ServerMessage::Canvas {
+        project: String::new(),
+        seq: 0,
+        at: 0,
+        session: String::new(),
+        ev: CanvasEvent::Think {
+            id: crate::map::ROOT.into(),
+            text: thought(&what, lang),
+        },
+    });
+}
+
 fn done(
     out: &mut dyn FnMut(ServerMessage),
     code: i32,
@@ -357,4 +413,32 @@ fn done(
         status,
         plan,
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn thoughts_are_in_the_persons_language() {
+        let step = StepInfo {
+            n: 2,
+            of: 3,
+            title: "Add tags".into(),
+        };
+        assert_eq!(
+            thought(&Thought::Step(&step), "ru-RU"),
+            "Шаг 2 из 3: Add tags"
+        );
+        assert_eq!(
+            thought(&Thought::Step(&step), "en"),
+            "Step 2 of 3: Add tags"
+        );
+        assert_eq!(thought(&Thought::Planning, "ru"), "Разбиваю задачу на шаги");
+        assert_eq!(
+            thought(&Thought::Rating, "??"),
+            "Working out how big the task is"
+        );
+        assert_eq!(thought(&Thought::Task, "en"), "Working on the task");
+    }
 }

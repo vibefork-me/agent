@@ -210,6 +210,7 @@ impl Engine {
                 code: None,
             });
         };
+        orchestrate::think(out, orchestrate::Thought::Task, t.lang);
         let system_instruction = vf_core::catalog::system_instruction(t.lang);
         let req = StepRequest {
             project: t.project,
