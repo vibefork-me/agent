@@ -6,7 +6,7 @@ use std::io::{Read as _, Seek as _, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use vf_protocol::canvas::{CanvasEvent, CanvasRecord, Stage};
+use vf_protocol::canvas::{CanvasEvent, CanvasRecord, ResultKind, Stage};
 
 /// How much of the end of a stream is read: the last events, not the whole history.
 const TAIL_BYTES: u64 = 256 * 1024;
@@ -89,6 +89,15 @@ pub(crate) fn derive(records: &[CanvasRecord], now_ms: u64) -> Activity {
         })
         .unwrap_or(false);
     let ended = match &last.ev {
+        CanvasEvent::Result {
+            kind: Some(ResultKind::Failed),
+            ..
+        } => Activity::Failed,
+        // A cancel or a rolled-back part is the person's own doing: nothing to tell them.
+        CanvasEvent::Result {
+            kind: Some(ResultKind::Cancelled | ResultKind::PartRolledBack),
+            ..
+        } => Activity::Idle,
         CanvasEvent::Result { .. } if last_check_failed => Activity::Failed,
         CanvasEvent::Result { .. } => Activity::Done,
         CanvasEvent::Check { ok: false, .. } => Activity::Failed,
@@ -206,6 +215,20 @@ mod tests {
             text: "Done".into(),
             detail: String::new(),
             artifacts: Vec::new(),
+            kind: None,
+            exit: None,
+            id: None,
+        }
+    }
+
+    fn result_of(kind: ResultKind) -> CanvasEvent {
+        CanvasEvent::Result {
+            text: "Done".into(),
+            detail: String::new(),
+            artifacts: Vec::new(),
+            kind: Some(kind),
+            exit: None,
+            id: None,
         }
     }
 
@@ -214,7 +237,18 @@ mod tests {
             ok,
             text: "build".into(),
             id: None,
+            kind: None,
+            exit: None,
         }
+    }
+
+    #[test]
+    fn result_kind_tells_the_outcome() {
+        let ended = |kind| derive(&[rec(1, NOW, "s", result_of(kind))], NOW);
+        assert_eq!(ended(ResultKind::Done), Activity::Done);
+        assert_eq!(ended(ResultKind::Failed), Activity::Failed);
+        assert_eq!(ended(ResultKind::Cancelled), Activity::Idle);
+        assert_eq!(ended(ResultKind::PartRolledBack), Activity::Idle);
     }
 
     #[test]
