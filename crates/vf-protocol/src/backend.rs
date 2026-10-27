@@ -53,7 +53,7 @@ impl std::fmt::Display for BackendError {
 pub enum OfferRejected {
     /// The project has no offers kept (it was never described, or the model offered nothing).
     NoOffers,
-    /// No offer has this index.
+    /// No offer has this index, or it has another title than the one shown.
     BadIndex,
     /// The backend does not run offers.
     NotSupported,
@@ -302,9 +302,14 @@ pub trait Backend: Send + Sync {
     /// [`ServerMessage::Done`], [`ServerMessage::Cancelled`] or [`ServerMessage::Error`].
     fn run_task(&self, task: TaskRequest, out: &mut dyn FnMut(ServerMessage), cancel: &Cancel);
     /// What offer `index` of the project's kept offers (the last `offers` event) asks for: its title
-    /// and text, ready to run as a task prompt.
-    fn offer_prompt(&self, project: &str, index: u32) -> Result<String, OfferRejected> {
-        let _ = (project, index);
+    /// and text, ready to run as a task prompt. With `title`, the offer must have that title.
+    fn offer_prompt(
+        &self,
+        project: &str,
+        index: u32,
+        title: Option<&str>,
+    ) -> Result<String, OfferRejected> {
+        let _ = (project, index, title);
         Err(OfferRejected::NotSupported)
     }
     /// The session stream of a project from event `from` on, at most

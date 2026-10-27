@@ -1258,6 +1258,14 @@
                 "null"
               ]
             },
+            "title": {
+              "default": null,
+              "description": "Title of the offer as shown; when given, the kept offer at `index` must have it (the offers changed since otherwise: `bad_index`).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "type": {
               "enum": [
                 "choose_offer"

@@ -519,9 +519,12 @@ fn a_task_writes_its_session_stream_and_it_replays_from_any_event() {
 fn a_chosen_offer_is_the_prompt_of_a_kept_offer() {
     let (base, engine, _) = setup();
     // Never described: nothing to choose; an unknown project has nothing either.
-    assert_eq!(engine.offer_prompt("demo", 0), Err(OfferRejected::NoOffers));
     assert_eq!(
-        engine.offer_prompt("../demo", 0),
+        engine.offer_prompt("demo", 0, None),
+        Err(OfferRejected::NoOffers)
+    );
+    assert_eq!(
+        engine.offer_prompt("../demo", 0, None),
         Err(OfferRejected::NoOffers)
     );
     std::fs::create_dir_all(base.join("state/projects")).unwrap();
@@ -533,15 +536,28 @@ fn a_chosen_offer_is_the_prompt_of_a_kept_offer() {
     )
     .unwrap();
     assert_eq!(
-        engine.offer_prompt("demo", 0).as_deref(),
+        engine.offer_prompt("demo", 0, None).as_deref(),
         Ok("Tags for notes
 
 Notes can be grouped by tag.")
     );
-    assert_eq!(engine.offer_prompt("demo", 1).as_deref(), Ok("Dark theme"));
-    assert_eq!(engine.offer_prompt("demo", 2), Err(OfferRejected::BadIndex));
     assert_eq!(
-        engine.offer_prompt("demo", u32::MAX),
+        engine
+            .offer_prompt("demo", 1, Some("Dark theme"))
+            .as_deref(),
+        Ok("Dark theme")
+    );
+    assert_eq!(
+        engine.offer_prompt("demo", 2, None),
+        Err(OfferRejected::BadIndex)
+    );
+    // The offers changed since the person saw them: not another offer in its place.
+    assert_eq!(
+        engine.offer_prompt("demo", 0, Some("Dark theme")),
+        Err(OfferRejected::BadIndex)
+    );
+    assert_eq!(
+        engine.offer_prompt("demo", u32::MAX, None),
         Err(OfferRejected::BadIndex)
     );
     let _ = std::fs::remove_dir_all(&base);

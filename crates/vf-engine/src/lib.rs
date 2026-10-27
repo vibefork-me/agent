@@ -599,11 +599,12 @@ impl Backend for Engine {
         &self,
         project: &str,
         index: u32,
+        title: Option<&str>,
     ) -> Result<String, vf_protocol::OfferRejected> {
         if self.projects.resolve(project).is_err() {
             return Err(vf_protocol::OfferRejected::NoOffers);
         }
-        self.kept_offer_prompt(project, index)
+        self.kept_offer_prompt(project, index, title)
     }
 
     fn canvas(&self, project: &str, from: u64) -> Result<CanvasResponse, BackendError> {

@@ -8,7 +8,8 @@
 //! `vf_protocol::note`; otherwise an error); `rollback_part` rolls one part back after the native
 //! dialog confirms it (not while a task of the connection runs); `choose_offer` runs a task with
 //! the title and text of an offer kept for the project (after the same access check as `task`; an
-//! offer that is not there is an error `no_offers` / `bad_index`), other text is echoed. Messages are at most [`MAX_MESSAGE`] bytes. A running task also sends its session stream (`canvas` messages). Closing the connection cancels the running task.
+//! offer that is not there, or has another title than the one shown, is an error `no_offers` /
+//! `bad_index`), other text is echoed. Messages are at most [`MAX_MESSAGE`] bytes. A running task also sends its session stream (`canvas` messages). Closing the connection cancels the running task.
 
 use std::time::Duration;
 
@@ -155,6 +156,7 @@ async fn connection(mut socket: WebSocket, state: AppState, origin: String) {
             Ok(ClientMessage::ChooseOffer {
                 project,
                 index,
+                title,
                 provider,
                 model,
                 continue_,
@@ -183,7 +185,7 @@ async fn connection(mut socket: WebSocket, state: AppState, origin: String) {
                         task.project.clone(),
                         move |backend| {
                             backend
-                                .offer_prompt(&task.project, index)
+                                .offer_prompt(&task.project, index, title.as_deref())
                                 .map(|prompt| TaskRequest { prompt, ..task })
                         },
                         tx.clone(),

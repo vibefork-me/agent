@@ -55,7 +55,7 @@ export type ChallengeResponse = { nonce: string };
 export type CliHomeMode = "agent" | "user";
 
 /** Messages from the browser. */
-export type ClientMessage = { token: string; type: "auth" } | { continue?: boolean; lang?: string | null; model?: string | null; project: string; prompt: string; provider?: string | null; type: "task" } | { project: string; type: "build" } | { type: "cancel" } | { attachments?: (NoteAttachment)[]; project: string; text: string; type: "note" } | { type: "stop" } | { type: "resume" } | { continue?: boolean; index: number; lang?: string | null; model?: string | null; project: string; provider?: string | null; type: "choose_offer" } | { id: string; project: string; type: "rollback_part" };
+export type ClientMessage = { token: string; type: "auth" } | { continue?: boolean; lang?: string | null; model?: string | null; project: string; prompt: string; provider?: string | null; type: "task" } | { project: string; type: "build" } | { type: "cancel" } | { attachments?: (NoteAttachment)[]; project: string; text: string; type: "note" } | { type: "stop" } | { type: "resume" } | { continue?: boolean; index: number; lang?: string | null; model?: string | null; project: string; provider?: string | null; title?: string | null; type: "choose_offer" } | { id: string; project: string; type: "rollback_part" };
 
 /** Cost class of a model. */
 export type CostClass = "subscription" | "free" | "paid";

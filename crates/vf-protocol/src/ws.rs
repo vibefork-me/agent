@@ -63,6 +63,10 @@ pub enum ClientMessage {
         project: String,
         /// Index in the last `offers` event of the project.
         index: u32,
+        /// Title of the offer as shown; when given, the kept offer at `index` must have it (the
+        /// offers changed since otherwise: `bad_index`).
+        #[serde(default)]
+        title: Option<String>,
         /// `auto`, `plan`, or a provider, as in `task`.
         #[serde(default)]
         provider: Option<String>,

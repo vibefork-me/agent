@@ -475,11 +475,13 @@ impl Engine {
             .join(format!("{project}.map.json"))
     }
 
-    /// The prompt of offer `index` of the project's kept map: its title, then its text.
+    /// The prompt of offer `index` of the project's kept map: its title, then its text. With
+    /// `title`, the offer must have that title (the person chose from what they saw).
     pub(crate) fn kept_offer_prompt(
         &self,
         project: &str,
         index: u32,
+        title: Option<&str>,
     ) -> Result<String, vf_protocol::OfferRejected> {
         let offers = self.load_map(project).map(|m| m.offers).unwrap_or_default();
         if offers.is_empty() {
@@ -488,6 +490,7 @@ impl Engine {
         let offer = usize::try_from(index)
             .ok()
             .and_then(|i| offers.get(i))
+            .filter(|o| title.is_none_or(|t| t == o.title))
             .ok_or(vf_protocol::OfferRejected::BadIndex)?;
         Ok(offer_prompt(offer))
     }
