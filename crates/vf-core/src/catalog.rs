@@ -106,6 +106,14 @@ pub fn action_build(lang: Language) -> &'static str {
     }
 }
 
+/// Answer to a message of the person that the running task took (`note.taken`).
+pub fn note_taken(lang: Language) -> &'static str {
+    match lang {
+        Language::En => "Got it, I'll take it into account in the next step.",
+        Language::Ru => "Принято, учту на следующем шаге.",
+    }
+}
+
 /// Action prompt: rollback project.
 pub fn action_rollback(lang: Language) -> &'static str {
     match lang {

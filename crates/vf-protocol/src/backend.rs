@@ -1,15 +1,17 @@
 //! The port between the API (`vf-server`) and what does the work (`vf-engine`). Calls are blocking:
 //! the server runs them on blocking threads.
 
+use std::collections::VecDeque;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
-use crate::canvas::CanvasResponse;
+use crate::canvas::{CanvasResponse, NoteAttachment};
 use crate::http::{
     AiResponse, DescribeRequest, FileDiffResponse, FileResponse, GithubConnectResponse,
     GithubStatusResponse, GraphResponse, ImportRequest, ImportResponse, JournalResponse,
     ModelsResponse, ProjectsResponse, RollbackResponse, SaveRequest, SaveResponse,
 };
+use crate::note::{MAX_PENDING_NOTES, MAX_TASK_NOTES, Note, NoteRejected};
 use crate::ws::ServerMessage;
 
 /// Why a call failed; maps to an HTTP status.
@@ -69,9 +71,14 @@ struct Control {
     cancelled: bool,
     paused: bool,
     undo: bool,
+    /// Messages of the person waiting to be taken.
+    notes: VecDeque<Note>,
+    /// Messages queued so far (the number of the last one).
+    posted: u32,
 }
 
-/// Cancellation and pause of a running task, shared between the requester and the worker.
+/// Cancellation, pause and messages of the person to a running task, shared between the requester
+/// and the worker.
 ///
 /// Work in progress (a model, a build, a call to an AI) stops when [`Cancel::is_cancelled`] turns
 /// true: on cancel, and also on pause. A paused task waits in [`Cancel::wait_resumed`] and runs the
@@ -133,6 +140,45 @@ impl Cancel {
     /// Whether the task's changes must be undone.
     pub fn wants_undo(&self) -> bool {
         self.read(|s| s.cancelled && s.undo, false)
+    }
+
+    /// Queues a message of the person for the task; returns its number within the task. The message
+    /// is checked against the bounds of [`crate::note`] first.
+    pub fn post_note(
+        &self,
+        text: String,
+        attachments: Vec<NoteAttachment>,
+    ) -> Result<u32, NoteRejected> {
+        crate::note::check(&text, &attachments)?;
+        let Ok(mut s) = self.0.0.lock() else {
+            return Err(NoteRejected::NotRunning);
+        };
+        if s.cancelled {
+            return Err(NoteRejected::NotRunning);
+        }
+        if s.notes.len() >= MAX_PENDING_NOTES {
+            return Err(NoteRejected::QueueFull);
+        }
+        if s.posted >= MAX_TASK_NOTES {
+            return Err(NoteRejected::TooManyNotes);
+        }
+        s.posted = s.posted.saturating_add(1);
+        let id = s.posted;
+        s.notes.push_back(Note {
+            id,
+            text,
+            attachments,
+        });
+        Ok(id)
+    }
+
+    /// Takes the queued messages, oldest first.
+    pub fn take_notes(&self) -> Vec<Note> {
+        self.0
+            .0
+            .lock()
+            .map(|mut s| s.notes.drain(..).collect())
+            .unwrap_or_default()
     }
 
     /// Waits up to `timeout`; returns `true` when the work must stop (cancelled or paused).
@@ -303,5 +349,46 @@ mod tests {
         c.cancel_and_undo();
         assert!(!t.join().unwrap_or(true));
         assert!(c.is_cancelled() && !c.is_paused() && c.wants_undo());
+    }
+
+    #[test]
+    fn notes_are_numbered_bounded_and_taken_once() {
+        let c = Cancel::new();
+        assert_eq!(c.post_note("one".into(), Vec::new()), Ok(1));
+        assert_eq!(c.post_note("two".into(), Vec::new()), Ok(2));
+        assert_eq!(
+            c.post_note(" ".into(), Vec::new()),
+            Err(NoteRejected::Empty)
+        );
+        let taken = c.take_notes();
+        assert_eq!(
+            taken
+                .iter()
+                .map(|n| (n.id, n.text.as_str()))
+                .collect::<Vec<_>>(),
+            vec![(1, "one"), (2, "two")]
+        );
+        assert!(c.take_notes().is_empty());
+
+        for _ in 2..MAX_PENDING_NOTES + 2 {
+            assert!(c.post_note("x".into(), Vec::new()).is_ok());
+        }
+        assert_eq!(
+            c.post_note("x".into(), Vec::new()),
+            Err(NoteRejected::QueueFull)
+        );
+        c.take_notes();
+        while c.post_note("x".into(), Vec::new()).is_ok() {}
+        assert_eq!(
+            c.post_note("x".into(), Vec::new()),
+            Err(NoteRejected::TooManyNotes)
+        );
+
+        let c = Cancel::new();
+        c.cancel();
+        assert_eq!(
+            c.post_note("late".into(), Vec::new()),
+            Err(NoteRejected::NotRunning)
+        );
     }
 }

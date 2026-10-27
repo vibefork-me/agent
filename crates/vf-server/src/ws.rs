@@ -3,9 +3,11 @@
 //! (connectivity check without a session).
 //!
 //! After authentication: `task` starts a task (one at a time per connection), `cancel` cancels it,
-//! `stop` pauses it, `resume` continues it, cancelling a paused task undoes its changes;
-//! `rollback_part` rolls one part back after the native dialog confirms it (not while a task of the
-//! connection runs); `note`, `choose_offer` answer `not_supported` for now, other text is echoed. A running task also sends its session stream (`canvas` messages). Closing the connection cancels the running task.
+//! `stop` pauses it, `resume` continues it, cancelling a paused task undoes its changes; `note`
+//! queues a message for the running task of that project (checked against the bounds of
+//! `vf_protocol::note`; otherwise an error); `rollback_part` rolls one part back after the native
+//! dialog confirms it (not while a task of the connection runs); `choose_offer` answers
+//! `not_supported` for now, other text is echoed. Messages are at most [`MAX_MESSAGE`] bytes. A running task also sends its session stream (`canvas` messages). Closing the connection cancels the running task.
 
 use std::time::Duration;
 
@@ -13,6 +15,7 @@ use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Extension, State};
 use axum::response::Response;
 use tokio::sync::mpsc;
+use vf_protocol::note::NoteRejected;
 use vf_protocol::ws::{CLOSE_AUTH_FAILED, ClientMessage, ServerMessage};
 use vf_protocol::{Cancel, TaskRequest};
 
@@ -22,19 +25,31 @@ use crate::guard::EffectiveOrigin;
 /// Time a connection has to authenticate.
 const AUTH_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Largest WebSocket message, bytes: a `note` with its attachments fits.
+const MAX_MESSAGE: usize = vf_protocol::note::MAX_NOTE_DATA + 1024 * 1024;
+
+/// What runs on a connection: a task of a project (takes messages of the person) or a build.
+struct Running {
+    cancel: Cancel,
+    /// Project of a task; `None` for a build.
+    task_of: Option<String>,
+}
+
 pub(crate) async fn upgrade(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,
     Extension(origin): Extension<EffectiveOrigin>,
 ) -> Response {
-    ws.on_upgrade(move |socket| connection(socket, state, origin.0))
+    ws.max_message_size(MAX_MESSAGE)
+        .max_frame_size(MAX_MESSAGE)
+        .on_upgrade(move |socket| connection(socket, state, origin.0))
 }
 
 async fn connection(mut socket: WebSocket, state: AppState, origin: String) {
     let mut authed: Option<String> = None;
     let deadline = tokio::time::Instant::now() + AUTH_TIMEOUT;
     let (tx, mut rx) = mpsc::unbounded_channel::<Out>();
-    let mut running: Option<Cancel> = None;
+    let mut running: Option<Running> = None;
     loop {
         let next = tokio::select! {
             out = rx.recv() => {
@@ -123,7 +138,9 @@ async fn connection(mut socket: WebSocket, state: AppState, origin: String) {
                         lang,
                     };
                     let key = authed.clone().unwrap_or_default();
-                    running = Some(start(&state, origin.clone(), key, task, tx.clone()));
+                    let task_of = Some(task.project.clone());
+                    let cancel = start(&state, origin.clone(), key, task, tx.clone());
+                    running = Some(Running { cancel, task_of });
                     None
                 }
             }
@@ -135,19 +152,17 @@ async fn connection(mut socket: WebSocket, state: AppState, origin: String) {
                     })
                 } else {
                     let key = authed.clone().unwrap_or_default();
-                    running = Some(start_build(
-                        &state,
-                        origin.clone(),
-                        key,
-                        project,
-                        tx.clone(),
-                    ));
+                    let cancel = start_build(&state, origin.clone(), key, project, tx.clone());
+                    running = Some(Running {
+                        cancel,
+                        task_of: None,
+                    });
                     None
                 }
             }
             Ok(ClientMessage::Cancel) => {
                 // Cancelling a paused task is the person's "cancel the task": its changes go.
-                match &running {
+                match running.as_ref().map(|r| &r.cancel) {
                     Some(c) if c.is_paused() => c.cancel_and_undo(),
                     Some(c) => c.cancel(),
                     None => {}
@@ -155,14 +170,14 @@ async fn connection(mut socket: WebSocket, state: AppState, origin: String) {
                 None
             }
             Ok(ClientMessage::Stop) => {
-                if let Some(c) = &running {
-                    c.pause();
+                if let Some(r) = &running {
+                    r.cancel.pause();
                 }
                 None
             }
             Ok(ClientMessage::Resume) => {
-                if let Some(c) = &running {
-                    c.resume();
+                if let Some(r) = &running {
+                    r.cancel.resume();
                 }
                 None
             }
@@ -178,13 +193,16 @@ async fn connection(mut socket: WebSocket, state: AppState, origin: String) {
                     None
                 }
             }
-            // The protocol has them; the engine handles them in later versions.
-            Ok(ClientMessage::Note { .. } | ClientMessage::ChooseOffer { .. }) => {
-                Some(ServerMessage::Error {
-                    error: "not supported by this version of the agent".into(),
-                    code: Some("not_supported".into()),
-                })
-            }
+            Ok(ClientMessage::Note {
+                project,
+                text,
+                attachments,
+            }) => note(running.as_ref(), &project, text, attachments),
+            // The protocol has it; the engine handles it in later versions.
+            Ok(ClientMessage::ChooseOffer { .. }) => Some(ServerMessage::Error {
+                error: "not supported by this version of the agent".into(),
+                code: Some("not_supported".into()),
+            }),
             Ok(ClientMessage::Auth { .. }) => None,
             Err(_) => Some(ServerMessage::Echo {
                 data: text.to_owned(),
@@ -197,8 +215,42 @@ async fn connection(mut socket: WebSocket, state: AppState, origin: String) {
         }
     }
     // The browser left: a running task is cancelled.
-    if let Some(c) = running {
-        c.cancel();
+    if let Some(r) = running {
+        r.cancel.cancel();
+    }
+}
+
+/// Queues a message of the person for the running task of `project`; the answer is an error, or
+/// nothing (`note.taken` comes in the session stream when the task takes it).
+fn note(
+    running: Option<&Running>,
+    project: &str,
+    text: String,
+    attachments: Vec<vf_protocol::canvas::NoteAttachment>,
+) -> Option<ServerMessage> {
+    let Some(cancel) = running
+        .filter(|r| r.task_of.as_deref() == Some(project))
+        .map(|r| &r.cancel)
+    else {
+        return Some(ServerMessage::Error {
+            error:
+                "no task is running in this project: a message can be sent only while a task runs"
+                    .into(),
+            code: Some("no_task".into()),
+        });
+    };
+    match cancel.post_note(text, attachments) {
+        Ok(_) => None,
+        Err(e) => Some(ServerMessage::Error {
+            error: e.to_string(),
+            code: Some(
+                match e {
+                    NoteRejected::NotRunning => "no_task",
+                    _ => "note_rejected",
+                }
+                .into(),
+            ),
+        }),
     }
 }
 
@@ -338,4 +390,54 @@ async fn close(mut socket: WebSocket, reason: &'static str) {
             reason: reason.into(),
         })))
         .await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn code(m: Option<ServerMessage>) -> Option<String> {
+        match m {
+            Some(ServerMessage::Error { code, .. }) => code,
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn a_note_goes_only_to_a_running_task_of_its_project() {
+        let task = Running {
+            cancel: Cancel::new(),
+            task_of: Some("notes-app".into()),
+        };
+        assert_eq!(
+            note(Some(&task), "notes-app", "blue".into(), Vec::new()),
+            None
+        );
+        assert_eq!(task.cancel.take_notes().len(), 1);
+        assert_eq!(
+            code(note(Some(&task), "other", "blue".into(), Vec::new())).as_deref(),
+            Some("no_task")
+        );
+        assert_eq!(
+            code(note(None, "notes-app", "blue".into(), Vec::new())).as_deref(),
+            Some("no_task")
+        );
+        let build = Running {
+            cancel: Cancel::new(),
+            task_of: None,
+        };
+        assert_eq!(
+            code(note(Some(&build), "notes-app", "blue".into(), Vec::new())).as_deref(),
+            Some("no_task")
+        );
+        assert_eq!(
+            code(note(Some(&task), "notes-app", String::new(), Vec::new())).as_deref(),
+            Some("note_rejected")
+        );
+        task.cancel.cancel();
+        assert_eq!(
+            code(note(Some(&task), "notes-app", "late".into(), Vec::new())).as_deref(),
+            Some("no_task")
+        );
+    }
 }
