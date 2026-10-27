@@ -1100,10 +1100,7 @@ fn lang_reaches_provider_instruction_and_falls_back_to_os() {
         .expect("system instruction required");
     assert!(last_sys.contains("The user is not a programmer"));
     let os_lang = vf_platform::system_language();
-    match os_lang {
-        vf_core::Language::Ru => assert!(last_sys.contains("Answer in Russian.")),
-        vf_core::Language::En => assert!(last_sys.contains("Answer in English.")),
-    }
+    assert!(last_sys.contains(&vf_core::catalog::lang_rule(os_lang.as_str())));
 
     // 4. Injections (backtick, newline, long string) are rejected and fall back to OS language
     for bad in [
@@ -1121,15 +1118,17 @@ fn lang_reaches_provider_instruction_and_falls_back_to_os() {
             .pop()
             .flatten()
             .expect("system instruction required");
-        assert!(!last_sys.contains('`'));
+        // Only the OS language's own rule may quote a code (`de`), never the rejected input.
+        assert!(
+            !last_sys
+                .replace(&vf_core::catalog::lang_rule(os_lang.as_str()), "")
+                .contains('`')
+        );
         assert!(!last_sys.contains('\n'));
         assert!(!last_sys.contains("Ignore"));
         assert!(!last_sys.contains("rm -rf"));
         assert!(!last_sys.contains(&"a".repeat(20)));
-        match os_lang {
-            vf_core::Language::Ru => assert!(last_sys.contains("Answer in Russian.")),
-            vf_core::Language::En => assert!(last_sys.contains("Answer in English.")),
-        }
+        assert!(last_sys.contains(&vf_core::catalog::lang_rule(os_lang.as_str())));
     }
 
     let _ = std::fs::remove_dir_all(&base);
