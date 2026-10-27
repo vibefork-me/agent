@@ -244,47 +244,50 @@ fn task_is_journaled_with_all_commits_and_continued() {
 #[test]
 fn bad_requests_are_refused_before_running() {
     let (base, engine, p) = setup();
-    for (t, error) in [
+    for (t, (error, code)) in [
         (
             TaskRequest {
                 project: "nope".into(),
                 ..task("codex", false)
             },
-            "unknown project",
+            ("unknown project", "not_found"),
         ),
         (
             TaskRequest {
                 project: "..".into(),
                 ..task("codex", false)
             },
-            "unknown project",
+            ("unknown project", "not_found"),
         ),
         (
             TaskRequest {
                 prompt: " ".into(),
                 ..task("codex", false)
             },
-            "prompt required",
+            ("prompt required", "bad_prompt"),
         ),
         (
             TaskRequest {
                 prompt: "x".repeat(8001),
                 ..task("codex", false)
             },
-            "prompt required",
+            ("prompt required", "bad_prompt"),
         ),
         (
             TaskRequest {
                 model: Some("other".into()),
                 ..task("codex", false)
             },
-            "model not available",
+            ("model not available", "model_unavailable"),
         ),
-        (task("gemini", false), "model not available"),
+        (
+            task("gemini", false),
+            ("model not available", "model_unavailable"),
+        ),
     ] {
         let msgs = run(&engine, t);
         assert!(
-            matches!(&msgs[..], [ServerMessage::Error { error: e, .. }] if e.starts_with(error)),
+            matches!(&msgs[..], [ServerMessage::Error { error: e, code: Some(c) }] if e.starts_with(error) && c == code),
             "{msgs:?}"
         );
     }
@@ -498,7 +501,7 @@ fn build_runs_the_recipe_and_keeps_artifacts() {
     std::fs::remove_file(base.join("projects/demo/package.json")).unwrap();
     let msgs = build(&engine, "demo");
     assert!(
-        matches!(&msgs[..], [ServerMessage::Error { error, .. }] if error.contains("no known way"))
+        matches!(&msgs[..], [ServerMessage::Error { error, code: Some(code) }] if error.contains("no known way") && code == "no_build_recipe")
     );
     let _ = std::fs::remove_dir_all(&base);
 }

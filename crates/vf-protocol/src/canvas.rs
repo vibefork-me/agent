@@ -154,6 +154,28 @@ pub struct Artifact {
     pub lines: Vec<String>,
 }
 
+/// How a [`CanvasEvent::Result`] ended: the editor words it in the person's language.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ResultKind {
+    /// The task finished (exit code 0).
+    Done,
+    /// The task failed (`exit` is its code).
+    Failed,
+    /// The task was cancelled.
+    Cancelled,
+    /// One part was rolled back (`id` is the part).
+    PartRolledBack,
+}
+
+/// What a [`CanvasEvent::Check`] checked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CheckKind {
+    /// The project's build (`exit` is its code).
+    Build,
+}
+
 /// What the agent does, as the canvas shows it. Tagged by `type`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -290,11 +312,17 @@ pub enum CanvasEvent {
     Check {
         /// Whether it passed.
         ok: bool,
-        /// What happened, in plain words.
+        /// What happened, in plain English; an editor words it itself by `kind` when given.
         text: String,
         /// The part where a failed check broke.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
+        /// What was checked.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        kind: Option<CheckKind>,
+        /// Exit code of the check's process.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        exit: Option<i32>,
     },
     /// The person paused the task; the interrupted step runs again on resume.
     Paused,
@@ -313,13 +341,22 @@ pub enum CanvasEvent {
     },
     /// The task ended.
     Result {
-        /// The outcome, in plain words.
+        /// The outcome, in plain English; an editor words it itself by `kind` when given.
         text: String,
-        /// Details.
+        /// Details, in plain English (for `done` and `failed`: the changed files' summary).
         detail: String,
         /// What the task produced.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         artifacts: Vec<Artifact>,
+        /// How it ended.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        kind: Option<ResultKind>,
+        /// Exit code of the task (`done` and `failed`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        exit: Option<i32>,
+        /// The part it is about (`part_rolled_back`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
     },
 }
 

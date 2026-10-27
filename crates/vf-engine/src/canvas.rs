@@ -5,7 +5,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use vf_journal::CanvasLog;
-use vf_protocol::canvas::{CanvasEvent, Stage};
+use vf_protocol::canvas::{CanvasEvent, CheckKind, ResultKind, Stage};
 use vf_protocol::ws::ServerMessage;
 
 /// Numbers and records the events of one run (a task or a build) of a project. The caller holds the
@@ -112,6 +112,8 @@ pub(crate) fn events_for(message: &ServerMessage) -> Vec<CanvasEvent> {
                 format!("The build failed (code {code})")
             },
             id: None,
+            kind: Some(CheckKind::Build),
+            exit: Some(*code),
         }],
         ServerMessage::Done { code, status, .. } => vec![
             CanvasEvent::Stage { id: Stage::Done },
@@ -123,6 +125,13 @@ pub(crate) fn events_for(message: &ServerMessage) -> Vec<CanvasEvent> {
                 },
                 detail: status.clone(),
                 artifacts: Vec::new(),
+                kind: Some(if *code == 0 {
+                    ResultKind::Done
+                } else {
+                    ResultKind::Failed
+                }),
+                exit: Some(*code),
+                id: None,
             },
         ],
         ServerMessage::Paused => vec![CanvasEvent::Paused],
@@ -131,6 +140,9 @@ pub(crate) fn events_for(message: &ServerMessage) -> Vec<CanvasEvent> {
             text: "Cancelled".into(),
             detail: String::new(),
             artifacts: Vec::new(),
+            kind: Some(ResultKind::Cancelled),
+            exit: None,
+            id: None,
         }],
         _ => Vec::new(),
     }
@@ -289,10 +301,87 @@ mod tests {
                 CanvasEvent::Result {
                     text: "Done".into(),
                     detail: "2 files changed".into(),
-                    artifacts: Vec::new()
+                    artifacts: Vec::new(),
+                    kind: Some(ResultKind::Done),
+                    exit: Some(0),
+                    id: None,
                 },
             ]
         );
         assert!(events_for(&started(None)).len() == 1);
+    }
+
+    #[test]
+    fn outcomes_carry_codes_for_the_editor_to_word() {
+        let failed = ServerMessage::Done {
+            code: 3,
+            provider: None,
+            model: None,
+            session_id: None,
+            commit: None,
+            diff: String::new(),
+            status: String::new(),
+            plan: false,
+        };
+        let Some(CanvasEvent::Result {
+            text, kind, exit, ..
+        }) = events_for(&failed).pop()
+        else {
+            panic!("no result")
+        };
+        // The English text stays for older editors.
+        assert_eq!(text, "Failed (code 3)");
+        assert_eq!((kind, exit), (Some(ResultKind::Failed), Some(3)));
+
+        let Some(CanvasEvent::Result { kind, exit, .. }) =
+            events_for(&ServerMessage::Cancelled).pop()
+        else {
+            panic!("no result")
+        };
+        assert_eq!((kind, exit), (Some(ResultKind::Cancelled), None));
+
+        let build = ServerMessage::BuildDone {
+            code: 2,
+            artifacts: None,
+            files: Vec::new(),
+            seconds: 1.0,
+        };
+        assert_eq!(
+            events_for(&build),
+            [CanvasEvent::Check {
+                ok: false,
+                text: "The build failed (code 2)".into(),
+                id: None,
+                kind: Some(CheckKind::Build),
+                exit: Some(2),
+            }]
+        );
+    }
+
+    #[test]
+    fn events_without_codes_from_older_logs_still_read() {
+        let ev: CanvasEvent =
+            serde_json::from_str(r#"{"type":"result","text":"Done","detail":""}"#).unwrap();
+        assert!(matches!(
+            ev,
+            CanvasEvent::Result {
+                kind: None,
+                exit: None,
+                id: None,
+                ..
+            }
+        ));
+        let json = serde_json::to_value(CanvasEvent::Result {
+            text: "Part rolled back".into(),
+            detail: String::new(),
+            artifacts: Vec::new(),
+            kind: Some(ResultKind::PartRolledBack),
+            exit: None,
+            id: Some("p1".into()),
+        })
+        .unwrap();
+        assert_eq!(json["kind"], "part_rolled_back");
+        assert_eq!(json["id"], "p1");
+        assert!(json.get("exit").is_none());
     }
 }
