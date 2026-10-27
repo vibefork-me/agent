@@ -62,7 +62,11 @@ impl<'a> Stream<'a> {
 
     /// Sends the canvas events that mean the same as a message of the existing protocol, then the
     /// message: a final message (`done`, `cancelled`, `build_done`) stays the last one of the run.
+    /// A canvas event raised by the work itself (`seq` 0) is numbered and recorded here instead.
     pub(crate) fn forward(&mut self, message: ServerMessage) {
+        if let ServerMessage::Canvas { ev, .. } = message {
+            return self.emit(ev);
+        }
         for ev in events_for(&message) {
             self.emit(ev);
         }

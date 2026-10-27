@@ -15,6 +15,7 @@ use vf_protocol::ws::{PlanStepInfo, Rating, ServerMessage, StepInfo};
 use vf_protocol::{Cancel, ModelInfo};
 use vf_providers::{AskRequest, ChildEnv};
 
+use crate::notes::Inbox;
 use crate::step::now_rfc3339;
 use crate::{Engine, MAX_DIFF, StepRequest};
 
@@ -30,6 +31,8 @@ pub(crate) struct Task<'a> {
     pub(crate) prompt: &'a str,
     pub(crate) continue_: bool,
     pub(crate) lang: &'a str,
+    /// Messages of the person taken during the task.
+    pub(crate) inbox: &'a Inbox,
 }
 
 impl Engine {
@@ -113,6 +116,7 @@ impl Engine {
         out(ServerMessage::Planning { rating });
         // Paused while planning: plan again once resumed.
         let planned = loop {
+            t.inbox.pick_up(cancel, out);
             let planned = self.make_plan(t, inventory, cancel);
             if planned.is_ok() || !cancel.is_paused() {
                 break planned;
@@ -218,12 +222,13 @@ impl Engine {
                 dir: t.dir,
                 prompt: &s.prompt,
                 prefix: &prefix,
+                notes: "",
                 model: &m.model,
                 continue_: t.continue_ || i > 0,
                 step: Some(&info),
                 system: Some(&system_instruction),
             };
-            let r = self.step_pausable(t.repo, p.as_ref(), &req, out, cancel);
+            let r = self.step_noted(t.repo, p.as_ref(), &req, Some(t.inbox), out, cancel);
             out(ServerMessage::StepDone {
                 n,
                 of,
@@ -295,7 +300,7 @@ impl Engine {
             candidates.push(("openrouter", free.model.clone(), API_PLANNER_TIMEOUT));
         }
         let env = ChildEnv::from_current();
-        let prompt = plan_prompt(t.prompt);
+        let prompt = plan_prompt(&format!("{}{}", t.prompt, t.inbox.addendum()));
         let mut tried = Vec::new();
         for (provider, model, timeout) in candidates {
             if cancel.is_cancelled() {

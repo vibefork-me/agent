@@ -9,6 +9,7 @@ pub mod canvas;
 pub mod event;
 pub mod http;
 pub mod model;
+pub mod note;
 pub mod ws;
 
 pub use backend::{Backend, BackendError, Cancel, TaskRequest};
