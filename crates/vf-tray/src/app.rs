@@ -126,12 +126,12 @@ impl App {
             tooltip: "Vibefork".into(),
             menu: vec![
                 Entry::Item {
-                    label: catalog::tray_checking(self.lang).into(),
+                    label: catalog::tray_checking(self.lang),
                     action: None,
                 },
                 Entry::Separator,
                 Entry::Item {
-                    label: catalog::tray_quit(self.lang).into(),
+                    label: catalog::tray_quit(self.lang),
                     action: Some(Action::Quit),
                 },
             ],
@@ -248,7 +248,7 @@ pub(crate) fn model(lang: Language, f: &Facts) -> Model {
     }
     if !f.recent.is_empty() {
         menu.push(Entry::Sub {
-            label: catalog::tray_recent_projects(lang).into(),
+            label: catalog::tray_recent_projects(lang),
             items: f
                 .recent
                 .iter()
@@ -262,11 +262,11 @@ pub(crate) fn model(lang: Language, f: &Facts) -> Model {
     menu.extend([
         Entry::Separator,
         Entry::Item {
-            label: catalog::tray_open_vibefork(lang).into(),
+            label: catalog::tray_open_vibefork(lang),
             action: Some(Action::Open),
         },
         Entry::Item {
-            label: catalog::tray_open_log(lang).into(),
+            label: catalog::tray_open_log(lang),
             action: Some(Action::OpenLog),
         },
         Entry::Separator,
@@ -275,7 +275,7 @@ pub(crate) fn model(lang: Language, f: &Facts) -> Model {
             action: update.map(|_| Action::InstallUpdate),
         },
         Entry::Item {
-            label: catalog::tray_auto_updates_toggle(lang, f.auto_update).into(),
+            label: catalog::tray_auto_updates_toggle(lang, f.auto_update),
             action: Some(Action::ToggleAutoUpdate),
         },
         Entry::Separator,
@@ -284,12 +284,11 @@ pub(crate) fn model(lang: Language, f: &Facts) -> Model {
                 catalog::tray_stop_agent(lang)
             } else {
                 catalog::tray_start_agent(lang)
-            }
-            .into(),
+            },
             action: Some(Action::ToggleAgent),
         },
         Entry::Item {
-            label: catalog::tray_quit(lang).into(),
+            label: catalog::tray_quit(lang),
             action: Some(Action::Quit),
         },
     ]);
@@ -304,8 +303,10 @@ pub(crate) fn model(lang: Language, f: &Facts) -> Model {
 fn activity_line(lang: Language, s: &Snapshot) -> Option<String> {
     match &s.activity {
         Activity::Working { stage, eta_secs } => {
-            let stage = stage.map_or("", |st| catalog::tray_stage(lang, status::stage_id(st)));
-            Some(catalog::tray_activity(lang, &s.project, stage, *eta_secs))
+            let stage = stage
+                .map(|st| catalog::tray_stage(lang, status::stage_id(st)))
+                .unwrap_or_default();
+            Some(catalog::tray_activity(lang, &s.project, &stage, *eta_secs))
         }
         Activity::NeedsYou => Some(catalog::tray_needs_you(lang, &s.project)),
         Activity::Failed => Some(catalog::tray_failed(lang, &s.project)),
@@ -328,8 +329,8 @@ pub(crate) fn notice(
     }
     let title = match next.activity {
         Activity::Done => catalog::notify_done(lang, &next.project),
-        Activity::NeedsYou => catalog::notify_needs_you(lang).into(),
-        Activity::Failed => catalog::notify_build_failed(lang).into(),
+        Activity::NeedsYou => catalog::notify_needs_you(lang),
+        Activity::Failed => catalog::notify_build_failed(lang),
         Activity::Idle | Activity::Working { .. } => return None,
     };
     let body = match next.activity {
@@ -339,9 +340,6 @@ pub(crate) fn notice(
     Some(Notice { title, body })
 }
 
-/// The Windows AppUserModelID of the tray's notifications (registered by `vf-platform::install`).
-pub(crate) const APP_ID: &str = vf_platform::install::APP_USER_MODEL_ID;
-
 /// Shows a notification; failures (no notification service) are ignored.
 pub(crate) fn show(notice: &Notice) {
     let mut n = notify_rust::Notification::new();
@@ -349,7 +347,7 @@ pub(crate) fn show(notice: &Notice) {
         .body(&notice.body)
         .appname("Vibefork");
     #[cfg(windows)]
-    n.app_id(APP_ID);
+    n.app_id(vf_platform::install::APP_USER_MODEL_ID);
     let _ = n.show();
 }
 

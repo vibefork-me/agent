@@ -24,12 +24,12 @@ impl ksni::Tray for Sni {
 
     fn icon_pixmap(&self) -> Vec<ksni::Icon> {
         // RGBA → ARGB, network byte order.
-        let data = icon::rgba(self.model.look)
-            .chunks_exact(4)
-            .flat_map(|p| match *p {
-                [r, g, b, a] => [a, r, g, b],
-                _ => [0; 4],
-            })
+        let rgba = icon::rgba(self.model.look);
+        let data = rgba
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .flat_map(|&[r, g, b, a]| [a, r, g, b])
             .collect();
         vec![ksni::Icon {
             width: icon::SIZE as i32,
@@ -46,7 +46,7 @@ impl ksni::Tray for Sni {
     }
 
     fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
-        self.model.menu.iter().map(|e| item(e)).collect()
+        self.model.menu.iter().map(item).collect()
     }
 }
 

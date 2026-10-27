@@ -435,117 +435,90 @@ pub fn tray_status_stopped(lang: Language, update: Option<&str>) -> String {
     }
 }
 
+/// Stage ids the tray names (`vf_protocol::canvas::Stage` in `snake_case`).
+const TRAY_STAGES: [&str; 10] = [
+    "download",
+    "parts",
+    "links",
+    "tools",
+    "summary",
+    "understand",
+    "plan",
+    "change",
+    "check",
+    "done",
+];
+
 /// Tray: name of a stage of the analysis or of a task, by its protocol id (`download` … `done`);
 /// an unknown id gives an empty string.
-pub fn tray_stage(lang: Language, id: &str) -> &'static str {
-    match (lang, id) {
-        (Language::En, "download") => "downloading",
-        (Language::En, "parts") => "looking at the parts",
-        (Language::En, "links") => "linking the parts",
-        (Language::En, "tools") => "preparing tools",
-        (Language::En, "summary") => "summing up",
-        (Language::En, "understand") => "understanding the task",
-        (Language::En, "plan") => "planning",
-        (Language::En, "change") => "changing",
-        (Language::En, "check") => "checking",
-        (Language::En, "done") => "finishing",
-        (Language::Ru, "download") => "загрузка",
-        (Language::Ru, "parts") => "разбор частей",
-        (Language::Ru, "links") => "связи частей",
-        (Language::Ru, "tools") => "подготовка инструментов",
-        (Language::Ru, "summary") => "итоги",
-        (Language::Ru, "understand") => "понимание задачи",
-        (Language::Ru, "plan") => "план",
-        (Language::Ru, "change") => "изменения",
-        (Language::Ru, "check") => "проверка",
-        (Language::Ru, "done") => "завершение",
-        _ => "",
+pub fn tray_stage(lang: Language, id: &str) -> String {
+    if TRAY_STAGES.contains(&id) {
+        text(lang, &format!("tray-stage-{id}"))
+    } else {
+        String::new()
     }
 }
 
 /// Tray: what the agent does in a project — «“notes-app” — checking, ≈ 1 min left». An empty
 /// `stage` is left out; minutes are rounded up.
 pub fn tray_activity(lang: Language, project: &str, stage: &str, eta_secs: Option<u64>) -> String {
-    let mut line = match lang {
-        Language::En => format!("“{project}”"),
-        Language::Ru => format!("«{project}»"),
+    let line = if stage.is_empty() {
+        message(lang, "tray-activity", &[("project", project.into())])
+    } else {
+        let args = [("project", project.into()), ("stage", stage.into())];
+        message(lang, "tray-activity-stage", &args)
     };
-    if !stage.is_empty() {
-        line.push_str(" — ");
-        line.push_str(stage);
+    match eta_secs {
+        Some(secs) => {
+            let minutes = secs.div_ceil(60).max(1).to_string();
+            let args = [
+                ("line", line.as_str().into()),
+                ("minutes", minutes.as_str().into()),
+            ];
+            message(lang, "tray-activity-eta", &args)
+        }
+        None => line,
     }
-    if let Some(secs) = eta_secs {
-        let min = secs.div_ceil(60).max(1);
-        line.push_str(&match lang {
-            Language::En => format!(", ≈ {min} min left"),
-            Language::Ru => format!(", ещё ≈ {min} мин"),
-        });
-    }
-    line
 }
 
 /// Tray: tooltip and status line when nothing runs.
-pub fn tray_waiting(lang: Language) -> &'static str {
-    match lang {
-        Language::En => "waiting",
-        Language::Ru => "ждёт",
-    }
+pub fn tray_waiting(lang: Language) -> String {
+    text(lang, "tray-waiting")
 }
 
 /// Tray: status line when a project waits for the person's choice.
 pub fn tray_needs_you(lang: Language, project: &str) -> String {
-    match lang {
-        Language::En => format!("“{project}” — your decision is needed"),
-        Language::Ru => format!("«{project}» — нужно твоё решение"),
-    }
+    message(lang, "tray-needs-you", &[("project", project.into())])
 }
 
 /// Tray: status line when the last build of a project failed.
 pub fn tray_failed(lang: Language, project: &str) -> String {
-    match lang {
-        Language::En => format!("“{project}” — the build failed"),
-        Language::Ru => format!("«{project}» — сборка не прошла"),
-    }
+    message(lang, "tray-failed", &[("project", project.into())])
 }
 
 /// Tray menu: submenu of recent projects.
-pub fn tray_recent_projects(lang: Language) -> &'static str {
-    match lang {
-        Language::En => "Recent projects",
-        Language::Ru => "Недавние проекты",
-    }
+pub fn tray_recent_projects(lang: Language) -> String {
+    text(lang, "tray-recent-projects")
 }
 
 /// Tray menu: open the agent's log.
-pub fn tray_open_log(lang: Language) -> &'static str {
-    match lang {
-        Language::En => "Open the log",
-        Language::Ru => "Открыть журнал",
-    }
+pub fn tray_open_log(lang: Language) -> String {
+    text(lang, "tray-open-log")
 }
 
 /// Notification title: a task finished.
 pub fn notify_done(lang: Language, project: &str) -> String {
-    match lang {
-        Language::En => format!("Done: {project}"),
-        Language::Ru => format!("Готово: {project}"),
-    }
+    message(lang, "notify-done", &[("project", project.into())])
 }
 
 /// Notification title: the agent waits for the person.
-pub fn notify_needs_you(lang: Language) -> &'static str {
-    match lang {
-        Language::En => "The agent needs your decision",
-        Language::Ru => "Агенту нужно твоё решение",
-    }
+pub fn notify_needs_you(lang: Language) -> String {
+    text(lang, "notify-needs-you")
 }
 
 /// Notification title: a build failed.
-pub fn notify_build_failed(lang: Language) -> &'static str {
-    match lang {
-        Language::En => "The build failed",
-        Language::Ru => "Сборка не прошла",
-    }
+pub fn notify_build_failed(lang: Language) -> String {
+    text(lang, "notify-build-failed")
 }
 
 /// CLI status: running.
@@ -729,7 +702,7 @@ mod tests {
         let values = [
             "origin", "name", "code", "project", "action", "target", "provider", "prompt",
             "endpoint", "update", "version", "port", "pid", "login", "kind", "size", "path",
-            "title",
+            "title", "stage", "line", "minutes",
         ];
         let mut args = FluentArgs::new();
         for v in values {
@@ -1019,7 +992,7 @@ mod tests {
             tray_activity(
                 Language::Ru,
                 "notes-app",
-                tray_stage(Language::Ru, "check"),
+                &tray_stage(Language::Ru, "check"),
                 Some(50)
             ),
             "«notes-app» — проверка, ещё ≈ 1 мин"
