@@ -566,6 +566,104 @@ fn a_task_reports_its_changes_by_part_in_the_journal_and_the_stream() {
     let _ = std::fs::remove_dir_all(&base);
 }
 
+/// Messages of a rollback of one part: its session stream and any error.
+fn rollback_part(engine: &Engine, id: &str) -> Vec<ServerMessage> {
+    let mut msgs = vec![];
+    engine.rollback_part("demo", id, &mut |m| msgs.push(m));
+    msgs
+}
+
+#[test]
+fn rolling_back_one_part_keeps_the_others_and_is_journaled() {
+    let (base, engine, _) = setup();
+    let dir = base.join("projects/demo");
+    // Each task of the scripted model writes `n.txt` and `left.txt`; `README.md` is the user's.
+    std::fs::create_dir_all(base.join("state/projects")).unwrap();
+    std::fs::write(
+        base.join("state/projects/demo.map.json"),
+        r#"{"revision":"r","by":"t","parts":[{"name":"Notes","summary":"","paths":["1.txt"]},{"name":"Drafts","summary":"","paths":["left.txt"]},{"name":"Archive","summary":"","paths":["2.txt"]},{"name":"Guide","summary":"","paths":["README.md"]}],"links":[]}"#,
+    )
+    .unwrap();
+    assert!(
+        matches!(
+            &rollback_part(&engine, "p1")[..],
+            [ServerMessage::Error { code: Some(c), .. }] if c == "nothing_to_roll_back"
+        ),
+        "no task yet"
+    );
+    run(&engine, task("codex", false));
+    run(&engine, task("codex", false));
+    assert!(matches!(
+        &rollback_part(&engine, "p3")[..],
+        [ServerMessage::Canvas { .. }, ..]
+    ));
+    assert!(!dir.join("2.txt").exists());
+    let msgs = rollback_part(&engine, "p3");
+    assert!(
+        matches!(&msgs[..], [ServerMessage::Error { code: Some(c), .. }] if c == "nothing_to_roll_back"),
+        "{msgs:?}"
+    );
+    assert_eq!(std::fs::read_to_string(dir.join("left.txt")).unwrap(), "2");
+
+    // A file of the part the last task changed returns to how it was before that task.
+    let msgs = rollback_part(&engine, "p2");
+    assert_eq!(std::fs::read_to_string(dir.join("left.txt")).unwrap(), "1");
+    assert!(dir.join("1.txt").exists());
+    let events: Vec<CanvasEvent> = msgs
+        .into_iter()
+        .filter_map(|m| match m {
+            ServerMessage::Canvas { ev, .. } => Some(ev),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        events.first(),
+        Some(&CanvasEvent::Change {
+            id: "p2".into(),
+            files: vec!["left.txt".into()]
+        })
+    );
+    let Some(CanvasEvent::Result { artifacts, .. }) = events.last() else {
+        panic!("{events:?}")
+    };
+    assert_eq!(artifacts[0].nodes, ["p2"]);
+    assert_eq!(artifacts[0].files[0].diff, ["-2", "+1"]);
+
+    let last = engine.journal("demo").unwrap().entries.pop().unwrap();
+    assert_eq!(last.provider, "rollback");
+    assert_eq!(last.commits.len(), 1, "a checkpoint of its own");
+    assert_eq!(last.artifacts[0].files.len(), 1, "{:?}", last.artifacts);
+
+    // Again: nothing left to roll back in this part.
+    assert!(matches!(
+        &rollback_part(&engine, "p2")[..],
+        [ServerMessage::Error { code: Some(c), .. }] if c == "nothing_to_roll_back"
+    ));
+
+    // A file the agent added to a part is removed; the other parts stay.
+    rollback_part(&engine, "p1");
+    assert!(!dir.join("1.txt").exists());
+    assert!(dir.join("README.md").exists());
+    assert_eq!(std::fs::read_to_string(dir.join("left.txt")).unwrap(), "1");
+
+    assert!(
+        matches!(
+            &rollback_part(&engine, "p4")[..],
+            [ServerMessage::Error { code: Some(c), .. }] if c == "nothing_to_roll_back"
+        ),
+        "no task changed it"
+    );
+    assert!(matches!(
+        &rollback_part(&engine, "p9")[..],
+        [ServerMessage::Error { code: Some(c), .. }] if c == "not_found"
+    ));
+    assert!(matches!(
+        &engine.journal("demo").unwrap().entries[..],
+        [_, _, a, b, c] if [a, b, c].iter().all(|e| e.provider == "rollback")
+    ));
+    let _ = std::fs::remove_dir_all(&base);
+}
+
 #[test]
 fn viewer_reads_project_files_only() {
     let (base, engine, _) = setup();
