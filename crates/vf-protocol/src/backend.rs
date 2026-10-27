@@ -48,6 +48,38 @@ impl std::fmt::Display for BackendError {
     }
 }
 
+/// Why an offer of the analysis cannot start a task.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OfferRejected {
+    /// The project has no offers kept (it was never described, or the model offered nothing).
+    NoOffers,
+    /// No offer has this index, or it has another title than the one shown.
+    BadIndex,
+    /// The backend does not run offers.
+    NotSupported,
+}
+
+impl OfferRejected {
+    /// The error code sent to the browser.
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::NoOffers => "no_offers",
+            Self::BadIndex => "bad_index",
+            Self::NotSupported => "not_supported",
+        }
+    }
+}
+
+impl std::fmt::Display for OfferRejected {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::NoOffers => "this project has no offers: look at its map first",
+            Self::BadIndex => "there is no such offer",
+            Self::NotSupported => "not supported by this version of the agent",
+        })
+    }
+}
+
 /// A task to run.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TaskRequest {
@@ -269,6 +301,17 @@ pub trait Backend: Send + Sync {
     /// Runs a task to the end, reporting progress through `out`; the last message is
     /// [`ServerMessage::Done`], [`ServerMessage::Cancelled`] or [`ServerMessage::Error`].
     fn run_task(&self, task: TaskRequest, out: &mut dyn FnMut(ServerMessage), cancel: &Cancel);
+    /// What offer `index` of the project's kept offers (the last `offers` event) asks for: its title
+    /// and text, ready to run as a task prompt. With `title`, the offer must have that title.
+    fn offer_prompt(
+        &self,
+        project: &str,
+        index: u32,
+        title: Option<&str>,
+    ) -> Result<String, OfferRejected> {
+        let _ = (project, index, title);
+        Err(OfferRejected::NotSupported)
+    }
     /// The session stream of a project from event `from` on, at most
     /// [`crate::canvas::MAX_CANVAS_PAGE`] events (replay after the editor reloads).
     fn canvas(&self, project: &str, from: u64) -> Result<CanvasResponse, BackendError> {

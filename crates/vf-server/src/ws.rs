@@ -6,8 +6,10 @@
 //! `stop` pauses it, `resume` continues it, cancelling a paused task undoes its changes; `note`
 //! queues a message for the running task of that project (checked against the bounds of
 //! `vf_protocol::note`; otherwise an error); `rollback_part` rolls one part back after the native
-//! dialog confirms it (not while a task of the connection runs); `choose_offer` answers
-//! `not_supported` for now, other text is echoed. Messages are at most [`MAX_MESSAGE`] bytes. A running task also sends its session stream (`canvas` messages). Closing the connection cancels the running task.
+//! dialog confirms it (not while a task of the connection runs); `choose_offer` runs a task with
+//! the title and text of an offer kept for the project (after the same access check as `task`; an
+//! offer that is not there, or has another title than the one shown, is an error `no_offers` /
+//! `bad_index`), other text is echoed. Messages are at most [`MAX_MESSAGE`] bytes. A running task also sends its session stream (`canvas` messages). Closing the connection cancels the running task.
 
 use std::time::Duration;
 
@@ -17,7 +19,7 @@ use axum::response::Response;
 use tokio::sync::mpsc;
 use vf_protocol::note::NoteRejected;
 use vf_protocol::ws::{CLOSE_AUTH_FAILED, ClientMessage, ServerMessage};
-use vf_protocol::{Cancel, TaskRequest};
+use vf_protocol::{Backend, Cancel, OfferRejected, TaskRequest};
 
 use crate::AppState;
 use crate::guard::EffectiveOrigin;
@@ -139,7 +141,55 @@ async fn connection(mut socket: WebSocket, state: AppState, origin: String) {
                     };
                     let key = authed.clone().unwrap_or_default();
                     let task_of = Some(task.project.clone());
-                    let cancel = start(&state, origin.clone(), key, task, tx.clone());
+                    let cancel = start(
+                        &state,
+                        origin.clone(),
+                        key,
+                        task.project.clone(),
+                        move |_| Ok(task),
+                        tx.clone(),
+                    );
+                    running = Some(Running { cancel, task_of });
+                    None
+                }
+            }
+            Ok(ClientMessage::ChooseOffer {
+                project,
+                index,
+                title,
+                provider,
+                model,
+                continue_,
+                lang,
+            }) => {
+                if running.is_some() {
+                    Some(ServerMessage::Error {
+                        error: "a task is already running".into(),
+                        code: Some("task_already_running".into()),
+                    })
+                } else {
+                    let task = TaskRequest {
+                        project,
+                        prompt: String::new(),
+                        provider,
+                        model,
+                        continue_,
+                        lang,
+                    };
+                    let key = authed.clone().unwrap_or_default();
+                    let task_of = Some(task.project.clone());
+                    let cancel = start(
+                        &state,
+                        origin.clone(),
+                        key,
+                        task.project.clone(),
+                        move |backend| {
+                            backend
+                                .offer_prompt(&task.project, index, title.as_deref())
+                                .map(|prompt| TaskRequest { prompt, ..task })
+                        },
+                        tx.clone(),
+                    );
                     running = Some(Running { cancel, task_of });
                     None
                 }
@@ -198,11 +248,6 @@ async fn connection(mut socket: WebSocket, state: AppState, origin: String) {
                 text,
                 attachments,
             }) => note(running.as_ref(), &project, text, attachments),
-            // The protocol has it; the engine handles it in later versions.
-            Ok(ClientMessage::ChooseOffer { .. }) => Some(ServerMessage::Error {
-                error: "not supported by this version of the agent".into(),
-                code: Some("not_supported".into()),
-            }),
             Ok(ClientMessage::Auth { .. }) => None,
             Err(_) => Some(ServerMessage::Echo {
                 data: text.to_owned(),
@@ -347,26 +392,41 @@ enum Out {
     Finished,
 }
 
+/// The error sent instead of a task when the chosen offer is not there.
+fn rejected(e: OfferRejected) -> ServerMessage {
+    ServerMessage::Error {
+        error: e.to_string(),
+        code: Some(e.code().into()),
+    }
+}
+
 /// Runs a task on a blocking thread; its messages go to `tx`. The browser needs access to the
-/// project (native dialog the first time).
+/// project (native dialog the first time); only then `prepare` makes the task (it may look at the
+/// project) or tells why there is none.
 fn start(
     state: &AppState,
     origin: String,
     key_id: String,
-    task: TaskRequest,
+    project: String,
+    prepare: impl FnOnce(&dyn Backend) -> Result<TaskRequest, OfferRejected> + Send + 'static,
     tx: mpsc::UnboundedSender<Out>,
 ) -> Cancel {
     let cancel = Cancel::new();
     let (backend, auth, c) = (state.backend.clone(), state.auth.clone(), cancel.clone());
     tokio::task::spawn_blocking(move || {
-        if auth.project_allowed(&key_id, &origin, &task.project) {
-            backend.run_task(
-                task,
-                &mut |m| {
-                    let _ = tx.send(Out::Message(m));
-                },
-                &c,
-            );
+        if auth.project_allowed(&key_id, &origin, &project) {
+            match prepare(backend.as_ref()) {
+                Ok(task) => backend.run_task(
+                    task,
+                    &mut |m| {
+                        let _ = tx.send(Out::Message(m));
+                    },
+                    &c,
+                ),
+                Err(e) => {
+                    let _ = tx.send(Out::Message(rejected(e)));
+                }
+            }
         } else {
             let _ = tx.send(Out::Message(ServerMessage::Error {
                 error: "no access to this project".into(),
@@ -400,6 +460,17 @@ mod tests {
         match m {
             Some(ServerMessage::Error { code, .. }) => code,
             _ => None,
+        }
+    }
+
+    #[test]
+    fn a_missing_offer_is_a_coded_error() {
+        for (e, expected) in [
+            (OfferRejected::NoOffers, "no_offers"),
+            (OfferRejected::BadIndex, "bad_index"),
+            (OfferRejected::NotSupported, "not_supported"),
+        ] {
+            assert_eq!(code(Some(rejected(e))).as_deref(), Some(expected));
         }
     }
 

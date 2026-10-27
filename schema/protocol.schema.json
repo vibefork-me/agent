@@ -1217,17 +1217,54 @@
           "type": "object"
         },
         {
-          "description": "Start what an offer of the analysis suggests.",
+          "description": "Run a task with what an offer of the analysis suggests (its title and text), like `task`.",
           "properties": {
+            "continue": {
+              "default": false,
+              "description": "Continue with the history of the project.",
+              "type": "boolean"
+            },
             "index": {
-              "description": "Index in the last `offers` event.",
+              "description": "Index in the last `offers` event of the project.",
               "format": "uint32",
               "minimum": 0.0,
               "type": "integer"
             },
+            "lang": {
+              "default": null,
+              "description": "Language of the UI/response (`en`, `ru`, …); default is the OS language.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "model": {
+              "default": null,
+              "description": "Model of the provider; empty = its default.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "project": {
               "description": "Project name.",
               "type": "string"
+            },
+            "provider": {
+              "default": null,
+              "description": "`auto`, `plan`, or a provider, as in `task`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "title": {
+              "default": null,
+              "description": "Title of the offer as shown; when given, the kept offer at `index` must have it (the offers changed since otherwise: `bad_index`).",
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "type": {
               "enum": [

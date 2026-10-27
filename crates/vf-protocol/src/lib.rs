@@ -12,7 +12,7 @@ pub mod model;
 pub mod note;
 pub mod ws;
 
-pub use backend::{Backend, BackendError, Cancel, TaskRequest};
+pub use backend::{Backend, BackendError, Cancel, OfferRejected, TaskRequest};
 pub use canvas::{CanvasEvent, CanvasRecord};
 pub use event::{Event, Usage};
 pub use http::CliHomeMode;
