@@ -105,6 +105,28 @@ tray-status-running-update = Vibefork { $version }: em execução na porta { $po
 tray-status-stopped = Vibefork: parado
 tray-status-stopped-update = Vibefork: parado · atualização { $update } disponível
 
+tray-stage-download = baixando
+tray-stage-parts = analisando as partes
+tray-stage-links = ligando as partes
+tray-stage-tools = preparando as ferramentas
+tray-stage-summary = resumindo
+tray-stage-understand = entendendo a tarefa
+tray-stage-plan = planejando
+tray-stage-change = alterando
+tray-stage-check = verificando
+tray-stage-done = finalizando
+tray-activity = “{ $project }”
+tray-activity-stage = “{ $project }” — { $stage }
+tray-activity-eta = { $line }, faltam ≈ { $minutes } min
+tray-waiting = aguardando
+tray-needs-you = “{ $project }” — precisamos da sua decisão
+tray-failed = “{ $project }” — a compilação falhou
+tray-recent-projects = Projetos recentes
+tray-open-log = Abrir o registro
+notify-done = Pronto: { $project }
+notify-needs-you = O agente precisa da sua decisão
+notify-build-failed = A compilação falhou
+
 ## Command line
 
 cli-status-running = em execução · versão { $version } · porta { $port } · pid { $pid }
