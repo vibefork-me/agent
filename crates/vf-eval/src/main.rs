@@ -41,7 +41,7 @@ Options:
   --provider <NAME>   Provider to evaluate (mock, claude, codex, gemini, openrouter, custom) [default: mock]
   --model <NAME>      Model identifier to test (e.g. mock-fast, gemini-2.0-flash) [default: provider default]
   --stages <LIST>     Comma-separated list of stages: map,classify,plan,loop,audience,explain [default: all]
-  --projects <LIST>   Comma-separated list of projects: itoa,is-sorted,fabric,python,ru-readme,adversarial [default: all]
+  --projects <LIST>   Comma-separated list of projects: itoa,is-sorted,plugin,python,ru-readme,adversarial [default: all]
   --repeat <N>        Number of repetitions per project and stage [default: 5]
   --out-dir <PATH>    Directory to store Markdown and JSON reports [default: .runs]
   -h, --help          Show this help message

@@ -95,29 +95,29 @@ pub(crate) const FIXTURE_IS_SORTED: FixtureProject = FixtureProject {
     ],
 };
 
-/// Fabric mod for Minecraft — Java/Gradle.
-pub(crate) const FIXTURE_FABRIC: FixtureProject = FixtureProject {
-    id: "fabric",
+/// Plugin for a desktop app — Java/Gradle.
+pub(crate) const FIXTURE_PLUGIN: FixtureProject = FixtureProject {
+    id: "plugin",
     ecosystem: "Gradle/Java",
-    purpose: "Minecraft Fabric mod: main user scenario",
-    task_prompt: "Add a log message with mod version on mod initialization.",
-    explain_prompt: "Explain how the mod entrypoint is configured in fabric.mod.json.",
+    purpose: "App plugin: main user scenario",
+    task_prompt: "Add a log message with plugin version on plugin initialization.",
+    explain_prompt: "Explain how the plugin entrypoint is configured in plugin.json.",
     files: &[
         (
             "build.gradle",
-            "plugins {\n    id 'fabric-loom' version '1.5-SNAPSHOT'\n}\nversion = '1.0.0'\n",
+            "plugins {\n    id 'java-library'\n}\nversion = '1.0.0'\n",
         ),
         (
-            "src/main/resources/fabric.mod.json",
-            "{\n  \"schemaVersion\": 1,\n  \"id\": \"samplemod\",\n  \"version\": \"1.0.0\",\n  \"name\": \"Sample Mod\"\n}\n",
+            "src/main/resources/plugin.json",
+            "{\n  \"schemaVersion\": 1,\n  \"id\": \"sampleplugin\",\n  \"version\": \"1.0.0\",\n  \"name\": \"Sample Plugin\",\n  \"entrypoint\": \"com.example.SamplePlugin\"\n}\n",
         ),
         (
-            "src/main/java/com/example/SampleMod.java",
-            "package com.example;\n\npublic class SampleMod {\n    public static void onInitialize() {\n        System.out.println(\"SampleMod initialized\");\n    }\n}\n",
+            "src/main/java/com/example/SamplePlugin.java",
+            "package com.example;\n\npublic class SamplePlugin {\n    public static void onInitialize() {\n        System.out.println(\"SamplePlugin initialized\");\n    }\n}\n",
         ),
         (
             "README.md",
-            "# SampleMod\nA sample Minecraft mod powered by Fabric loader.\n",
+            "# SamplePlugin\nA sample plugin for the notes-app desktop app.\n",
         ),
     ],
 };
@@ -196,7 +196,7 @@ pub(crate) const FIXTURE_ADVERSARIAL: FixtureProject = FixtureProject {
 pub(crate) const ALL_FIXTURES: &[FixtureProject] = &[
     FIXTURE_ITOA,
     FIXTURE_IS_SORTED,
-    FIXTURE_FABRIC,
+    FIXTURE_PLUGIN,
     FIXTURE_PYTHON,
     FIXTURE_RU,
     FIXTURE_ADVERSARIAL,
