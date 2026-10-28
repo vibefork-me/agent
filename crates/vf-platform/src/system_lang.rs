@@ -47,14 +47,19 @@ pub fn system_language() -> Language {
     Language::En
 }
 
-/// The language of a Windows LANGID by its primary language (lower 10 bits).
+/// The language of a Windows LANGID by its primary language (lower 10 bits); for Spanish also by its
+/// sublanguage (upper 6 bits): Spain's Spanish for Spain, Latin American Spanish for any other.
 #[cfg_attr(not(windows), allow(dead_code))]
 fn windows_primary_language(lang_id: u16) -> Option<Language> {
     match lang_id & 0x03ff {
         0x19 => Some(Language::Ru),   // LANG_RUSSIAN
         0x16 => Some(Language::PtBr), // LANG_PORTUGUESE (Brazil and Portugal)
-        0x0a => Some(Language::Es),   // LANG_SPANISH
-        0x07 => Some(Language::De),   // LANG_GERMAN
+        // LANG_SPANISH; SUBLANG_SPANISH (traditional sort) and SUBLANG_SPANISH_MODERN are Spain.
+        0x0a => Some(match lang_id >> 10 {
+            0x01 | 0x03 => Language::EsEs,
+            _ => Language::Es419,
+        }),
+        0x07 => Some(Language::De), // LANG_GERMAN
         _ => None,
     }
 }
@@ -97,6 +102,16 @@ mod tests {
         assert_eq!(system_language(), Language::PtBr);
 
         unsafe {
+            std::env::set_var("VF_LANG", "es_ES.UTF-8");
+        }
+        assert_eq!(system_language(), Language::EsEs);
+
+        unsafe {
+            std::env::set_var("VF_LANG", "es_MX.UTF-8");
+        }
+        assert_eq!(system_language(), Language::Es419);
+
+        unsafe {
             std::env::remove_var("VF_LANG");
         }
     }
@@ -106,7 +121,11 @@ mod tests {
         assert_eq!(windows_primary_language(0x0419), Some(Language::Ru));
         assert_eq!(windows_primary_language(0x0416), Some(Language::PtBr)); // pt-BR
         assert_eq!(windows_primary_language(0x0816), Some(Language::PtBr)); // pt-PT
-        assert_eq!(windows_primary_language(0x0c0a), Some(Language::Es));
+        assert_eq!(windows_primary_language(0x0c0a), Some(Language::EsEs)); // es-ES, modern sort
+        assert_eq!(windows_primary_language(0x040a), Some(Language::EsEs)); // es-ES, traditional sort
+        assert_eq!(windows_primary_language(0x080a), Some(Language::Es419)); // es-MX
+        assert_eq!(windows_primary_language(0x580a), Some(Language::Es419)); // es-419
+        assert_eq!(windows_primary_language(0x2c0a), Some(Language::Es419)); // es-AR
         assert_eq!(windows_primary_language(0x0407), Some(Language::De));
         assert_eq!(windows_primary_language(0x0409), None); // en-US
         assert_eq!(windows_primary_language(0x040c), None); // fr-FR

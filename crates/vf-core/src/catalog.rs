@@ -20,8 +20,10 @@ pub enum Language {
     Ru,
     /// Portuguese (Brazil); every Portuguese reader gets it.
     PtBr,
-    /// Spanish.
-    Es,
+    /// Spanish of Spain.
+    EsEs,
+    /// Latin American Spanish; every Spanish reader outside Spain gets it.
+    Es419,
     /// German.
     De,
 }
@@ -32,43 +34,54 @@ const EN_FTL: &str = include_str!("../locales/en.ftl");
 const RU_FTL: &str = include_str!("../locales/ru.ftl");
 /// Brazilian Portuguese strings.
 const PT_BR_FTL: &str = include_str!("../locales/pt-BR.ftl");
-/// Spanish strings.
-const ES_FTL: &str = include_str!("../locales/es.ftl");
+/// Spanish strings of Spain.
+const ES_ES_FTL: &str = include_str!("../locales/es-ES.ftl");
+/// Latin American Spanish strings.
+const ES_419_FTL: &str = include_str!("../locales/es-419.ftl");
 /// German strings.
 const DE_FTL: &str = include_str!("../locales/de.ftl");
 
 impl Language {
     /// Every language the agent knows, English first.
-    pub const ALL: [Language; 5] = [
+    pub const ALL: [Language; 6] = [
         Language::En,
         Language::Ru,
         Language::PtBr,
-        Language::Es,
+        Language::EsEs,
+        Language::Es419,
         Language::De,
     ];
 
-    /// Parses a language code (`en`, `ru`, `ru_RU`, `pt-BR`, `de_DE.UTF-8`, …); English when unknown.
+    /// Parses a language code (`en`, `ru`, `ru_RU`, `pt-BR`, `es-419`, `de_DE.UTF-8`, …); English when
+    /// unknown. Spanish of Spain (`es-ES`, `es_ES`) is told apart; any other Spanish is Latin American.
     pub fn parse(s: &str) -> Self {
         let s = s.trim().to_ascii_lowercase();
         if s.starts_with("ru") {
             return Self::Ru;
         }
-        let primary = s.split(['-', '_', '.', '@']).next().unwrap_or_default();
-        match primary {
-            "pt" => Self::PtBr,
-            "es" => Self::Es,
-            "de" => Self::De,
+        // Trailing punctuation (`"es-ES",` of a macOS list) is not part of a subtag.
+        let mut parts = s
+            .split(['-', '_', '.', '@'])
+            .map(|p| p.trim_end_matches(|c: char| !c.is_ascii_alphanumeric()));
+        let primary = parts.next().unwrap_or_default();
+        let region = parts.next().unwrap_or_default();
+        match (primary, region) {
+            ("pt", _) => Self::PtBr,
+            ("es", "es") => Self::EsEs,
+            ("es", _) => Self::Es419,
+            ("de", _) => Self::De,
             _ => Self::En,
         }
     }
 
-    /// BCP 47 code: `en`, `ru`, `pt-BR`, `es`, `de`.
+    /// BCP 47 code: `en`, `ru`, `pt-BR`, `es-ES`, `es-419`, `de`.
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::En => "en",
             Self::Ru => "ru",
             Self::PtBr => "pt-BR",
-            Self::Es => "es",
+            Self::EsEs => "es-ES",
+            Self::Es419 => "es-419",
             Self::De => "de",
         }
     }
@@ -79,7 +92,8 @@ impl Language {
             Self::En => Some(EN_FTL),
             Self::Ru => Some(RU_FTL),
             Self::PtBr => Some(PT_BR_FTL),
-            Self::Es => Some(ES_FTL),
+            Self::EsEs => Some(ES_ES_FTL),
+            Self::Es419 => Some(ES_419_FTL),
             Self::De => Some(DE_FTL),
         }
     }
@@ -748,11 +762,11 @@ pub fn cli_storage_moved(lang: Language, kind: &str, size: &str, files: u64, pat
 }
 
 /// System instruction for coding models: reply in the user's language and keep answers accessible for non-programmers.
-/// A language code like `en` or `pt-BR`: 2–10 ASCII alphabetic characters or `-`.
+/// A language code like `en`, `pt-BR` or `es-419`: 2–10 ASCII letters, digits or `-`.
 /// Returns `None` if the input is empty, too long, or contains forbidden characters.
 pub fn lang_code(lang: &str) -> Option<&str> {
     let s = lang.trim();
-    if (2..=10).contains(&s.len()) && s.chars().all(|c| c.is_ascii_alphabetic() || c == '-') {
+    if (2..=10).contains(&s.len()) && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
         Some(s)
     } else {
         None
@@ -768,6 +782,8 @@ pub fn lang_name(lang: &str) -> Option<&'static str> {
         "en" | "english" => "English",
         "pt" | "pt-br" | "portuguese" => "Portuguese (Brazil)",
         "es" | "spanish" => "Spanish",
+        "es-es" => "Spanish (Spain)",
+        "es-419" => "Spanish (Latin America)",
         "de" | "german" => "German",
         _ => return None,
     })
@@ -886,9 +902,15 @@ mod tests {
             ("pt", Language::PtBr),
             ("pt-BR", Language::PtBr),
             ("pt_PT", Language::PtBr),
-            ("es", Language::Es),
-            ("es-MX", Language::Es),
-            ("es_ES.UTF-8", Language::Es),
+            ("es", Language::Es419),
+            ("es-MX", Language::Es419),
+            ("es-419", Language::Es419),
+            ("es_AR.UTF-8", Language::Es419),
+            ("es-ES", Language::EsEs),
+            ("es_ES.UTF-8", Language::EsEs),
+            ("es_ES@euro", Language::EsEs),
+            ("es-ES\",", Language::EsEs),
+            ("es\",", Language::Es419),
             ("de", Language::De),
             ("de-AT", Language::De),
             ("de_DE@euro", Language::De),
@@ -912,8 +934,17 @@ mod tests {
             assert!(has_message(lang, "btn-cancel"), "{}", lang.as_str());
         }
         assert_eq!(btn_cancel(Language::De), "Abbrechen");
-        assert_eq!(btn_cancel(Language::Es), "Cancelar");
+        assert_eq!(btn_cancel(Language::EsEs), "Cancelar");
+        assert_eq!(btn_cancel(Language::Es419), "Cancelar");
         assert_eq!(btn_allow(Language::PtBr), "Permitir");
+    }
+
+    #[test]
+    fn spanish_of_spain_and_latin_american_spanish_use_their_own_words() {
+        assert!(first_run_intro(Language::EsEs).contains("ordenador"));
+        assert!(first_run_intro(Language::Es419).contains("computadora"));
+        assert!(ask_secret_title(Language::EsEs).contains("introduce"));
+        assert!(ask_secret_title(Language::Es419).contains("ingresa"));
     }
 
     #[test]
@@ -948,10 +979,12 @@ mod tests {
             cli_storage_moved(Language::PtBr, "tools", "1 KB", 1, "/p"),
             "tools movido (1 KB, 1 arquivo) para /p"
         );
-        assert_eq!(
-            cli_storage_moved(Language::Es, "tools", "1 KB", 2, "/p"),
-            "tools movido (1 KB, 2 archivos) a /p"
-        );
+        for lang in [Language::EsEs, Language::Es419] {
+            assert_eq!(
+                cli_storage_moved(lang, "tools", "1 KB", 2, "/p"),
+                "tools movido (1 KB, 2 archivos) a /p"
+            );
+        }
     }
 
     #[test]
@@ -964,7 +997,7 @@ mod tests {
             thought_step(Language::En, 2, 5, "Tests"),
             "Step 2 of 5: Tests"
         );
-        assert_eq!(thought_task(Language::Es), "Trabajando en la tarea");
+        assert_eq!(thought_task(Language::Es419), "Trabajando en la tarea");
         assert_eq!(
             thought_step(Language::De, 2, 5, "Tests"),
             "Schritt 2 von 5: Tests"
@@ -1116,6 +1149,8 @@ mod tests {
             ("pt-BR", "Portuguese (Brazil)"),
             ("pt", "Portuguese (Brazil)"),
             ("es", "Spanish"),
+            ("es-ES", "Spanish (Spain)"),
+            ("es-419", "Spanish (Latin America)"),
             ("de", "German"),
             ("DE", "German"),
         ];
@@ -1159,6 +1194,7 @@ mod tests {
         assert_eq!(lang_code("ru"), Some("ru"));
         assert_eq!(lang_code("pt-BR"), Some("pt-BR"));
         assert_eq!(lang_code("zh-CN"), Some("zh-CN"));
+        assert_eq!(lang_code("es-419"), Some("es-419"));
         assert_eq!(lang_code("  de  "), Some("de"));
 
         // Too short, too long, forbidden characters

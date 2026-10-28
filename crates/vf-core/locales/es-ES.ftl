@@ -1,4 +1,5 @@
-# Strings of the agent's own windows, tray and command line, in Spanish.
+# Strings of the agent's own windows, tray and command line, in the Spanish of Spain ("ordenador",
+# "añadir", "introduce", the present perfect for what has just happened).
 # Same messages as en.ftl; a message missing here is shown in English.
 # The person is addressed as "tú"; product terms follow the editor's glossary (src/i18n/glossary.json).
 
@@ -120,12 +121,12 @@ tray-activity-stage = «{ $project }» — { $stage }
 tray-activity-eta = { $line }, quedan ≈ { $minutes } min
 tray-waiting = esperando
 tray-needs-you = «{ $project }» — se necesita tu decisión
-tray-failed = «{ $project }» — la compilación falló
+tray-failed = «{ $project }» — la compilación ha fallado
 tray-recent-projects = Proyectos recientes
 tray-open-log = Abrir el registro
 notify-done = Listo: { $project }
 notify-needs-you = El agente necesita tu decisión
-notify-build-failed = La compilación falló
+notify-build-failed = La compilación ha fallado
 tray-agent-status = Estado del agente…
 
 ## Agent windows
