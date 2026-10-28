@@ -6,8 +6,8 @@
 //! - Installed: `du -sb <tools>/mise-data/installs/<tool>` after `mise install <spec>`:
 //!   `node@lts` (24.22.1) 107 345 970, `python@3.12` (3.12.15) 63 228 563, `go@1.23` (1.23.12)
 //!   243 869 155, `java@temurin-21` (21.0.12+101) 343 823 876, `gradle@8` (8.14.6) 154 630 180,
-//!   `maven@3` (3.10.0) 11 784 219 bytes. `rust@stable`: `du -sb <tools>/rustup <tools>/cargo`
-//!   (rustup's toolchain with its default components and the cargo home) — see [`RUST`].
+//!   `maven@3` (3.10.0) 11 784 219 bytes. `rust@stable` is approximate (≈ 1.3 GiB of rustup's
+//!   toolchain with its default components and the cargo home) — see [`RUST`].
 //! - Downloaded: `Content-Length` of the files `mise` fetches for those versions:
 //!   `node-v24.22.1-win-x64.zip` 37 748 064, `cpython-3.12.15+…-x86_64-pc-windows-msvc-install_only_stripped.tar.gz`
 //!   21 990 627, `go1.23.12.windows-amd64.zip` 81 978 626, Temurin JDK 21.0.12+1 x64 Windows zip
@@ -29,7 +29,8 @@ pub struct Size {
     pub download: u64,
 }
 
-/// Rust (`rust@stable`): rustup's stable toolchain with its default components and the cargo home.
+/// Rust (`rust@stable`): rustup's stable toolchain with its default components and the cargo home;
+/// an approximate size, not an exact measurement like the other tools.
 pub const RUST: Size = Size {
     installed: 1_407_250_000,
     download: 0,
