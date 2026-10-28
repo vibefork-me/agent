@@ -32,7 +32,7 @@ confirm-action-text-target =
 
     { $action }
     Target: { $target }
-action-build = build and run the project's build
+action-build = build the project (runs its build scripts)
 action-run = run the project's program
 action-rollback = roll the project back (later changes are dropped)
 action-rollback-part = return this part of the project to how it was before the last task changed it (other parts are kept)

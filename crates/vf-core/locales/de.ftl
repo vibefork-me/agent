@@ -44,9 +44,9 @@ action-disconnect-ai = { $provider } trennen
 ## Answers in the task's conversation
 
 note-taken = Verstanden, ich berücksichtige das im nächsten Schritt.
-thought-rating = Schätze ab, wie groß die Aufgabe ist
-thought-planning = Teile die Aufgabe in Schritte auf
-thought-task = Arbeite an der Aufgabe
+thought-rating = Ich schätze ab, wie groß die Aufgabe ist
+thought-planning = Ich teile die Aufgabe in Schritte auf
+thought-task = Ich arbeite an der Aufgabe
 thought-step = Schritt { $n } von { $of }: { $title }
 
 ## Entering a key or a value

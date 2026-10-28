@@ -55,8 +55,8 @@ fn english_and_russian_strings_are_unchanged() {
     );
     same!(
         |l| action_build(l),
-        "build and run the project's build",
-        "собрать и запустить проект"
+        "build the project (runs its build scripts)",
+        "собрать проект (запускает его скрипты сборки)"
     );
     same!(
         |l| action_run(l),
