@@ -565,7 +565,9 @@ impl Backend for Engine {
             if self.projects.resolve(&project).is_err() {
                 return self.task(task, out, cancel);
             }
+            let timings = self.timings(&project);
             let mut stream = canvas::Stream::new(&self.canvas, &project, out);
+            stream.estimate(timings);
             stream.emit(CanvasEvent::Task {
                 text: task.prompt.clone(),
                 nodes: Vec::new(),

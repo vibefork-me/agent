@@ -10,6 +10,7 @@
 
 pub mod customizations;
 pub mod handoff;
+pub mod timing;
 
 use vf_protocol::Usage;
 use vf_protocol::canvas::CanvasRecord;

@@ -5,8 +5,9 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use vf_journal::CanvasLog;
+use vf_journal::timing::{Timings, scope_of};
 use vf_protocol::canvas::{CanvasEvent, CheckKind, ResultKind, Stage};
-use vf_protocol::ws::ServerMessage;
+use vf_protocol::ws::{ServerMessage, ToolchainStatus};
 
 /// Numbers and records the events of one run (a task or a build) of a project. The caller holds the
 /// project exclusively, so numbers have no gaps and no repeats.
@@ -18,6 +19,12 @@ pub(crate) struct Stream<'a> {
     out: &'a mut dyn FnMut(ServerMessage),
     /// What the run produced, put into its `result` event.
     artifacts: Vec<vf_protocol::canvas::Artifact>,
+    /// Measured durations: with them, the run's time left follows every stage and step.
+    timings: Option<Timings>,
+    /// The stage the run is in.
+    stage: Option<Stage>,
+    /// Steps of the plan, once it is made.
+    steps: Option<u32>,
 }
 
 impl<'a> Stream<'a> {
@@ -39,7 +46,16 @@ impl<'a> Stream<'a> {
             next,
             out,
             artifacts: Vec::new(),
+            timings: None,
+            stage: None,
+            steps: None,
         }
+    }
+
+    /// Sends the run's time left (`eta`) after every new stage, the plan and every step, by
+    /// `timings`; nothing when they measured none of what is left.
+    pub(crate) fn estimate(&mut self, timings: Timings) {
+        self.timings = Some(timings);
     }
 
     /// What the run produced: the `result` event carries it.
@@ -47,8 +63,47 @@ impl<'a> Stream<'a> {
         self.artifacts = artifacts;
     }
 
-    /// Records and sends a canvas event.
+    /// Records and sends a canvas event, then the time left it changes.
     pub(crate) fn emit(&mut self, ev: CanvasEvent) {
+        let eta = self.eta_after(&ev);
+        self.record(ev);
+        if let Some(eta) = eta {
+            self.record(eta);
+        }
+    }
+
+    /// The time left once `ev` happened: a new stage starts, the plan is made (all its steps are
+    /// left), a step starts (it and the ones after it are left). A plan's `change` stage waits for
+    /// its step.
+    fn eta_after(&mut self, ev: &CanvasEvent) -> Option<CanvasEvent> {
+        let (stage, steps_left) = match ev {
+            CanvasEvent::Stage { id } => {
+                if self.stage.replace(*id) == Some(*id)
+                    || (*id == Stage::Change && self.steps.is_some())
+                {
+                    return None;
+                }
+                (*id, None)
+            }
+            CanvasEvent::Plan { steps } => {
+                let n = u32::try_from(steps.len()).unwrap_or(u32::MAX);
+                self.steps = Some(n);
+                (Stage::Change, Some(n))
+            }
+            CanvasEvent::Step { index } => (
+                Stage::Change,
+                Some(self.steps?.saturating_sub(*index).max(1)),
+            ),
+            _ => return None,
+        };
+        let seconds = self.timings.as_ref()?.left(stage, steps_left)?;
+        Some(CanvasEvent::Eta {
+            scope: scope_of(stage),
+            seconds,
+        })
+    }
+
+    fn record(&mut self, ev: CanvasEvent) {
         let record = vf_protocol::canvas::CanvasRecord {
             seq: self.next,
             at: now_ms(),
@@ -103,7 +158,6 @@ pub(crate) fn events_for(message: &ServerMessage) -> Vec<CanvasEvent> {
             }
             events
         }
-        ServerMessage::Estimate { .. } => vec![CanvasEvent::Stage { id: Stage::Check }],
         ServerMessage::BuildDone { code, .. } => vec![CanvasEvent::Check {
             ok: *code == 0,
             text: if *code == 0 {
@@ -134,21 +188,33 @@ pub(crate) fn events_for(message: &ServerMessage) -> Vec<CanvasEvent> {
                 id: None,
             },
         ],
-        // A tool's download, when its size is known; `id` is the tool (`java@temurin-21`).
+        // A tool being prepared is work on the build's node: bytes while its download size is
+        // known, an unknown amount otherwise.
         ServerMessage::Toolchain {
+            status:
+                ToolchainStatus::Installing | ToolchainStatus::Downloading | ToolchainStatus::Extracting,
             tool,
-            done: Some(done),
-            total: Some(total),
-            eta: Some(eta),
+            done,
+            total,
+            eta,
             ..
-        } => vec![CanvasEvent::Progress {
-            done: *done,
-            total: *total,
-            unit: "bytes".into(),
-            eta: *eta,
-            text: None,
-            id: Some(tool.clone()),
+        } => vec![match (done, total, eta) {
+            (Some(done), Some(total), Some(eta)) => CanvasEvent::Progress {
+                done: *done,
+                total: *total,
+                unit: Some("bytes".into()),
+                eta: *eta,
+                text: None,
+                id: Some(BUILD_NODE.into()),
+                spec: Some(tool.clone()),
+            },
+            _ => unknown_amount(Some(tool.clone())),
         }],
+        // The build of the project: its length is not known in advance.
+        ServerMessage::Estimate { .. } => vec![
+            CanvasEvent::Stage { id: Stage::Check },
+            unknown_amount(None),
+        ],
         ServerMessage::Paused => vec![CanvasEvent::Paused],
         ServerMessage::Resumed => vec![CanvasEvent::Resumed],
         ServerMessage::Cancelled => vec![CanvasEvent::Result {
@@ -160,6 +226,57 @@ pub(crate) fn events_for(message: &ServerMessage) -> Vec<CanvasEvent> {
             id: None,
         }],
         _ => Vec::new(),
+    }
+}
+
+/// The newest records of a project's stream that are measured for estimates.
+const MEASURED_RECORDS: usize = 2000;
+/// At most this many other projects fill in what a project's own stream never measured.
+const MEASURED_PROJECTS: usize = 20;
+
+impl crate::Engine {
+    /// How long stages and steps took in this project's earlier runs; what it never measured comes
+    /// from the earlier runs of other projects, together.
+    pub(crate) fn timings(&self, project: &str) -> Timings {
+        let measure = |p: &str| {
+            let last = self.canvas.last_seq(p).unwrap_or(0);
+            let back = u64::try_from(MEASURED_RECORDS).unwrap_or(u64::MAX);
+            let from = last.saturating_sub(back).saturating_add(1);
+            Timings::measure(
+                &self
+                    .canvas
+                    .read_from(p, from, MEASURED_RECORDS)
+                    .unwrap_or_default(),
+            )
+        };
+        let mut others = Timings::default();
+        for other in self
+            .projects
+            .list()
+            .iter()
+            .filter(|p| *p != project)
+            .take(MEASURED_PROJECTS)
+        {
+            others.merge(&measure(other));
+        }
+        measure(project).or(&others)
+    }
+}
+
+/// The map node of the project's build and of the tools it needs: the root, as the map has no node
+/// of its own for the build.
+pub(crate) const BUILD_NODE: &str = crate::map::ROOT;
+
+/// Work on the build's node of an amount not known in advance; `spec` is the tool being prepared.
+fn unknown_amount(spec: Option<String>) -> CanvasEvent {
+    CanvasEvent::Progress {
+        done: 0,
+        total: 0,
+        unit: None,
+        eta: 0,
+        text: None,
+        id: Some(BUILD_NODE.into()),
+        spec,
     }
 }
 
@@ -298,7 +415,7 @@ mod tests {
     }
 
     #[test]
-    fn a_tool_download_is_progress_of_that_tool() {
+    fn a_tool_download_is_progress_of_the_build_node() {
         let downloading = crate::step::toolchain_message(vf_toolchains::Progress::Downloading {
             tool: "java@temurin-21".into(),
             done: 188,
@@ -310,10 +427,11 @@ mod tests {
             [CanvasEvent::Progress {
                 done: 188,
                 total: 520,
-                unit: "bytes".into(),
+                unit: Some("bytes".into()),
                 eta: 10,
                 text: None,
-                id: Some("java@temurin-21".into()),
+                id: Some("root".into()),
+                spec: Some("java@temurin-21".into()),
             }]
         );
         let unknown = crate::step::toolchain_message(vf_toolchains::Progress::Downloading {
@@ -322,7 +440,26 @@ mod tests {
             total: None,
             eta: None,
         });
-        assert!(events_for(&unknown).is_empty());
+        assert_eq!(
+            events_for(&unknown),
+            [unknown_amount(Some("rust@stable".into()))]
+        );
+        let extracting = crate::step::toolchain_message(vf_toolchains::Progress::Extracting {
+            tool: "rust@stable".into(),
+        });
+        assert_eq!(
+            events_for(&extracting),
+            [CanvasEvent::Progress {
+                done: 0,
+                total: 0,
+                unit: None,
+                eta: 0,
+                text: None,
+                id: Some("root".into()),
+                spec: Some("rust@stable".into()),
+            }]
+        );
+        assert!(events_for(&failed_or_ready()).is_empty());
         let failed = crate::step::toolchain_message(vf_toolchains::Progress::Failed {
             tool: "go@1.23".into(),
             error: "timed out".into(),
@@ -332,6 +469,123 @@ mod tests {
             failed,
             ServerMessage::Toolchain { code: Some(ref c), .. } if c == "timed_out"
         ));
+    }
+
+    fn failed_or_ready() -> ServerMessage {
+        crate::step::toolchain_message(vf_toolchains::Progress::Ready {
+            tool: "rust@stable".into(),
+            path: "tools/rust".into(),
+            seconds: 3.0,
+        })
+    }
+
+    #[test]
+    fn a_build_is_work_of_unknown_length_on_the_build_node() {
+        let estimate = ServerMessage::Estimate {
+            verdict: "ok".into(),
+            text: String::new(),
+        };
+        assert_eq!(
+            events_for(&estimate),
+            [
+                CanvasEvent::Stage { id: Stage::Check },
+                unknown_amount(None)
+            ]
+        );
+    }
+
+    fn at(seq: u64, at: u64, session: &str, ev: CanvasEvent) -> CanvasRecord {
+        CanvasRecord {
+            seq,
+            at,
+            session: session.into(),
+            ev,
+        }
+    }
+
+    /// One earlier task of `notes-app`: understand 2 s, plan 4 s, two steps of 10 s, check 6 s.
+    fn earlier_task() -> Memory {
+        let stage = |id| CanvasEvent::Stage { id };
+        Memory(RefCell::new(vec![
+            at(1, 0, "t1", stage(Stage::Understand)),
+            at(2, 2_000, "t1", stage(Stage::Plan)),
+            at(3, 6_000, "t1", stage(Stage::Change)),
+            at(4, 6_000, "t1", CanvasEvent::Step { index: 0 }),
+            at(5, 16_000, "t1", stage(Stage::Change)),
+            at(6, 16_000, "t1", CanvasEvent::Step { index: 1 }),
+            at(7, 26_000, "t1", stage(Stage::Check)),
+            at(8, 32_000, "t1", stage(Stage::Done)),
+        ]))
+    }
+
+    #[test]
+    fn time_left_follows_the_stages_and_steps_by_earlier_runs() {
+        let log = earlier_task();
+        let timings = Timings::measure(&log.0.borrow());
+        let mut sent = Vec::new();
+        {
+            let mut out = |m: ServerMessage| sent.push(m);
+            let mut stream = Stream::new(&log, "notes-app", &mut out);
+            stream.estimate(timings);
+            stream.emit(CanvasEvent::Stage {
+                id: Stage::Understand,
+            });
+            stream.forward(ServerMessage::Planning { rating: None });
+            stream.forward(ServerMessage::Plan {
+                planner: "m".into(),
+                cost_usd: None,
+                steps: ["Tags", "Colors", "Search"]
+                    .iter()
+                    .map(|t| PlanStepInfo {
+                        title: (*t).into(),
+                        complexity: "s".into(),
+                        label: "l".into(),
+                    })
+                    .collect(),
+            });
+            for n in 1..=3 {
+                stream.forward(started(Some(StepInfo {
+                    n,
+                    of: 3,
+                    title: "step".into(),
+                })));
+            }
+            stream.forward(ServerMessage::Estimate {
+                verdict: "ok".into(),
+                text: String::new(),
+            });
+        }
+        let etas: Vec<u64> = sent
+            .iter()
+            .filter_map(|m| match m {
+                ServerMessage::Canvas {
+                    ev: CanvasEvent::Eta { scope, seconds },
+                    ..
+                } => {
+                    assert_eq!(*scope, vf_protocol::canvas::EtaScope::Task);
+                    Some(*seconds)
+                }
+                _ => None,
+            })
+            .collect();
+        // Understand: 2 + 4 + 20 (change) + 6 + 0; plan: 4 + 20 + 6; the plan made: three steps of
+        // 10 s and the check; every step: the steps left and the check; the check.
+        assert_eq!(etas, [32, 30, 36, 36, 26, 16, 6]);
+    }
+
+    #[test]
+    fn without_measurements_no_time_left_is_sent() {
+        let log = Memory::default();
+        let mut sent = Vec::new();
+        {
+            let mut out = |m: ServerMessage| sent.push(m);
+            let mut stream = Stream::new(&log, "notes-app", &mut out);
+            stream.estimate(Timings::default());
+            stream.emit(CanvasEvent::Stage {
+                id: Stage::Understand,
+            });
+        }
+        assert_eq!(sent.len(), 1);
     }
 
     #[test]
