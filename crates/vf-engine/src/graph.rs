@@ -160,11 +160,13 @@ impl Engine {
         let lang = req.lang.as_deref().unwrap_or("en");
         // The analysis goes into the project's session stream, unless a task holds the project now.
         let hold = self.hold(&req.project);
+        let timings = self.timings(&req.project);
         let mut sink = |_: ServerMessage| {};
         let mut stream = hold
             .as_ref()
             .map(|_| crate::canvas::Stream::new(&self.canvas, &req.project, &mut sink));
         if let Some(s) = stream.as_mut() {
+            s.estimate(timings);
             s.emit(CanvasEvent::Project {
                 id: map::ROOT.into(),
                 label: req.project.clone(),

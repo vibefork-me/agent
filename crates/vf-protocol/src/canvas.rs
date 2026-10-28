@@ -185,24 +185,32 @@ pub enum CanvasEvent {
         /// The stage.
         id: Stage,
     },
-    /// Progress of the current stage (download, tool install, build).
+    /// Progress of the current stage (download, tool install, build). Without `unit` the amount
+    /// is unknown: `total` and `eta` are 0 and an editor shows that the work goes on.
     Progress {
         /// Done so far, in `unit`.
         done: u64,
-        /// Total, in `unit`.
+        /// Total, in `unit`; 0 without `unit`.
         total: u64,
-        /// Unit: `bytes`, `files`, `steps`…
-        unit: String,
-        /// Seconds left.
+        /// Unit: `bytes`, `files`, `steps`…; none when the amount is unknown.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        unit: Option<String>,
+        /// Seconds left; 0 without `unit`.
         eta: u64,
         /// What is being done.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         text: Option<String>,
-        /// The part this work is about.
+        /// The map node this work belongs to: the root (`root`) while the project downloads, the
+        /// node of the build (the root, as the map has no node of its own for it) while tools are
+        /// prepared and the project is built.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
+        /// The tool being prepared (`java@temurin-21`), while tools are prepared.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        spec: Option<String>,
     },
-    /// Overall time left.
+    /// Overall time left, by the measured durations of earlier stages and steps; sent again as
+    /// the work enters each stage and step.
     Eta {
         /// What is estimated.
         scope: EtaScope,
@@ -433,6 +441,18 @@ mod tests {
                 seconds: 90
             }),
             serde_json::json!({"type": "eta", "scope": "analysis", "seconds": 90})
+        );
+        assert_eq!(
+            wire(&CanvasEvent::Progress {
+                done: 0,
+                total: 0,
+                unit: None,
+                eta: 0,
+                text: None,
+                id: Some("root".into()),
+                spec: Some("go@1.23".into()),
+            }),
+            serde_json::json!({"type": "progress", "done": 0, "total": 0, "eta": 0, "id": "root", "spec": "go@1.23"})
         );
     }
 

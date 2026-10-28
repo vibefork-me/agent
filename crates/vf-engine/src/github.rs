@@ -455,13 +455,15 @@ impl Engine {
             stream.emit(CanvasEvent::Stage {
                 id: Stage::Download,
             });
+            // The download is work on the project's root (a fork's own root, when it is a fork).
             stream.emit(CanvasEvent::Progress {
                 done: size,
                 total: size,
-                unit: "bytes".into(),
+                unit: Some("bytes".into()),
                 eta: 0,
                 text: None,
-                id: None,
+                id: Some(crate::map::ROOT.into()),
+                spec: None,
             });
         }
         Ok(ImportResponse {

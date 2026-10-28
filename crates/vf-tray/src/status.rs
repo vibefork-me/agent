@@ -112,9 +112,13 @@ pub(crate) fn derive(records: &[CanvasRecord], now_ms: u64) -> Activity {
                 _ => None,
             });
             let eta_secs = run.iter().rev().find_map(|r| match &r.ev {
-                CanvasEvent::Eta { seconds, .. } | CanvasEvent::Progress { eta: seconds, .. } => {
-                    Some(seconds.saturating_sub(now_ms.saturating_sub(r.at) / 1000))
-                }
+                // Progress of an unknown amount (no `unit`) says nothing about the time left.
+                CanvasEvent::Eta { seconds, .. }
+                | CanvasEvent::Progress {
+                    eta: seconds,
+                    unit: Some(_),
+                    ..
+                } => Some(seconds.saturating_sub(now_ms.saturating_sub(r.at) / 1000)),
                 _ => None,
             });
             return Activity::Working { stage, eta_secs };

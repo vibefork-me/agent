@@ -385,7 +385,7 @@
           "type": "object"
         },
         {
-          "description": "Progress of the current stage (download, tool install, build).",
+          "description": "Progress of the current stage (download, tool install, build). Without `unit` the amount is unknown: `total` and `eta` are 0 and an editor shows that the work goes on.",
           "properties": {
             "done": {
               "description": "Done so far, in `unit`.",
@@ -394,13 +394,20 @@
               "type": "integer"
             },
             "eta": {
-              "description": "Seconds left.",
+              "description": "Seconds left; 0 without `unit`.",
               "format": "uint64",
               "minimum": 0.0,
               "type": "integer"
             },
             "id": {
-              "description": "The part this work is about.",
+              "description": "The map node this work belongs to: the root (`root`) while the project downloads, the node of the build (the root, as the map has no node of its own for it) while tools are prepared and the project is built.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "spec": {
+              "description": "The tool being prepared (`java@temurin-21`), while tools are prepared.",
               "type": [
                 "string",
                 "null"
@@ -414,7 +421,7 @@
               ]
             },
             "total": {
-              "description": "Total, in `unit`.",
+              "description": "Total, in `unit`; 0 without `unit`.",
               "format": "uint64",
               "minimum": 0.0,
               "type": "integer"
@@ -426,21 +433,23 @@
               "type": "string"
             },
             "unit": {
-              "description": "Unit: `bytes`, `files`, `steps`…",
-              "type": "string"
+              "description": "Unit: `bytes`, `files`, `steps`…; none when the amount is unknown.",
+              "type": [
+                "string",
+                "null"
+              ]
             }
           },
           "required": [
             "done",
             "eta",
             "total",
-            "type",
-            "unit"
+            "type"
           ],
           "type": "object"
         },
         {
-          "description": "Overall time left.",
+          "description": "Overall time left, by the measured durations of earlier stages and steps; sent again as the work enters each stage and step.",
           "properties": {
             "scope": {
               "$ref": "#/components/schemas/EtaScope",
