@@ -20,7 +20,7 @@ internet are not accepted; server hints are confirmed by the user locally.
 | `vibefork` (crate `vf-agent`) | Core daemon: local API, orchestration, storage. Runs headless (WSL, servers, CI). Also the `vibefork` CLI |
 | `vibefork-tray` (crate `vf-tray`) | Tray icon / menu. Separate process; the core has no GUI dependencies; a tray crash does not stop the core |
 | Child processes | Coding CLIs (Claude Code, Codex), builds, `mise`, `git`. Owned by the core, killed as a tree |
-| Native confirm dialog | OS dialog for pairing and dangerous actions — the one UI a web page cannot click |
+| Native confirm dialog | The agent's own window for pairing and dangerous actions — the one UI a web page cannot click. Windows / Linux: `vibefork-tray dialog <kind>` (egui, `vf-ui`), a system dialog when that window cannot be shown; macOS: a system dialog |
 
 ## Crates and layers
 
@@ -29,7 +29,7 @@ Dependencies point **down** only. Checked in CI by `scripts/check_layers.py` (la
 ```
 layer 4  binaries      vf-agent  vf-tray  vf-sign
 layer 3  edges         vf-server  vf-cli  vf-engine
-layer 2  adapters      vf-providers  vf-toolchains  vf-builds  vf-git  vf-github  vf-sandbox  vf-auth  vf-updater  vf-platform
+layer 2  adapters      vf-providers  vf-toolchains  vf-builds  vf-git  vf-github  vf-sandbox  vf-auth  vf-updater  vf-platform  vf-ui
 layer 1  logic         vf-journal  vf-orchestrator
 layer 0  domain        vf-core  vf-protocol           (no IO: no network, no disk, no OS)
 ```
@@ -49,11 +49,12 @@ layer 0  domain        vf-core  vf-protocol           (no IO: no network, no dis
 | `vf-auth` | Pairing, browser keys, challenge → session, revocation, confirm prompts | 🔒 |
 | `vf-server` | HTTP + WebSocket on loopback only; Host / Origin checks; fallback UI at `/ui/` from the signed bundle; canonical `127.0.0.1` | 🔒 |
 | `vf-platform` | Everything OS-specific: settings, projects folder, journal files, storage moves, dialogs, secret store, per-user install (`vibefork://`, autostart, `PATH`), the background agent process | |
+| `vf-ui` | The agent's windows on egui: confirm / text / secret prompts, first run, status; Vibefork theme. No dependency on other crates of the agent: views for any egui program and standalone windows | |
 | `vf-updater` | Signed downloads: UI bundle and self-updates (Ed25519, separate built-in keys), self-check of a new binary, rollback | 🔒 |
 | `vf-cli` | The `vibefork` command (plain / JSON / interactive modes) | |
 | `vf-engine` | Implements `Backend`: projects, journal, models, tasks on top of the adapters | |
 | `vf-agent` | Binary: wiring only, no logic | |
-| `vf-tray` | Tray binary: icon, menu and notifications by the agent's state (`GET /v1/hello`, the projects' session streams); acts through the `vibefork` binary. Linux — StatusNotifierItem over zbus (`ksni`), no GTK; Windows / macOS — `tray-icon` | |
+| `vf-tray` | Tray binary: icon, menu and notifications by the agent's state (`GET /v1/hello`, the projects' session streams); acts through the `vibefork` binary; runs the agent's windows (`vf-ui`) as `vibefork-tray dialog | first-run | status`. Linux — StatusNotifierItem over zbus (`ksni`), no GTK; Windows / macOS — `tray-icon` | |
 | `vf-sign` | `vibefork-sign`: offline signing of UI bundles and releases (not shipped) | |
 
 🔒 = **security boundary**: small, extra human review required, attack tests, fuzzing of parsers.

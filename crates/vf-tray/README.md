@@ -16,7 +16,19 @@ the projects' session streams (`<state>/canvas/<project>.jsonl`) for what runs.
 - Menu: state, current activity, recent projects (`vibefork open --project <name>`), open Vibefork,
   open the log, updates, start / stop the agent, quit.
 - Notifications: done, the agent waits for a decision, the build failed — only for fresh events.
+- Menu item "Agent status…" opens the status window.
 - Strings: `vf_core::catalog` (`crates/vf-core/locales/*.ftl`).
+
+## The agent's windows
+
+The same binary runs the agent's windows (`vf-ui`, egui), each in a process of its own (a window
+needs its own event loop, apart from the tray's):
+
+| Command | Window |
+|---|---|
+| `vibefork-tray dialog confirm \| text \| secret \| secret-optional` | A question of the core (`vf_platform::dialog`): strings in `VF_DIALOG_*` variables; exit code 0 — accepted (a value on stdout), 1 — rejected / closed / timed out, 3 — no window could be shown |
+| `vibefork-tray first-run` | Tools folder (moved with `vf_platform::storage`), free room, connect an AI model (opens the editor). Opened once by the tray on a fresh installation (empty tools folder); marker `<state>/first-run.done` |
+| `vibefork-tray status` | The tray's state and actions in a window, refreshed like the tray |
 
 ## Invariants
 
@@ -25,4 +37,4 @@ the projects' session streams (`<state>/canvas/<project>.jsonl`) for what runs.
 
 ## May depend on
 
-Only crates of a lower layer (see `layers.toml`, `ARCHITECTURE.md`). Today: `vf-core`, `vf-protocol`, `vf-platform`.
+Only crates of a lower layer (see `layers.toml`, `ARCHITECTURE.md`). Today: `vf-core`, `vf-protocol`, `vf-platform`, `vf-builds`, `vf-ui`.

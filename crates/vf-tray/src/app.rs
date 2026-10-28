@@ -43,6 +43,8 @@ pub(crate) enum Action {
     OpenProject(String),
     /// Open the agent's log file.
     OpenLog,
+    /// Open the agent status window.
+    ShowStatus,
     /// Install the recorded update.
     InstallUpdate,
     /// Turn automatic updates on / off.
@@ -114,6 +116,11 @@ impl App {
         }
     }
 
+    /// The language of the tray's strings.
+    pub(crate) fn lang(&self) -> Language {
+        self.lang
+    }
+
     /// Starts the agent (the tray is what autostart launches).
     pub(crate) fn start_agent(&self) {
         run_core(&self.core, &["start"]);
@@ -177,6 +184,7 @@ impl App {
                 let log = vf_platform::agent_process::log_file(&settings.state_dir);
                 let _ = vf_platform::agent_process::open_url(&log.to_string_lossy());
             }
+            Action::ShowStatus => spawn_window(crate::ui::STATUS),
             Action::InstallUpdate => run_core(&self.core, &["update"]),
             Action::ToggleAutoUpdate => {
                 let next = if vf_platform::Settings::from_env().auto_update {
@@ -264,6 +272,10 @@ pub(crate) fn model(lang: Language, f: &Facts) -> Model {
         Entry::Item {
             label: catalog::tray_open_vibefork(lang),
             action: Some(Action::Open),
+        },
+        Entry::Item {
+            label: catalog::tray_agent_status(lang),
+            action: Some(Action::ShowStatus),
         },
         Entry::Item {
             label: catalog::tray_open_log(lang),
@@ -365,6 +377,14 @@ fn core_binary() -> PathBuf {
         .ok()
         .and_then(|p| p.parent().map(|d| d.join(&name)))
         .unwrap_or_else(|| PathBuf::from(name))
+}
+
+/// Opens one of the tray's windows (`vibefork-tray <command>`) in its own process: a window needs
+/// its own event loop, apart from the tray's.
+pub(crate) fn spawn_window(command: &str) {
+    if let Ok(me) = std::env::current_exe() {
+        run_core(&me, &[command]);
+    }
 }
 
 fn run_core(core: &Path, args: &[&str]) {

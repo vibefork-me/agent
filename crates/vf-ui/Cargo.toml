@@ -1,0 +1,16 @@
+[package]
+name = "vf-ui"
+description = "Windows of the agent on egui: confirm, text and secret prompts, first run, status. No dependency on the agent: any egui program can show them."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+eframe.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

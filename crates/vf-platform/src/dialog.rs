@@ -1,4 +1,9 @@
-//! Native Allow / Block dialog: Windows — MessageBox (PowerShell), macOS — `osascript`, Linux — `zenity`.
+//! The agent's questions to the person at the machine: Allow / Block, a text value, a secret.
+//!
+//! Windows and Linux: the agent's own window (egui, `vibefork-tray dialog <kind>` next to this
+//! binary — the core itself has no GUI dependencies). When that window cannot be shown (no binary,
+//! no display, no graphics driver), a system dialog: Windows — a form (PowerShell), Linux —
+//! `zenity`. macOS: `osascript`.
 //! Text goes through environment variables / arguments, never through a shell string; it is cleaned
 //! of control characters and layout tricks, and zenity gets it as plain text (`--no-markup`).
 
@@ -9,6 +14,153 @@ use vf_core::{ConfirmDialog, Secret, dialog_text};
 
 /// How long a dialog waits for the user before it counts as Block.
 pub const DIALOG_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// How the agent asks its own dialog window (`vibefork-tray dialog <kind>`): the kind is the
+/// argument, strings come in environment variables, the answer is the exit code (and stdout for a
+/// value).
+pub mod window {
+    /// The binary that shows the window, next to the agent's own.
+    pub const PROGRAM: &str = "vibefork-tray";
+    /// First argument: show a dialog.
+    pub const COMMAND: &str = "dialog";
+    /// Kind: Allow / Block.
+    pub const CONFIRM: &str = "confirm";
+    /// Kind: a text value.
+    pub const TEXT: &str = "text";
+    /// Kind: a secret, not empty.
+    pub const SECRET: &str = "secret";
+    /// Kind: a secret, empty allowed.
+    pub const SECRET_OPTIONAL: &str = "secret-optional";
+    /// Title.
+    pub const ENV_TITLE: &str = "VF_DIALOG_TITLE";
+    /// The question.
+    pub const ENV_TEXT: &str = "VF_DIALOG_TEXT";
+    /// Accepting button.
+    pub const ENV_ACCEPT: &str = "VF_DIALOG_ACCEPT";
+    /// Rejecting button.
+    pub const ENV_REJECT: &str = "VF_DIALOG_REJECT";
+    /// Seconds the window waits.
+    pub const ENV_TIMEOUT_SECS: &str = "VF_DIALOG_TIMEOUT_SECS";
+    /// Exit code: accepted (a value, if any, is on stdout).
+    pub const EXIT_ACCEPTED: i32 = 0;
+    /// Exit code: rejected, closed or timed out.
+    pub const EXIT_REJECTED: i32 = 1;
+    /// Exit code: no window could be shown; the caller asks another way (as for any exit code
+    /// other than [`EXIT_ACCEPTED`] and [`EXIT_REJECTED`], e.g. a crash).
+    pub const EXIT_NO_WINDOW: i32 = 3;
+    /// Longest value read back from the window, in bytes.
+    pub const MAX_VALUE: u64 = 64 * 1024;
+}
+
+/// Extra time the agent gives its own window beyond [`DIALOG_TIMEOUT`] (the window closes itself
+/// at the timeout; this covers its start-up).
+const WINDOW_GRACE: Duration = Duration::from_secs(3);
+
+/// What the agent's own window said.
+enum Shown {
+    /// The person answered (or the time ran out): accepted or not, and the value typed.
+    Answered { accepted: bool, value: String },
+    /// No window could be shown.
+    Unavailable,
+}
+
+/// Asks through the agent's own window. Never on macOS (system dialogs there).
+fn ask_window(kind: &str, title: &str, text: &str, accept: &str, reject: &str) -> Shown {
+    if cfg!(target_os = "macos") {
+        return Shown::Unavailable;
+    }
+    let Some(program) = std::env::current_exe()
+        .ok()
+        .and_then(|exe| {
+            exe.parent()
+                .map(|d| d.join(crate::install::exe_name(window::PROGRAM)))
+        })
+        .filter(|p| p.is_file())
+    else {
+        return Shown::Unavailable;
+    };
+    let child = Command::new(program)
+        .args([window::COMMAND, kind])
+        .env(window::ENV_TITLE, title)
+        .env(window::ENV_TEXT, text)
+        .env(window::ENV_ACCEPT, accept)
+        .env(window::ENV_REJECT, reject)
+        .env(
+            window::ENV_TIMEOUT_SECS,
+            DIALOG_TIMEOUT.as_secs().to_string(),
+        )
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn();
+    let mut child = match child {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!(error = %e, "cannot start the dialog window; using a system dialog");
+            return Shown::Unavailable;
+        }
+    };
+    let deadline = Instant::now() + DIALOG_TIMEOUT + WINDOW_GRACE;
+    loop {
+        match child.try_wait() {
+            // No window, or it crashed: not an answer.
+            Ok(Some(status))
+                if !matches!(
+                    status.code(),
+                    Some(window::EXIT_ACCEPTED | window::EXIT_REJECTED)
+                ) =>
+            {
+                tracing::warn!(code = ?status.code(), "the dialog window cannot be shown; using a system dialog");
+                return Shown::Unavailable;
+            }
+            Ok(Some(status)) => {
+                let accepted = status.code() == Some(window::EXIT_ACCEPTED);
+                let mut value = String::new();
+                if accepted && let Some(out) = child.stdout.take() {
+                    let _ = std::io::Read::read_to_string(
+                        &mut std::io::Read::take(out, window::MAX_VALUE),
+                        &mut value,
+                    );
+                }
+                return Shown::Answered { accepted, value };
+            }
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(100)),
+            _ => {
+                let _ = child.kill();
+                return Shown::Answered {
+                    accepted: false,
+                    value: String::new(),
+                };
+            }
+        }
+    }
+}
+
+/// A value through the agent's own window: `None` when the window cannot be shown (ask another
+/// way), `Some(None)` on cancel or timeout, `Some(Some(value))` (cleaned, possibly empty) on OK.
+fn ask_value(
+    kind: &str,
+    title: &str,
+    text: &str,
+    lang: vf_core::Language,
+) -> Option<Option<String>> {
+    match ask_window(
+        kind,
+        title,
+        text,
+        &vf_core::catalog::btn_ok(lang),
+        &vf_core::catalog::btn_cancel(lang),
+    ) {
+        Shown::Unavailable => None,
+        Shown::Answered {
+            accepted: false, ..
+        } => Some(None),
+        Shown::Answered {
+            accepted: true,
+            value,
+        } => Some(Some(vf_core::clean_secret(&value))),
+    }
+}
 
 /// The OS dialog. Returns `false` on Block, timeout or when no dialog program is available.
 #[derive(Debug, Default)]
@@ -22,7 +174,17 @@ impl ConfirmDialog for NativeConfirmDialog {
     fn confirm(&self, title: &str, text: &str) -> bool {
         let lang = self.language();
         // Defence in depth: callers already clean page values; the dialog cleans the whole text.
-        match spawn_dialog(&dialog_text(title), &dialog_text(text), lang) {
+        let (title, text) = (dialog_text(title), dialog_text(text));
+        if let Shown::Answered { accepted, .. } = ask_window(
+            window::CONFIRM,
+            &title,
+            &text,
+            &vf_core::catalog::btn_allow(lang),
+            &vf_core::catalog::btn_block(lang),
+        ) {
+            return accepted;
+        }
+        match spawn_dialog(&title, &text, lang) {
             Ok(child) => wait_allowed(child),
             Err(e) => {
                 tracing::warn!(error = %e, "cannot show a confirm dialog; treating as Block");
@@ -52,7 +214,11 @@ pub fn ask_text(title: &str, text: &str) -> Option<String> {
 
 /// Shows a text entry dialog with a specified language.
 pub fn ask_text_with_lang(title: &str, text: &str, lang: vf_core::Language) -> Option<String> {
-    match spawn_text_dialog(&dialog_text(title), &dialog_text(text), lang) {
+    let (title, text) = (dialog_text(title), dialog_text(text));
+    if let Some(answer) = ask_value(window::TEXT, &title, &text, lang) {
+        return answer.filter(|v| !v.is_empty());
+    }
+    match spawn_text_dialog(&title, &text, lang) {
         Ok(child) => wait_text(child),
         Err(e) => {
             tracing::warn!(error = %e, "cannot show a text dialog");
@@ -67,7 +233,11 @@ pub fn ask_secret_optional_with_lang(
     text: &str,
     lang: vf_core::Language,
 ) -> Option<Secret<String>> {
-    match spawn_secret_dialog(&dialog_text(title), &dialog_text(text), lang) {
+    let (title, text) = (dialog_text(title), dialog_text(text));
+    if let Some(answer) = ask_value(window::SECRET_OPTIONAL, &title, &text, lang) {
+        return answer.map(Secret::new);
+    }
+    match spawn_secret_dialog(&title, &text, lang) {
         Ok(child) => wait_secret_optional(child),
         Err(e) => {
             tracing::warn!(error = %e, "cannot show a secret dialog");
@@ -88,7 +258,11 @@ pub fn ask_secret_with_lang(
     text: &str,
     lang: vf_core::Language,
 ) -> Option<Secret<String>> {
-    match spawn_secret_dialog(&dialog_text(title), &dialog_text(text), lang) {
+    let (title, text) = (dialog_text(title), dialog_text(text));
+    if let Some(answer) = ask_value(window::SECRET, &title, &text, lang) {
+        return answer.filter(|v| !v.is_empty()).map(Secret::new);
+    }
+    match spawn_secret_dialog(&title, &text, lang) {
         Ok(child) => wait_secret(child),
         Err(e) => {
             tracing::warn!(error = %e, "cannot show a secret dialog");

@@ -31,6 +31,8 @@ schemars = "0.8"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 hex = "0.4"
+# The agent's own windows (vf-ui): egui over OpenGL (glow); x11 / wayland are loaded at run time.
+eframe = { version = "0.37", default-features = false, features = ["accesskit", "clipboard", "default_fonts", "glow", "wayland", "x11"] }
 
 # Internal crates (paths only — direction is enforced by scripts/check_layers.py).
 vf-protocol = { path = "crates/vf-protocol" }
@@ -50,6 +52,7 @@ vf-cli = { path = "crates/vf-cli" }
 vf-engine = { path = "crates/vf-engine" }
 vf-github = { path = "crates/vf-github" }
 vf-eval = { path = "crates/vf-eval" }
+vf-ui = { path = "crates/vf-ui" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"          # vf-platform and vf-sandbox opt out with "deny" + per-site justification
