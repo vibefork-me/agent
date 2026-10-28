@@ -126,6 +126,7 @@ cli-storage-unknown-folder = vibefork: pasta desconhecida `{ $kind }` (projects,
 cli-storage-stop-agent-first = vibefork: pare o agente primeiro (ele está escutando na porta { $port })
 cli-storage-moved =
     { $kind } movido ({ $size }, { $files ->
+        [0] { $files } arquivos
         [one] { $files } arquivo
        *[other] { $files } arquivos
     }) para { $path }
