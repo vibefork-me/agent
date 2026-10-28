@@ -2,7 +2,7 @@
 
 **Layer 2 (adapters)**
 
-Everything OS-specific: native dialogs, secret store (Keychain / Credential Manager / Secret Service), `vibefork://` registration, autostart, paths and disk info.
+Everything OS-specific: the core's dialogs (the agent's own window `vibefork-tray dialog`, system dialogs as the fallback), secret store (Keychain / Credential Manager / Secret Service), `vibefork://` registration, autostart, paths and disk info.
 
 ## Invariants
 

@@ -130,6 +130,31 @@ tray-open-log = Open the log
 notify-done = Done: { $project }
 notify-needs-you = The agent needs your decision
 notify-build-failed = The build failed
+tray-agent-status = Agent status…
+
+## Agent windows
+
+status-window-title = Vibefork — agent status
+window-close = Close
+first-run-title = Welcome to Vibefork
+first-run-intro = The agent works on this computer: it prepares the tools a project needs, runs your AI model and builds the result.
+first-run-folder = Folder for tools
+first-run-folder-hint = Toolchains of your projects go here. Pick a disk with room to spare.
+# $free: free room on the folder's disk, in GB (one decimal).
+first-run-space-free = { $free } GB free on this disk
+# $needed: what every tool not installed yet takes, in GB (one decimal); $free as above.
+first-run-space = Up to { $needed } GB for all tools · { $free } GB free
+first-run-tools = Tools the agent installs when a project needs them
+first-run-tool-installed = installed
+# $size: a size in MB (a whole number) or GB (one decimal).
+size-mb = { $size } MB
+size-gb = { $size } GB
+first-run-connect-ai = Connect an AI model
+first-run-connect-ai-hint = Your subscription (Claude Code, Codex) or an API key — in the editor.
+first-run-start = Continue
+first-run-later = Later
+# $error: why the folder could not be used, in plain words.
+first-run-folder-failed = The tools folder stays where it was: { $error }
 
 ## Command line
 

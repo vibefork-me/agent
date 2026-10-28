@@ -125,6 +125,27 @@ tray-open-log = Открыть журнал
 notify-done = Готово: { $project }
 notify-needs-you = Агенту нужно твоё решение
 notify-build-failed = Сборка не прошла
+tray-agent-status = Состояние агента…
+
+## Agent windows
+
+status-window-title = Vibefork — состояние агента
+window-close = Закрыть
+first-run-title = Добро пожаловать в Vibefork
+first-run-intro = Агент работает на этом компьютере: готовит инструменты, нужные проекту, запускает твою ИИ-модель и собирает результат.
+first-run-folder = Папка для инструментов
+first-run-folder-hint = Сюда ставятся инструменты сборки твоих проектов. Выбери диск, где хватает места.
+first-run-space-free = Свободно на этом диске: { $free } ГБ
+first-run-space = До { $needed } ГБ на все инструменты · свободно { $free } ГБ
+first-run-tools = Инструменты, которые агент ставит, когда они нужны проекту
+first-run-tool-installed = установлен
+size-mb = { $size } МБ
+size-gb = { $size } ГБ
+first-run-connect-ai = Подключить ИИ-модель
+first-run-connect-ai-hint = Подписка (Claude Code, Codex) или API-ключ — в редакторе.
+first-run-start = Продолжить
+first-run-later = Позже
+first-run-folder-failed = Папка инструментов осталась на месте: { $error }
 
 ## Command line
 

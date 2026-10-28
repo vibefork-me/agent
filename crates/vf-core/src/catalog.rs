@@ -514,6 +514,122 @@ pub fn tray_open_log(lang: Language) -> String {
     text(lang, "tray-open-log")
 }
 
+/// Tray menu: open the agent status window.
+pub fn tray_agent_status(lang: Language) -> String {
+    text(lang, "tray-agent-status")
+}
+
+/// Status window: title.
+pub fn status_window_title(lang: Language) -> String {
+    text(lang, "status-window-title")
+}
+
+/// Agent windows: the close button.
+pub fn window_close(lang: Language) -> String {
+    text(lang, "window-close")
+}
+
+/// First-run window: title.
+pub fn first_run_title(lang: Language) -> String {
+    text(lang, "first-run-title")
+}
+
+/// First-run window: what the agent does.
+pub fn first_run_intro(lang: Language) -> String {
+    text(lang, "first-run-intro")
+}
+
+/// First-run window: the tools folder field.
+pub fn first_run_folder(lang: Language) -> String {
+    text(lang, "first-run-folder")
+}
+
+/// First-run window: the note under the tools folder field.
+pub fn first_run_folder_hint(lang: Language) -> String {
+    text(lang, "first-run-folder-hint")
+}
+
+/// First-run window: room on the tools folder's disk, and what the tools take when estimated.
+pub fn first_run_space(lang: Language, needed_bytes: Option<u64>, free_bytes: u64) -> String {
+    let free = gigabytes(lang, free_bytes);
+    match needed_bytes {
+        Some(n) => message(
+            lang,
+            "first-run-space",
+            &[("needed", gigabytes(lang, n).into()), ("free", free.into())],
+        ),
+        None => message(lang, "first-run-space-free", &[("free", free.into())]),
+    }
+}
+
+/// First-run window: connect an AI model (in the editor).
+pub fn first_run_connect_ai(lang: Language) -> String {
+    text(lang, "first-run-connect-ai")
+}
+
+/// First-run window: the note under the AI button.
+pub fn first_run_connect_ai_hint(lang: Language) -> String {
+    text(lang, "first-run-connect-ai-hint")
+}
+
+/// First-run window: continue.
+pub fn first_run_start(lang: Language) -> String {
+    text(lang, "first-run-start")
+}
+
+/// First-run window: later.
+pub fn first_run_later(lang: Language) -> String {
+    text(lang, "first-run-later")
+}
+
+/// First-run window: heading of the list of tools and their sizes.
+pub fn first_run_tools(lang: Language) -> String {
+    text(lang, "first-run-tools")
+}
+
+/// First-run window: the size of one tool in the list — "installed" when it is, otherwise its disk
+/// space in MB / GB, with "≈" when the sizes were measured on another kind of machine.
+pub fn first_run_tool_size(lang: Language, installed: bool, bytes: u64, measured: bool) -> String {
+    if installed {
+        return text(lang, "first-run-tool-installed");
+    }
+    let size = size(lang, bytes);
+    if measured {
+        size
+    } else {
+        format!("≈ {size}")
+    }
+}
+
+/// Bytes in MB (a whole number) below 1 GB, in GB with one decimal from 1 GB on.
+pub fn size(lang: Language, bytes: u64) -> String {
+    if bytes < GIB {
+        let mb = bytes.saturating_add(MIB / 2) / MIB;
+        message(lang, "size-mb", &[("size", mb.to_string().into())])
+    } else {
+        message(lang, "size-gb", &[("size", gigabytes(lang, bytes).into())])
+    }
+}
+
+/// Bytes in a mebibyte.
+const MIB: u64 = 1_048_576;
+/// Bytes in a gibibyte.
+const GIB: u64 = 1_073_741_824;
+
+/// Notification: the chosen tools folder could not be used.
+pub fn first_run_folder_failed(lang: Language, error: &str) -> String {
+    message(lang, "first-run-folder-failed", &[("error", error.into())])
+}
+
+/// Bytes as gigabytes with one decimal, with the language's decimal separator.
+fn gigabytes(lang: Language, bytes: u64) -> String {
+    let s = format!("{:.1}", bytes as f64 / GIB as f64);
+    match lang {
+        Language::En => s,
+        _ => s.replace('.', ","),
+    }
+}
+
 /// Notification title: a task finished.
 pub fn notify_done(lang: Language, project: &str) -> String {
     message(lang, "notify-done", &[("project", project.into())])
@@ -720,7 +836,7 @@ mod tests {
         let values = [
             "origin", "name", "code", "project", "action", "target", "provider", "prompt",
             "endpoint", "update", "version", "port", "pid", "login", "kind", "size", "path",
-            "title", "stage", "line", "minutes",
+            "title", "stage", "line", "minutes", "needed", "free", "error",
         ];
         let mut args = FluentArgs::new();
         for v in values {
@@ -739,6 +855,26 @@ mod tests {
                 assert!(!out.trim().is_empty(), "{}: {id} is empty", lang.as_str());
             }
         }
+    }
+
+    #[test]
+    fn room_is_told_in_gigabytes_with_the_languages_separator() {
+        let gb = 1_073_741_824;
+        assert_eq!(
+            first_run_space(Language::En, Some(gb * 5 / 2), 120 * gb),
+            "Up to 2.5 GB for all tools · 120.0 GB free"
+        );
+        assert_eq!(size(Language::En, 107_345_970), "102 MB");
+        assert_eq!(size(Language::Ru, 1_407_250_000), "1,3 ГБ");
+        assert_eq!(
+            first_run_tool_size(Language::En, false, 11_784_219, false),
+            "≈ 11 MB"
+        );
+        assert_eq!(
+            first_run_tool_size(Language::En, true, 0, true),
+            "installed"
+        );
+        assert!(first_run_space(Language::Ru, None, gb / 2).contains("0,5"));
     }
 
     #[test]

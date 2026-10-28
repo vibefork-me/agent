@@ -14,6 +14,7 @@ vf-github = 2
 vf-auth = 2
 vf-updater = 2
 vf-platform = 2
+vf-ui = 2
 vf-server = 3
 vf-cli = 3
 vf-engine = 3

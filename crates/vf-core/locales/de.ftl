@@ -105,27 +105,48 @@ tray-status-running-update = Vibefork { $version }: läuft auf Port { $port } ·
 tray-status-stopped = Vibefork: gestoppt
 tray-status-stopped-update = Vibefork: gestoppt · Update { $update } verfügbar
 
-tray-stage-download = Herunterladen
-tray-stage-parts = Teile ansehen
-tray-stage-links = Teile verbinden
-tray-stage-tools = Werkzeuge vorbereiten
-tray-stage-summary = Zusammenfassen
-tray-stage-understand = Aufgabe verstehen
-tray-stage-plan = Planen
-tray-stage-change = Ändern
-tray-stage-check = Prüfen
-tray-stage-done = Abschließen
+tray-stage-download = wird heruntergeladen
+tray-stage-parts = Teile werden angesehen
+tray-stage-links = Teile werden verknüpft
+tray-stage-tools = Werkzeuge werden vorbereitet
+tray-stage-summary = wird zusammengefasst
+tray-stage-understand = Aufgabe wird verstanden
+tray-stage-plan = wird geplant
+tray-stage-change = wird geändert
+tray-stage-check = wird geprüft
+tray-stage-done = wird abgeschlossen
 tray-activity = „{ $project }“
 tray-activity-stage = „{ $project }“ — { $stage }
 tray-activity-eta = { $line }, noch ≈ { $minutes } Min.
 tray-waiting = wartet
-tray-needs-you = „{ $project }“ — deine Entscheidung ist gefragt
+tray-needs-you = „{ $project }“ — deine Entscheidung wird gebraucht
 tray-failed = „{ $project }“ — der Build ist fehlgeschlagen
 tray-recent-projects = Letzte Projekte
 tray-open-log = Protokoll öffnen
 notify-done = Fertig: { $project }
 notify-needs-you = Der Agent braucht deine Entscheidung
 notify-build-failed = Der Build ist fehlgeschlagen
+tray-agent-status = Agent-Status…
+
+## Agent windows
+
+status-window-title = Vibefork — Agent-Status
+window-close = Schließen
+first-run-title = Willkommen bei Vibefork
+first-run-intro = Der Agent arbeitet auf diesem Computer: Er bereitet die Werkzeuge vor, die ein Projekt braucht, führt dein KI-Modell aus und baut das Ergebnis.
+first-run-folder = Ordner für Werkzeuge
+first-run-folder-hint = Hier landen die Werkzeuge deiner Projekte. Wähle ein Laufwerk mit genug Platz.
+first-run-space-free = { $free } GB frei auf diesem Laufwerk
+first-run-space = Bis zu { $needed } GB für alle Werkzeuge · { $free } GB frei
+first-run-tools = Werkzeuge, die der Agent installiert, wenn ein Projekt sie braucht
+first-run-tool-installed = installiert
+size-mb = { $size } MB
+size-gb = { $size } GB
+first-run-connect-ai = KI-Modell verbinden
+first-run-connect-ai-hint = Dein Abo (Claude Code, Codex) oder ein API-Schlüssel — im Editor.
+first-run-start = Weiter
+first-run-later = Später
+first-run-folder-failed = Der Werkzeugordner bleibt, wo er war: { $error }
 
 ## Command line
 

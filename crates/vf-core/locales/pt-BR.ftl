@@ -106,9 +106,9 @@ tray-status-stopped = Vibefork: parado
 tray-status-stopped-update = Vibefork: parado · atualização { $update } disponível
 
 tray-stage-download = baixando
-tray-stage-parts = analisando as partes
+tray-stage-parts = olhando as partes
 tray-stage-links = ligando as partes
-tray-stage-tools = preparando as ferramentas
+tray-stage-tools = preparando ferramentas
 tray-stage-summary = resumindo
 tray-stage-understand = entendendo a tarefa
 tray-stage-plan = planejando
@@ -119,13 +119,34 @@ tray-activity = “{ $project }”
 tray-activity-stage = “{ $project }” — { $stage }
 tray-activity-eta = { $line }, faltam ≈ { $minutes } min
 tray-waiting = aguardando
-tray-needs-you = “{ $project }” — precisamos da sua decisão
+tray-needs-you = “{ $project }” — sua decisão é necessária
 tray-failed = “{ $project }” — a compilação falhou
 tray-recent-projects = Projetos recentes
-tray-open-log = Abrir o registro
+tray-open-log = Abrir o log
 notify-done = Pronto: { $project }
 notify-needs-you = O agente precisa da sua decisão
 notify-build-failed = A compilação falhou
+tray-agent-status = Status do agente…
+
+## Agent windows
+
+status-window-title = Vibefork — status do agente
+window-close = Fechar
+first-run-title = Boas-vindas ao Vibefork
+first-run-intro = O agente trabalha neste computador: prepara as ferramentas de que um projeto precisa, executa o seu modelo de IA e compila o resultado.
+first-run-folder = Pasta das ferramentas
+first-run-folder-hint = As ferramentas dos seus projetos ficam aqui. Escolha um disco com espaço de sobra.
+first-run-space-free = { $free } GB livres neste disco
+first-run-space = Até { $needed } GB para todas as ferramentas · { $free } GB livres
+first-run-tools = Ferramentas que o agente instala quando um projeto precisa delas
+first-run-tool-installed = instalada
+size-mb = { $size } MB
+size-gb = { $size } GB
+first-run-connect-ai = Conectar um modelo de IA
+first-run-connect-ai-hint = Sua assinatura (Claude Code, Codex) ou uma chave de API — no editor.
+first-run-start = Continuar
+first-run-later = Depois
+first-run-folder-failed = A pasta das ferramentas continua onde estava: { $error }
 
 ## Command line
 

@@ -282,4 +282,29 @@ fn english_and_russian_strings_are_unchanged() {
         "moved tools (1.5 MB, 42 files) to D:/vibefork/tools",
         "папка tools (1.5 MB, файлов: 42) перемещена в D:/vibefork/tools"
     );
+    same!(
+        |l| first_run_title(l),
+        "Welcome to Vibefork",
+        "Добро пожаловать в Vibefork"
+    );
+    same!(
+        |l| first_run_space(l, Some(3 * 1_073_741_824), 64 * 1_073_741_824),
+        "Up to 3.0 GB for all tools · 64.0 GB free",
+        "До 3,0 ГБ на все инструменты · свободно 64,0 ГБ"
+    );
+    same!(
+        |l| first_run_tools(l),
+        "Tools the agent installs when a project needs them",
+        "Инструменты, которые агент ставит, когда они нужны проекту"
+    );
+    same!(
+        |l| first_run_tool_size(l, false, 343_823_876, true),
+        "328 MB",
+        "328 МБ"
+    );
+    same!(
+        |l| first_run_tool_size(l, true, 0, true),
+        "installed",
+        "установлен"
+    );
 }
