@@ -1,13 +1,16 @@
 //! Project tasks, run as `cargo xtask <task>`:
 //! - `ci` — every check a PR must pass: format, clippy, tests, layers, dependency sources;
 //! - `version` — prints the agent version (`[workspace.package] version`, the only place it lives);
-//! - `version set X.Y.Z[-pre]` — sets it.
+//! - `version set X.Y.Z[-pre]` — sets it;
+//! - `measure-tools [tool …]` — installs each tool of the catalog (or the ones named) with the
+//!   pinned `mise` into a clean folder under `target/measure-tools` and prints what it downloads
+//!   and takes on disk, and whether the install progress had bytes and an unpacking stage.
 #![allow(clippy::print_stdout, clippy::print_stderr)] // a command-line tool reports to the terminal
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
-const USAGE: &str = "usage: cargo xtask ci | cargo xtask version [set X.Y.Z[-pre]]";
+const USAGE: &str = "usage: cargo xtask ci | cargo xtask version [set X.Y.Z[-pre]] | cargo xtask measure-tools [tool …]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -16,6 +19,7 @@ fn main() -> ExitCode {
         ["ci"] => ci(),
         ["version"] => read_version().map(|v| println!("{v}")),
         ["version", "set", v] => set_version(v),
+        ["measure-tools", tools @ ..] => measure_tools(tools),
         _ => Err(USAGE.to_owned()),
     };
     match result {
@@ -59,6 +63,26 @@ fn ci() -> Result<(), String> {
     run("sources", python(), &["scripts/check_sources.py"])?;
     println!("xtask ci: all checks passed");
     Ok(())
+}
+
+/// Runs the `measure` example of `vf-toolchains` into `<target>/measure-tools`.
+fn measure_tools(tools: &[&str]) -> Result<(), String> {
+    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
+    let target =
+        std::env::var_os("CARGO_TARGET_DIR").map_or_else(|| root().join("target"), PathBuf::from);
+    let out = target.join("measure-tools").display().to_string();
+    let mut args = vec![
+        "run",
+        "--release",
+        "-p",
+        "vf-toolchains",
+        "--example",
+        "measure",
+        "--",
+        &out,
+    ];
+    args.extend_from_slice(tools);
+    run("measure-tools", &cargo, &args)
 }
 
 fn run(name: &str, program: &str, args: &[&str]) -> Result<(), String> {

@@ -163,7 +163,21 @@ pub fn prepare(
             .map(|(k, v)| (k.to_owned(), v.display().to_string())),
     );
 
-    let needs = detect(dir);
+    let installed = install(tools, detect(dir), cancel, progress);
+    out.paths = installed.paths;
+    out.env.extend(installed.env);
+    out
+}
+
+/// Installs `needs` into `tools` (`mise` first, when missing), reporting each tool's stage, bytes
+/// and time left; returns their `PATH` entries and `JAVA_HOME`. Nothing to install — nothing done.
+pub fn install(
+    tools: &Path,
+    needs: Vec<Need>,
+    cancel: &Cancel,
+    progress: &mut dyn FnMut(Progress),
+) -> Prepared {
+    let mut out = Prepared::default();
     if needs.is_empty() {
         return out;
     }

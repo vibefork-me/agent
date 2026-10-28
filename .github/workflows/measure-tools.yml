@@ -1,0 +1,58 @@
+name: measure-tools
+
+# What each tool the agent installs downloads and takes on disk, per OS: a real install with the
+# pinned mise into a clean folder (`vf-toolchains` example `measure`), plus a check that the install
+# progress has downloaded bytes and an unpacking stage. The table is in the job summary and the
+# `measure-tools-<os>` artifact. On PRs that change vf-toolchains, monthly, and manual runs.
+
+on:
+  pull_request:
+    paths:
+      - crates/vf-toolchains/**
+      - .github/workflows/measure-tools.yml
+  workflow_dispatch:
+  schedule:
+    - cron: "0 4 1 * *"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  measure:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Toolchain (pinned in rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Build cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: measure-tools
+          add-rust-environment-hash-key: false
+      - name: Measure
+        shell: bash
+        run: |
+          mkdir -p out
+          status=0
+          cargo run --release -p vf-toolchains --example measure -- "$RUNNER_TEMP/measure-tools" \
+            > out/table.md 2> out/progress.log || status=$?
+          cat out/table.md >> "$GITHUB_STEP_SUMMARY"
+          cat out/table.md
+          exit $status
+      - name: Progress log
+        if: always()
+        shell: bash
+        run: cat out/progress.log || true
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        if: always()
+        with:
+          name: measure-tools-${{ matrix.os }}
+          path: out/

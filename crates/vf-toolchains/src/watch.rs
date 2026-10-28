@@ -1,10 +1,16 @@
 //! Progress of one `mise install` read from the tools folder, not from `mise`'s output (without a
 //! terminal `mise` prints no progress, and its wording is not an interface).
 //!
-//! `mise` downloads a tool into `mise-data/downloads/<tool>/` and unpacks it into a new folder of
-//! `mise-data/installs/<tool>/`; rustup (Rust) downloads into `rustup/downloads/`. So:
-//! - bytes added to the download folders since the install started — downloading, `done` bytes;
-//! - a new entry in the tool's install folder — unpacking.
+//! `mise` downloads a tool into `mise-data/downloads/<tool>/<version>/` (as `.<file>.mise-part`,
+//! renamed when complete) and unpacks it into a new folder of `mise-data/installs/<tool>/` (a
+//! `.tmp…` folder, then the version folder); Java is unpacked next to its archive first
+//! (`downloads/java/<version>/jdk-…/`). Before downloading, `mise` already writes
+//! `.mise.backend.toml` into the install folder. rustup (Rust) downloads its components into
+//! `rustup/downloads/` and unpacks each as it arrives. So:
+//! - bytes of the downloaded files (not of folders unpacked next to them) added since the install
+//!   started — downloading, `done` bytes;
+//! - a file in a new folder of the tool's install folder, or in a new folder next to a downloaded
+//!   archive — unpacking (a new file or an empty folder there is not).
 //!
 //! The expected download size comes from [`crate::estimates`]; the time left goes by the average
 //! speed so far ([`vf_core::progress`]). Nothing is reported for a stage that is not seen.
@@ -18,7 +24,7 @@ use crate::detect::Need;
 
 /// Least time between two download reports, ms.
 const REPORT_EVERY_MS: u64 = 1000;
-/// Deepest folder level summed in a download folder.
+/// Deepest folder level searched for an unpacked file.
 const MAX_DEPTH: usize = 4;
 
 /// Where an install is, as seen in the tools folder.
@@ -33,10 +39,14 @@ enum Seen {
 #[derive(Debug)]
 pub(crate) struct InstallWatch {
     spec: String,
-    downloads: Vec<PathBuf>,
+    /// Download folders with the deepest level of their downloaded files.
+    downloads: Vec<(PathBuf, usize)>,
+    /// `mise`'s download folder of the tool.
+    mise_downloads: PathBuf,
     installs: PathBuf,
     base_bytes: u64,
     base_entries: HashSet<OsString>,
+    base_unpacked: HashSet<PathBuf>,
     expected: u64,
     seen: Seen,
     last_done: u64,
@@ -48,16 +58,20 @@ impl InstallWatch {
     /// bytes, `0` when not known.
     pub(crate) fn new(tools: &Path, need: &Need, expected: u64) -> Self {
         let data = tools.join("mise-data");
-        let mut downloads = vec![data.join("downloads").join(&need.name)];
+        let mise_downloads = data.join("downloads").join(&need.name);
+        // `<tool>/<version>/<file>`; rustup keeps its files in the folder itself.
+        let mut downloads = vec![(mise_downloads.clone(), 1)];
         if need.name == "rust" {
-            downloads.push(tools.join("rustup").join("downloads"));
+            downloads.push((tools.join("rustup").join("downloads"), 0));
         }
         let installs = data.join("installs").join(&need.name);
         Self {
             spec: need.spec.clone(),
-            base_bytes: downloads.iter().map(|d| folder_bytes(d, 0)).sum(),
+            base_bytes: downloaded(&downloads),
             base_entries: entries(&installs),
+            base_unpacked: unpacked_next_to_archives(&mise_downloads),
             downloads,
+            mise_downloads,
             installs,
             expected,
             seen: Seen::Nothing,
@@ -71,16 +85,22 @@ impl InstallWatch {
         if self.seen == Seen::Extracting {
             return None;
         }
-        if entries(&self.installs)
+        let installing = entries(&self.installs)
             .iter()
-            .any(|e| !self.base_entries.contains(e))
+            .filter(|e| !self.base_entries.contains(*e))
+            .any(|e| has_file(&self.installs.join(e), 0));
+        if installing
+            || unpacked_next_to_archives(&self.mise_downloads)
+                .iter()
+                .filter(|d| !self.base_unpacked.contains(*d))
+                .any(|d| has_file(d, 0))
         {
             self.seen = Seen::Extracting;
             return Some(Progress::Extracting {
                 tool: self.spec.clone(),
             });
         }
-        let now: u64 = self.downloads.iter().map(|d| folder_bytes(d, 0)).sum();
+        let now = downloaded(&self.downloads);
         let done = now.saturating_sub(self.base_bytes);
         let due = self
             .last_report_ms
@@ -108,8 +128,30 @@ fn entries(dir: &Path) -> HashSet<OsString> {
         .unwrap_or_default()
 }
 
-/// Bytes of the files in a folder, `MAX_DEPTH` levels deep; links are not followed.
-fn folder_bytes(dir: &Path, depth: usize) -> u64 {
+/// Whether `dir` is a folder with a file in it, `MAX_DEPTH` levels deep; links are not followed.
+fn has_file(dir: &Path, depth: usize) -> bool {
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    rd.flatten()
+        .any(|entry| match entry.path().symlink_metadata() {
+            Ok(meta) if meta.is_file() => true,
+            Ok(meta) if meta.is_dir() && depth < MAX_DEPTH => has_file(&entry.path(), depth + 1),
+            _ => false,
+        })
+}
+
+/// Bytes of the downloaded files in `downloads`.
+fn downloaded(downloads: &[(PathBuf, usize)]) -> u64 {
+    downloads
+        .iter()
+        .map(|(dir, deepest)| folder_bytes(dir, 0, *deepest))
+        .fold(0, u64::saturating_add)
+}
+
+/// Bytes of the files in a folder down to level `deepest` (`0` — the folder's own files); links
+/// are not followed.
+fn folder_bytes(dir: &Path, depth: usize, deepest: usize) -> u64 {
     let Ok(rd) = std::fs::read_dir(dir) else {
         return 0;
     };
@@ -120,11 +162,29 @@ fn folder_bytes(dir: &Path, depth: usize) -> u64 {
         };
         if meta.is_file() {
             sum = sum.saturating_add(meta.len());
-        } else if meta.is_dir() && depth < MAX_DEPTH {
-            sum = sum.saturating_add(folder_bytes(&entry.path(), depth + 1));
+        } else if meta.is_dir() && depth < deepest {
+            sum = sum.saturating_add(folder_bytes(&entry.path(), depth + 1, deepest));
         }
     }
     sum
+}
+
+/// Folders next to the archives of `mise`'s download folder of a tool (`<version>/<folder>`).
+fn unpacked_next_to_archives(dir: &Path) -> HashSet<PathBuf> {
+    let subfolders = |d: &Path| -> Vec<PathBuf> {
+        std::fs::read_dir(d)
+            .map(|rd| {
+                rd.flatten()
+                    .map(|e| e.path())
+                    .filter(|p| p.symlink_metadata().is_ok_and(|m| m.is_dir()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    subfolders(dir)
+        .iter()
+        .flat_map(|version| subfolders(version))
+        .collect()
 }
 
 #[cfg(test)]
@@ -157,8 +217,12 @@ mod tests {
 
         let mut watch = InstallWatch::new(&tools, &need("node", "node@lts"), 4000);
         assert_eq!(watch.sample(100), None);
+        // What `mise` writes before it downloads is not unpacking.
+        std::fs::write(installs.join(".mise.backend.toml"), "short = \"node\"").unwrap();
+        std::fs::create_dir_all(installs.join("24.0.0")).unwrap();
+        assert_eq!(watch.sample(500), None);
 
-        std::fs::write(downloads.join("node.zip.part"), vec![0u8; 1000]).unwrap();
+        std::fs::write(downloads.join(".node.zip.mise-part"), vec![0u8; 1000]).unwrap();
         assert_eq!(
             watch.sample(2000),
             Some(Progress::Downloading {
@@ -170,10 +234,10 @@ mod tests {
             })
         );
         // Grown, but reported less than a second ago.
-        std::fs::write(downloads.join("node.zip.part"), vec![0u8; 2000]).unwrap();
+        std::fs::write(downloads.join(".node.zip.mise-part"), vec![0u8; 2000]).unwrap();
         assert_eq!(watch.sample(2500), None);
         // Larger than expected: the total follows.
-        std::fs::write(downloads.join("node.zip.part"), vec![0u8; 5000]).unwrap();
+        std::fs::write(downloads.join(".node.zip.mise-part"), vec![0u8; 5000]).unwrap();
         assert_eq!(
             watch.sample(3000),
             Some(Progress::Downloading {
@@ -184,7 +248,10 @@ mod tests {
             })
         );
 
-        std::fs::create_dir_all(installs.join("24.0.0")).unwrap();
+        // Unpacking into a temporary folder.
+        let unpacked = installs.join(".tmpAbC123").join("node-v24.0.0");
+        std::fs::create_dir_all(&unpacked).unwrap();
+        std::fs::write(unpacked.join("node.exe"), "").unwrap();
         assert_eq!(
             watch.sample(4000),
             Some(Progress::Extracting {
@@ -192,6 +259,34 @@ mod tests {
             })
         );
         assert_eq!(watch.sample(5000), None);
+        let _ = std::fs::remove_dir_all(&tools);
+    }
+
+    #[test]
+    fn an_archive_unpacked_next_to_itself_is_unpacking_not_download() {
+        let tools = tools("java");
+        let version = tools.join("mise-data/downloads/java/temurin-21.0.0");
+        let mut watch = InstallWatch::new(&tools, &need("java", "java@temurin-21"), 3000);
+        std::fs::create_dir_all(&version).unwrap();
+        std::fs::write(version.join("jdk.tar.gz"), vec![0u8; 3000]).unwrap();
+        assert_eq!(
+            watch.sample(1000),
+            Some(Progress::Downloading {
+                tool: "java@temurin-21".into(),
+                done: 3000,
+                total: Some(3000),
+                eta: Some(0),
+            })
+        );
+        let jdk = version.join("jdk-21.0.0").join("bin");
+        std::fs::create_dir_all(&jdk).unwrap();
+        std::fs::write(jdk.join("java"), vec![0u8; 9000]).unwrap();
+        assert_eq!(
+            watch.sample(3000),
+            Some(Progress::Extracting {
+                tool: "java@temurin-21".into()
+            })
+        );
         let _ = std::fs::remove_dir_all(&tools);
     }
 

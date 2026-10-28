@@ -1,18 +1,16 @@
 //! What the tools of a project take on disk and download, before anything is installed.
 //!
-//! Sizes are measured on Windows x64 with the pinned `mise` ([`crate::mise::VERSION`]) into an
-//! agent tools folder; elsewhere they serve as estimates ([`ToolEstimate::measured`] is `false`).
+//! Sizes are measured by a real install with the pinned `mise` ([`crate::mise::VERSION`]) of each
+//! spec of [`catalog`] into an empty tools folder: `cargo xtask measure-tools` (the `measure`
+//! example of this crate; the `measure-tools` workflow runs it on Linux, macOS and Windows).
+//! - Installed: what the tools folder grows by, without `mise` itself, the downloads and temp
+//!   files (for Rust: rustup's toolchain with its default components and the cargo home).
+//! - Downloaded: the files `mise` (and, for Rust, rustup) downloads.
 //!
-//! - Installed: `du -sb <tools>/mise-data/installs/<tool>` after `mise install <spec>`:
-//!   `node@lts` (24.22.1) 107 345 970, `python@3.12` (3.12.15) 63 228 563, `go@1.23` (1.23.12)
-//!   243 869 155, `java@temurin-21` (21.0.12+101) 343 823 876, `gradle@8` (8.14.6) 154 630 180,
-//!   `maven@3` (3.10.0) 11 784 219 bytes. `rust@stable` is approximate (≈ 1.3 GiB of rustup's
-//!   toolchain with its default components and the cargo home) — see [`RUST`].
-//! - Downloaded: `Content-Length` of the files `mise` fetches for those versions:
-//!   `node-v24.22.1-win-x64.zip` 37 748 064, `cpython-3.12.15+…-x86_64-pc-windows-msvc-install_only_stripped.tar.gz`
-//!   21 990 627, `go1.23.12.windows-amd64.zip` 81 978 626, Temurin JDK 21.0.12+1 x64 Windows zip
-//!   205 073 461, `gradle-8.14.6-bin.zip` 139 420 601, `apache-maven-3.10.0-bin.zip` 10 102 082
-//!   bytes. Rust's download (rustup's components) is not measured: `0`, unknown.
+//! Measured on 2026-10-28 with `mise` 2026.10.3 (versions: Java Temurin 21.0.12 on Windows and
+//! 21.0.13 elsewhere, Gradle 8.14.6, Maven 3.10.0, Node 24.22.1, Python 3.12.16, Go 1.27.3, Rust
+//! 1.99.1). Windows x64, Linux x64 and macOS arm64 are measured; another CPU of
+//! the same OS takes those sizes as estimates ([`ToolEstimate::measured`] is `false`).
 
 use std::path::Path;
 
@@ -25,38 +23,93 @@ use crate::detect::{Need, detect};
 pub struct Size {
     /// Disk space once installed.
     pub installed: u64,
-    /// What is downloaded; `0` when not known.
+    /// What is downloaded.
     pub download: u64,
 }
 
-/// Rust (`rust@stable`): rustup's stable toolchain with its default components and the cargo home;
-/// an approximate size, not an exact measurement like the other tools.
-pub const RUST: Size = Size {
-    installed: 1_407_250_000,
-    download: 0,
-};
+/// A kind of machine sizes were measured on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Platform {
+    /// Windows, x86-64.
+    WindowsX64,
+    /// Linux, x86-64.
+    LinuxX64,
+    /// macOS, Apple silicon.
+    MacosArm64,
+}
 
-/// Sizes of a tool by its name (`java`, `node`, …); `None` for a tool without a measurement.
-pub fn size(name: &str) -> Option<Size> {
-    let (installed, download) = match name {
-        "node" => (107_345_970, 37_748_064),
-        "python" => (63_228_563, 21_990_627),
-        "go" => (243_869_155, 81_978_626),
-        "java" => (343_823_876, 205_073_461),
-        "gradle" => (154_630_180, 139_420_601),
-        "maven" => (11_784_219, 10_102_082),
-        "rust" => return Some(RUST),
-        _ => return None,
+/// Measured sizes: tool, installed bytes, downloaded bytes.
+type Table = [(&'static str, u64, u64); 7];
+
+/// `cargo xtask measure-tools` on Windows 11 x64.
+const WINDOWS_X64: Table = [
+    ("java", 344_346_496, 205_073_461),
+    ("gradle", 154_702_400, 139_420_601),
+    ("maven", 11_790_756, 9_980_013),
+    ("node", 107_637_207, 37_751_580),
+    ("python", 63_354_589, 22_014_416),
+    ("go", 247_167_630, 79_010_309),
+    ("rust", 1_420_125_724, 141_317_500),
+];
+
+/// `cargo xtask measure-tools` on Linux x64 (glibc).
+const LINUX_X64: Table = [
+    ("java", 362_606_125, 207_858_352),
+    ("gradle", 154_700_890, 139_420_601),
+    ("maven", 11_786_535, 9_980_013),
+    ("node", 202_041_386, 58_293_990),
+    ("python", 116_334_446, 34_505_639),
+    ("go", 244_143_779, 70_588_678),
+    ("rust", 1_404_079_583, 158_629_980),
+];
+
+/// The `measure-tools` workflow on `macos-latest` (Apple silicon).
+const MACOS_ARM64: Table = [
+    ("java", 350_900_662, 199_754_598),
+    ("gradle", 154_700_890, 139_420_601),
+    ("maven", 11_786_535, 9_980_013),
+    ("node", 197_706_894, 53_066_317),
+    ("python", 83_131_077, 25_035_343),
+    ("go", 240_009_243, 68_196_737),
+    ("rust", 1_236_928_298, 119_034_004),
+];
+
+/// The sizes measured on `platform` for a tool by its name (`java`, `node`, …); `None` for a tool
+/// without a measurement.
+pub fn size_on(platform: Platform, name: &str) -> Option<Size> {
+    let table = match platform {
+        Platform::WindowsX64 => &WINDOWS_X64,
+        Platform::LinuxX64 => &LINUX_X64,
+        Platform::MacosArm64 => &MACOS_ARM64,
     };
-    Some(Size {
-        installed,
-        download,
-    })
+    table
+        .iter()
+        .find(|(tool, ..)| *tool == name)
+        .map(|&(_, installed, download)| Size {
+            installed,
+            download,
+        })
+}
+
+/// The measured platform closest to this machine (its OS), and whether it is this very kind of
+/// machine.
+pub fn this_platform() -> (Platform, bool) {
+    use std::env::consts::{ARCH, OS};
+    match (OS, ARCH) {
+        ("windows", arch) => (Platform::WindowsX64, arch == "x86_64"),
+        ("macos", arch) => (Platform::MacosArm64, arch == "aarch64"),
+        (_, arch) => (Platform::LinuxX64, OS == "linux" && arch == "x86_64"),
+    }
+}
+
+/// Sizes of a tool by its name on this machine ([`this_platform`]).
+pub fn size(name: &str) -> Option<Size> {
+    size_on(this_platform().0, name)
 }
 
 /// Whether the sizes of [`size`] were measured on this kind of machine.
 pub fn measured_here() -> bool {
-    cfg!(all(windows, target_arch = "x86_64"))
+    this_platform().1
 }
 
 /// Every tool the agent can install, with the spec it installs when a project does not say.
@@ -170,8 +223,9 @@ mod tests {
         let specs: Vec<&str> = env.tools.iter().map(|t| t.spec.as_str()).collect();
         assert_eq!(specs, ["java@temurin-21", "maven@3"]);
         assert!(env.tools.iter().all(|t| !t.installed));
-        assert_eq!(env.total_bytes, 343_823_876 + 11_784_219);
-        assert_eq!(env.total_download_bytes, 205_073_461 + 10_102_082);
+        let (java, maven) = (size("java").unwrap(), size("maven").unwrap());
+        assert_eq!(env.total_bytes, java.installed + maven.installed);
+        assert_eq!(env.total_download_bytes, java.download + maven.download);
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -193,9 +247,29 @@ mod tests {
             (python.spec.as_str(), python.installed),
             ("python@3.12", false)
         );
-        assert_eq!(env.total_bytes, 63_228_563);
-        assert_eq!(env.total_download_bytes, 21_990_627);
+        let python_size = size("python").unwrap();
+        assert_eq!(env.total_bytes, python_size.installed);
+        assert_eq!(env.total_download_bytes, python_size.download);
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn every_platform_has_a_size_for_every_tool_of_the_catalog() {
+        for platform in [
+            Platform::WindowsX64,
+            Platform::LinuxX64,
+            Platform::MacosArm64,
+        ] {
+            for need in catalog() {
+                let s = size_on(platform, &need.name).unwrap();
+                assert!(
+                    s.download > 0 && s.installed > 0,
+                    "{platform:?} {}",
+                    need.name
+                );
+            }
+        }
+        assert_eq!(size("deno"), None);
     }
 
     #[test]
