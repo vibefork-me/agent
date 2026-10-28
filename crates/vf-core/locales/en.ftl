@@ -108,6 +108,29 @@ tray-status-running-update = Vibefork { $version }: running on port { $port } ·
 tray-status-stopped = Vibefork: stopped
 tray-status-stopped-update = Vibefork: stopped · update { $update } available
 
+tray-stage-download = downloading
+tray-stage-parts = looking at the parts
+tray-stage-links = linking the parts
+tray-stage-tools = preparing tools
+tray-stage-summary = summing up
+tray-stage-understand = understanding the task
+tray-stage-plan = planning
+tray-stage-change = changing
+tray-stage-check = checking
+tray-stage-done = finishing
+tray-activity = “{ $project }”
+tray-activity-stage = “{ $project }” — { $stage }
+# $line is tray-activity or tray-activity-stage; $minutes is rounded up.
+tray-activity-eta = { $line }, ≈ { $minutes } min left
+tray-waiting = waiting
+tray-needs-you = “{ $project }” — your decision is needed
+tray-failed = “{ $project }” — the build failed
+tray-recent-projects = Recent projects
+tray-open-log = Open the log
+notify-done = Done: { $project }
+notify-needs-you = The agent needs your decision
+notify-build-failed = The build failed
+
 ## Command line
 
 cli-status-running = running · version { $version } · port { $port } · pid { $pid }

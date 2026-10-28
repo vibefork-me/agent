@@ -1,6 +1,6 @@
 [package]
 name = "vf-tray"
-description = "The tray binary: open the interface, start / stop the agent; talks to the core through the local API."
+description = "The tray binary: icon by the agent's state, menu, notifications; talks to the core through the local API and the `vibefork` binary."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -13,11 +13,22 @@ name = "vibefork-tray"
 path = "src/main.rs"
 
 [dependencies]
-tray-icon = "0.26"
-tao = "0.37"
 serde_json.workspace = true
 vf-core.workspace = true
 vf-platform.workspace = true
+vf-protocol.workspace = true
+# Desktop notifications: WinRT toasts on Windows, NSUserNotification on macOS, D-Bus
+# `org.freedesktop.Notifications` through zbus (pure Rust, no libdbus) on Linux.
+notify-rust = "4.18"
+
+# Windows / macOS: the native tray (Shell_NotifyIcon / NSStatusItem) and its event loop.
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+tray-icon = "0.26"
+tao = "0.37"
+
+# Linux: StatusNotifierItem over D-Bus in pure Rust (zbus) — no GTK, no libappindicator, no libdbus.
+[target.'cfg(target_os = "linux")'.dependencies]
+ksni = { version = "0.3", default-features = false, features = ["async-io", "blocking"] }
 
 [lints]
 workspace = true

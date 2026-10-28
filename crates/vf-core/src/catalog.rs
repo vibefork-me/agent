@@ -443,6 +443,92 @@ pub fn tray_status_stopped(lang: Language, update: Option<&str>) -> String {
     }
 }
 
+/// Stage ids the tray names (`vf_protocol::canvas::Stage` in `snake_case`).
+const TRAY_STAGES: [&str; 10] = [
+    "download",
+    "parts",
+    "links",
+    "tools",
+    "summary",
+    "understand",
+    "plan",
+    "change",
+    "check",
+    "done",
+];
+
+/// Tray: name of a stage of the analysis or of a task, by its protocol id (`download` … `done`);
+/// an unknown id gives an empty string.
+pub fn tray_stage(lang: Language, id: &str) -> String {
+    if TRAY_STAGES.contains(&id) {
+        text(lang, &format!("tray-stage-{id}"))
+    } else {
+        String::new()
+    }
+}
+
+/// Tray: what the agent does in a project — «“notes-app” — checking, ≈ 1 min left». An empty
+/// `stage` is left out; minutes are rounded up.
+pub fn tray_activity(lang: Language, project: &str, stage: &str, eta_secs: Option<u64>) -> String {
+    let line = if stage.is_empty() {
+        message(lang, "tray-activity", &[("project", project.into())])
+    } else {
+        let args = [("project", project.into()), ("stage", stage.into())];
+        message(lang, "tray-activity-stage", &args)
+    };
+    match eta_secs {
+        Some(secs) => {
+            let minutes = secs.div_ceil(60).max(1).to_string();
+            let args = [
+                ("line", line.as_str().into()),
+                ("minutes", minutes.as_str().into()),
+            ];
+            message(lang, "tray-activity-eta", &args)
+        }
+        None => line,
+    }
+}
+
+/// Tray: tooltip and status line when nothing runs.
+pub fn tray_waiting(lang: Language) -> String {
+    text(lang, "tray-waiting")
+}
+
+/// Tray: status line when a project waits for the person's choice.
+pub fn tray_needs_you(lang: Language, project: &str) -> String {
+    message(lang, "tray-needs-you", &[("project", project.into())])
+}
+
+/// Tray: status line when the last build of a project failed.
+pub fn tray_failed(lang: Language, project: &str) -> String {
+    message(lang, "tray-failed", &[("project", project.into())])
+}
+
+/// Tray menu: submenu of recent projects.
+pub fn tray_recent_projects(lang: Language) -> String {
+    text(lang, "tray-recent-projects")
+}
+
+/// Tray menu: open the agent's log.
+pub fn tray_open_log(lang: Language) -> String {
+    text(lang, "tray-open-log")
+}
+
+/// Notification title: a task finished.
+pub fn notify_done(lang: Language, project: &str) -> String {
+    message(lang, "notify-done", &[("project", project.into())])
+}
+
+/// Notification title: the agent waits for the person.
+pub fn notify_needs_you(lang: Language) -> String {
+    text(lang, "notify-needs-you")
+}
+
+/// Notification title: a build failed.
+pub fn notify_build_failed(lang: Language) -> String {
+    text(lang, "notify-build-failed")
+}
+
 /// CLI status: running.
 pub fn cli_status_running(lang: Language, version: &str, port: u16, pid: &str) -> String {
     let port = port.to_string();
@@ -634,7 +720,7 @@ mod tests {
         let values = [
             "origin", "name", "code", "project", "action", "target", "provider", "prompt",
             "endpoint", "update", "version", "port", "pid", "login", "kind", "size", "path",
-            "title",
+            "title", "stage", "line", "minutes",
         ];
         let mut args = FluentArgs::new();
         for v in values {
@@ -787,6 +873,15 @@ mod tests {
             assert!(!tray_status_running(lang, "1.0", 8080, Some("1.1")).is_empty());
             assert!(!tray_status_stopped(lang, None).is_empty());
             assert!(!tray_status_stopped(lang, Some("1.1")).is_empty());
+            assert!(!tray_stage(lang, "check").is_empty());
+            assert!(!tray_waiting(lang).is_empty());
+            assert!(!tray_needs_you(lang, "notes-app").is_empty());
+            assert!(!tray_failed(lang, "notes-app").is_empty());
+            assert!(!tray_recent_projects(lang).is_empty());
+            assert!(!tray_open_log(lang).is_empty());
+            assert!(!notify_done(lang, "notes-app").is_empty());
+            assert!(!notify_needs_you(lang).is_empty());
+            assert!(!notify_build_failed(lang).is_empty());
             assert!(!cli_status_running(lang, "1.0", 8080, "123").is_empty());
             assert!(!cli_status_not_running(lang, 8080).is_empty());
             assert!(!cli_status_auto_update(lang, true).is_empty());
@@ -938,5 +1033,27 @@ mod tests {
         assert_eq!(lang_code("en;rm"), None);
         assert_eq!(lang_code("de`evil"), None);
         assert_eq!(lang_code("ru\nevil"), None);
+    }
+
+    #[test]
+    fn tray_activity_line() {
+        assert_eq!(
+            tray_activity(
+                Language::Ru,
+                "notes-app",
+                &tray_stage(Language::Ru, "check"),
+                Some(50)
+            ),
+            "«notes-app» — проверка, ещё ≈ 1 мин"
+        );
+        assert_eq!(
+            tray_activity(Language::En, "notes-app", "", Some(121)),
+            "“notes-app”, ≈ 3 min left"
+        );
+        assert_eq!(
+            tray_activity(Language::En, "notes-app", "planning", None),
+            "“notes-app” — planning"
+        );
+        assert_eq!(tray_stage(Language::En, "unknown"), "");
     }
 }

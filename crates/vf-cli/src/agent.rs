@@ -182,7 +182,8 @@ pub(crate) fn status(json: bool) -> ExitCode {
     }
 }
 
-pub(crate) fn open(local: bool) -> ExitCode {
+/// Opens the interface; with a valid project name, on that project (`?project=<name>`).
+pub(crate) fn open(local: bool, project: Option<&str>) -> ExitCode {
     let s = Settings::from_env();
     if !ensure_started(&s) {
         eprintln!(
@@ -191,11 +192,19 @@ pub(crate) fn open(local: bool) -> ExitCode {
         );
         return ExitCode::FAILURE;
     }
-    let url = if local {
+    let mut url = if local {
         format!("http://127.0.0.1:{}/ui/", s.port)
     } else {
         HOSTED_UI_ORIGIN.to_owned()
     };
+    // A project name is a plain folder name (`[A-Za-z0-9._-]`), safe in a query as it is.
+    if let Some(name) = project.filter(|n| vf_platform::projects::valid_name(n)) {
+        if !url.ends_with('/') {
+            url.push('/');
+        }
+        url.push_str("?project=");
+        url.push_str(name);
+    }
     match agent_process::open_url(&url) {
         Ok(()) => {
             println!("{url}");
@@ -226,7 +235,7 @@ pub(crate) fn handle(url: &str) -> ExitCode {
             ExitCode::FAILURE
         };
     }
-    open(action == "open/local")
+    open(action == "open/local", None)
 }
 
 pub(crate) fn logs(lines: usize) -> ExitCode {

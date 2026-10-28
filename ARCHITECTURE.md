@@ -53,7 +53,7 @@ layer 0  domain        vf-core  vf-protocol           (no IO: no network, no dis
 | `vf-cli` | The `vibefork` command (plain / JSON / interactive modes) | |
 | `vf-engine` | Implements `Backend`: projects, journal, models, tasks on top of the adapters | |
 | `vf-agent` | Binary: wiring only, no logic | |
-| `vf-tray` | Tray binary: state from `GET /v1/hello`, open / start / stop through the `vibefork` binary | |
+| `vf-tray` | Tray binary: icon, menu and notifications by the agent's state (`GET /v1/hello`, the projects' session streams); acts through the `vibefork` binary. Linux — StatusNotifierItem over zbus (`ksni`), no GTK; Windows / macOS — `tray-icon` | |
 | `vf-sign` | `vibefork-sign`: offline signing of UI bundles and releases (not shipped) | |
 
 🔒 = **security boundary**: small, extra human review required, attack tests, fuzzing of parsers.

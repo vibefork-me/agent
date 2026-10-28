@@ -6,6 +6,7 @@
 //! | Binaries | `%LOCALAPPDATA%\Programs\vibefork` | `~/Applications/Vibefork.app/Contents/MacOS` | `~/.local/bin` |
 //! | `vibefork://` | `HKCU\Software\Classes\vibefork` | `CFBundleURLTypes` in `Info.plist` | `~/.local/share/applications/vibefork.desktop` + `xdg-mime` |
 //! | Autostart (off by default: the agent starts on demand from a `vibefork://start` link) | `HKCU\…\Run` value `vibefork` | `~/Library/LaunchAgents/me.vibefork.agent.plist` | `~/.config/autostart/vibefork.desktop` |
+//! | Notifications (AppUserModelID [`APP_USER_MODEL_ID`]) | `HKCU\Software\Classes\AppUserModelId\me.vibefork.agent` | bundle id of the app | — (D-Bus) |
 //! | `PATH` | user `Path` variable | — (`~/Applications/…` link not needed for the app) | `~/.local/bin` is on `PATH` by default |
 
 use std::path::{Path, PathBuf};
@@ -13,6 +14,10 @@ use std::process::Command;
 
 /// Binaries that make up an installation.
 pub const BINARIES: &[&str] = &["vibefork", "vibefork-tray"];
+
+/// The app's identity for notifications: the Windows AppUserModelID of the tray's toasts (and the
+/// macOS bundle id).
+pub const APP_USER_MODEL_ID: &str = "me.vibefork.agent";
 
 /// Folder the binaries are installed into.
 pub fn install_dir() -> PathBuf {
@@ -77,6 +82,8 @@ pub fn install(from: &Path, autostart: bool) -> Report {
     #[cfg(target_os = "macos")]
     r.step("app bundle", macos::write_bundle(&dir));
     r.step("vibefork:// handler", register_protocol(&exe));
+    #[cfg(windows)]
+    r.step("notifications", register_app_user_model_id());
     if autostart {
         r.step("start at login", set_autostart(&dir));
     }
@@ -90,6 +97,11 @@ pub fn uninstall() -> Report {
     let mut r = Report::default();
     r.step("vibefork:// handler", unregister_protocol());
     r.step("start at login", remove_autostart());
+    #[cfg(windows)]
+    r.step(
+        "notifications",
+        windows::reg(&["delete", windows::APP_ID_KEY, "/f"]).or_else(windows::missing_is_ok),
+    );
     let dir = install_dir();
     #[cfg(windows)]
     r.step("PATH", windows::remove_from_path(&dir));
@@ -169,6 +181,25 @@ pub fn unregister_protocol() -> Result<(), String> {
     return remove_file_ok(&linux::desktop_file());
     #[allow(unreachable_code)]
     Ok(())
+}
+
+/// Registers [`APP_USER_MODEL_ID`] under `HKCU\Software\Classes\AppUserModelId` with the
+/// display name "Vibefork": Windows shows toasts of an unpackaged app only for a registered id.
+/// Does nothing when the name is already there.
+#[cfg(windows)]
+pub fn register_app_user_model_id() -> Result<(), String> {
+    if windows::query(windows::APP_ID_KEY, Some("DisplayName")).as_deref() == Some("Vibefork") {
+        return Ok(());
+    }
+    windows::reg(&[
+        "add",
+        windows::APP_ID_KEY,
+        "/v",
+        "DisplayName",
+        "/d",
+        "Vibefork",
+        "/f",
+    ])
 }
 
 /// Starts the tray (or the agent) at login.
@@ -289,6 +320,7 @@ mod windows {
     pub(super) const PROTOCOL_COMMAND_KEY: &str =
         r"HKCU\Software\Classes\vibefork\shell\open\command";
     pub(super) const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+    pub(super) const APP_ID_KEY: &str = r"HKCU\Software\Classes\AppUserModelId\me.vibefork.agent";
 
     pub(super) fn reg(args: &[&str]) -> Result<(), String> {
         run(Command::new("reg").args(args)).map(|_| ())
