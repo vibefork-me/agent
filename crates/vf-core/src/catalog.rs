@@ -30,6 +30,12 @@ pub enum Language {
 const EN_FTL: &str = include_str!("../locales/en.ftl");
 /// Russian strings.
 const RU_FTL: &str = include_str!("../locales/ru.ftl");
+/// Brazilian Portuguese strings.
+const PT_BR_FTL: &str = include_str!("../locales/pt-BR.ftl");
+/// Spanish strings.
+const ES_FTL: &str = include_str!("../locales/es.ftl");
+/// German strings.
+const DE_FTL: &str = include_str!("../locales/de.ftl");
 
 impl Language {
     /// Every language the agent knows, English first.
@@ -72,7 +78,9 @@ impl Language {
         match self {
             Self::En => Some(EN_FTL),
             Self::Ru => Some(RU_FTL),
-            Self::PtBr | Self::Es | Self::De => None,
+            Self::PtBr => Some(PT_BR_FTL),
+            Self::Es => Some(ES_FTL),
+            Self::De => Some(DE_FTL),
         }
     }
 }
@@ -717,17 +725,27 @@ pub fn lang_code(lang: &str) -> Option<&str> {
     }
 }
 
-/// Language instruction for model responses.
+/// The English name of an interface language for a model (`pt-BR` → "Portuguese (Brazil)"); `None`
+/// for any other code. A model follows a named language more reliably than a code.
+pub fn lang_name(lang: &str) -> Option<&'static str> {
+    let code = lang_code(lang)?.to_ascii_lowercase();
+    Some(match code.as_str() {
+        "ru" | "russian" => "Russian",
+        "en" | "english" => "English",
+        "pt" | "pt-br" | "portuguese" => "Portuguese (Brazil)",
+        "es" | "spanish" => "Spanish",
+        "de" | "german" => "German",
+        _ => return None,
+    })
+}
+
+/// Language instruction for model responses: an interface language by its name, any other valid
+/// code as it is, English for an invalid one.
 pub fn lang_rule(lang: &str) -> String {
-    match lang_code(lang) {
-        Some(code) if code.eq_ignore_ascii_case("ru") || code.eq_ignore_ascii_case("russian") => {
-            "Answer in Russian.".to_string()
-        }
-        Some(code) if code.eq_ignore_ascii_case("en") || code.eq_ignore_ascii_case("english") => {
-            "Answer in English.".to_string()
-        }
-        Some(code) => format!("Answer in language `{code}`."),
-        None => "Answer in English.".to_string(),
+    match (lang_name(lang), lang_code(lang)) {
+        (Some(name), _) => format!("Answer in {name}."),
+        (None, Some(code)) => format!("Answer in language `{code}`."),
+        (None, None) => "Answer in English.".to_string(),
     }
 }
 
@@ -844,16 +862,20 @@ mod tests {
     }
 
     #[test]
-    fn a_language_without_its_own_strings_is_shown_in_english() {
-        for lang in [Language::PtBr, Language::Es, Language::De] {
-            assert_eq!(btn_cancel(lang), btn_cancel(Language::En));
-            assert_eq!(
-                pair_text(lang, "site", "chrome", "123456"),
-                pair_text(Language::En, "site", "chrome", "123456")
-            );
+    fn every_language_has_its_own_strings() {
+        for lang in Language::ALL {
+            assert!(lang.ftl().is_some(), "{}", lang.as_str());
+            assert!(has_message(lang, "btn-cancel"), "{}", lang.as_str());
         }
-        assert!(!has_message(Language::De, "btn-cancel"));
-        assert!(has_message(Language::Ru, "btn-cancel"));
+        assert_eq!(btn_cancel(Language::De), "Abbrechen");
+        assert_eq!(btn_cancel(Language::Es), "Cancelar");
+        assert_eq!(btn_allow(Language::PtBr), "Permitir");
+    }
+
+    #[test]
+    fn a_message_missing_in_a_language_is_shown_in_english() {
+        assert!(!has_message(Language::De, "no-such-message"));
+        assert_eq!(message(Language::De, "btn-ok", &[]), "OK");
     }
 
     #[test]
@@ -874,6 +896,18 @@ mod tests {
             cli_storage_moved(Language::En, "tools", "1 KB", 2, "/p"),
             "moved tools (1 KB, 2 files) to /p"
         );
+        assert_eq!(
+            cli_storage_moved(Language::De, "tools", "1 KB", 1, "/p"),
+            "tools verschoben (1 KB, 1 Datei) nach /p"
+        );
+        assert_eq!(
+            cli_storage_moved(Language::PtBr, "tools", "1 KB", 1, "/p"),
+            "tools movido (1 KB, 1 arquivo) para /p"
+        );
+        assert_eq!(
+            cli_storage_moved(Language::Es, "tools", "1 KB", 2, "/p"),
+            "tools movido (1 KB, 2 archivos) a /p"
+        );
     }
 
     #[test]
@@ -886,12 +920,16 @@ mod tests {
             thought_step(Language::En, 2, 5, "Tests"),
             "Step 2 of 5: Tests"
         );
-        assert_eq!(thought_task(Language::Es), "Working on the task");
+        assert_eq!(thought_task(Language::Es), "Trabajando en la tarea");
+        assert_eq!(
+            thought_step(Language::De, 2, 5, "Tests"),
+            "Schritt 2 von 5: Tests"
+        );
     }
 
     #[test]
-    fn every_catalog_entry_exists_in_both_languages() {
-        for lang in [Language::En, Language::Ru] {
+    fn every_catalog_entry_exists_in_every_language() {
+        for lang in Language::ALL {
             assert!(!pair_title(lang).is_empty());
             assert!(!pair_text(lang, "site", "chrome", "1234").is_empty());
             assert!(!project_access_title(lang).is_empty());
@@ -1030,8 +1068,19 @@ mod tests {
         assert!(en.contains("The user is not a programmer"));
         assert!(en.contains("Answer in English."));
 
-        let custom = system_instruction("de");
-        assert!(custom.contains("Answer in language `de`."));
+        let named = [
+            ("pt-BR", "Portuguese (Brazil)"),
+            ("pt", "Portuguese (Brazil)"),
+            ("es", "Spanish"),
+            ("de", "German"),
+            ("DE", "German"),
+        ];
+        for (code, name) in named {
+            assert!(system_instruction(code).contains(&format!("Answer in {name}.")));
+        }
+
+        let custom = system_instruction("fr");
+        assert!(custom.contains("Answer in language `fr`."));
 
         let empty = system_instruction("");
         assert!(empty.contains("Answer in English."));

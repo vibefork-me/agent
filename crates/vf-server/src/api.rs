@@ -212,6 +212,22 @@ pub const ROUTES: &[Route] = &[
         session: true,
     },
     Route {
+        method: "GET",
+        path: "/v1/projects/import/progress",
+        summary: "Progress of an import started by this session (?repo=owner/name): state, bytes, speed, seconds left; `idle` when there is none",
+        request: None,
+        response: Some("ImportProgressResponse"),
+        session: true,
+    },
+    Route {
+        method: "GET",
+        path: "/v1/environment",
+        summary: "Tools a project needs (?project=, access to the project) and the disk space and download each takes, nothing installed; without a project — every tool the agent can install",
+        request: None,
+        response: Some("EnvironmentResponse"),
+        session: true,
+    },
+    Route {
         method: "POST",
         path: "/v1/save",
         summary: "Save the project to the user's copy on GitHub, or the next step; the first save is confirmed in the native dialog",

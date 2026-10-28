@@ -3056,10 +3056,35 @@
         {
           "description": "Toolchain preparation.",
           "properties": {
-            "error": {
-              "description": "Error, when failed.",
+            "code": {
+              "description": "Machine-readable error code, when failed: `unsupported_platform` (no `mise` build for this OS), `download_failed` (of `mise`), `install_failed`, `timed_out`, `cancelled`.",
               "type": [
                 "string",
+                "null"
+              ]
+            },
+            "done": {
+              "description": "When downloading: bytes downloaded so far (measured on disk).",
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "error": {
+              "description": "Error, when failed, in plain English; an editor words it itself by `code`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "eta": {
+              "description": "When downloading: seconds left at the average speed so far.",
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
                 "null"
               ]
             },
@@ -3084,6 +3109,15 @@
             "tool": {
               "description": "Tool, e.g. `java@temurin-21`.",
               "type": "string"
+            },
+            "total": {
+              "description": "When downloading: the expected download size in bytes (the agent's estimate for the tool, raised to `done` when the download is larger).",
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
             },
             "type": {
               "enum": [
@@ -3724,9 +3758,23 @@
       "description": "Toolchain preparation progress.",
       "oneOf": [
         {
-          "description": "Installing.",
+          "description": "Installing (started; what it is doing is not known yet).",
           "enum": [
             "installing"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Downloading the tool; `done` / `total` in bytes when known.",
+          "enum": [
+            "downloading"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Unpacking and setting the tool up.",
+          "enum": [
+            "extracting"
           ],
           "type": "string"
         },

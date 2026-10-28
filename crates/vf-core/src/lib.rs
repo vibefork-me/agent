@@ -7,7 +7,8 @@
 //! - [`secret`] — [`Secret`]: a wrapper whose `Debug` never prints the value (invariant 6);
 //! - [`ports`] — traits implemented by adapters ([`ConfirmDialog`]);
 //! - [`sandbox`] — what a sandboxed process may touch, and the launcher prefix;
-//! - [`limits`] — upper bounds for data from the network ([`LimitedBody`]).
+//! - [`limits`] — upper bounds for data from the network ([`LimitedBody`]);
+//! - [`progress`] — speed and time left of a download or an install.
 
 pub mod catalog;
 pub mod endpoint;
@@ -15,6 +16,7 @@ pub mod ids;
 pub mod limits;
 pub mod path;
 pub mod ports;
+pub mod progress;
 pub mod prompts;
 pub mod sandbox;
 pub mod secret;

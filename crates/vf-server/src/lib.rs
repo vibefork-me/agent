@@ -122,6 +122,8 @@ pub fn router(config: Config, auth: Auth, ui: UiSlot, backend: Arc<dyn Backend>)
         .route("/v1/github/connect", post(routes::github_connect))
         .route("/v1/github/status", get(routes::github_status))
         .route("/v1/projects/import", post(routes::import))
+        .route("/v1/projects/import/progress", get(routes::import_progress))
+        .route("/v1/environment", get(routes::environment))
         .route("/v1/save", post(routes::save))
         .route("/v1/ws", get(ws::upgrade))
         .layer(axum::middleware::from_fn_with_state(

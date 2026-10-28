@@ -13,6 +13,10 @@ use crate::download::download;
 pub const VERSION: &str = "2026.10.3";
 /// How long one tool install may take.
 const INSTALL_TIMEOUT: Duration = Duration::from_secs(1800);
+/// The error of a `mise` run stopped by its time limit.
+pub const TIMED_OUT: &str = "timed out";
+/// The error of a `mise` run stopped by the user.
+pub const CANCELLED: &str = "cancelled";
 
 /// Release asset and its SHA-256 for this OS and CPU.
 fn asset() -> Option<(&'static str, &'static str)> {
@@ -44,6 +48,11 @@ fn asset() -> Option<(&'static str, &'static str)> {
         ),
         _ => return None,
     })
+}
+
+/// Whether there is a pinned `mise` build for this OS and CPU.
+pub fn is_supported() -> bool {
+    asset().is_some()
 }
 
 /// `RUSTUP_HOME` and `CARGO_HOME` in `tools`: toolchains, the `cargo` / `rustc` proxies and the
@@ -117,8 +126,22 @@ impl Mise {
 
     /// Installs a tool (no-op when installed) and returns its folder.
     pub fn install(&self, spec: &str, cancel: &Cancel) -> Result<PathBuf, String> {
-        let (code, stdout, stderr) =
-            run(self.command(&["install", spec]), cancel, INSTALL_TIMEOUT)?;
+        self.install_with(spec, cancel, &mut || {})
+    }
+
+    /// [`Mise::install`] that calls `tick` about every 200 ms while `mise` runs.
+    pub fn install_with(
+        &self,
+        spec: &str,
+        cancel: &Cancel,
+        tick: &mut dyn FnMut(),
+    ) -> Result<PathBuf, String> {
+        let (code, stdout, stderr) = run(
+            self.command(&["install", spec]),
+            cancel,
+            INSTALL_TIMEOUT,
+            tick,
+        )?;
         if code != 0 {
             let output = stdout + &stderr;
             let tail: String = output
@@ -140,6 +163,7 @@ impl Mise {
             self.command(&["where", spec]),
             cancel,
             Duration::from_secs(60),
+            &mut || {},
         )?;
         let path = stdout
             .lines()
@@ -169,11 +193,12 @@ fn plain_command(bin: &Path) -> Command {
     Command::new(bin)
 }
 
-/// Runs to the end; returns the exit code, stdout and stderr.
+/// Runs to the end, calling `tick` between checks; returns the exit code, stdout and stderr.
 fn run(
     mut cmd: Command,
     cancel: &Cancel,
     timeout: Duration,
+    tick: &mut dyn FnMut(),
 ) -> Result<(i32, String, String), String> {
     use std::io::Read;
     fn reader(pipe: Option<impl Read + Send + 'static>) -> std::thread::JoinHandle<String> {
@@ -204,11 +229,12 @@ fn run(
             let _ = child.kill();
             let _ = child.wait();
             return Err(if cancel.is_cancelled() {
-                "cancelled".into()
+                CANCELLED.into()
             } else {
-                "timed out".into()
+                TIMED_OUT.into()
             });
         }
+        tick();
     }
 }
 

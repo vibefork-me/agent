@@ -798,13 +798,67 @@ pub(crate) async fn github_status(
     with_backend(state, &headers, &origin.0, |b| b.github_status()).await
 }
 
+/// The browser session an import belongs to: its progress is shown to that session only (the
+/// project does not exist yet, so there is no project access to check).
+fn import_owner(session: &SessionInfo) -> String {
+    format!("{} {}", session.key_id, session.origin)
+}
+
 pub(crate) async fn import(
     State(state): State<AppState>,
     Extension(origin): Extension<EffectiveOrigin>,
     headers: HeaderMap,
     Json(req): Json<ImportRequest>,
 ) -> Response {
-    with_backend(state, &headers, &origin.0, move |b| b.import(&req)).await
+    let Some(session) = session_from(&state, &headers, &origin.0) else {
+        return no_session();
+    };
+    let owner = import_owner(&session);
+    with_backend(state, &headers, &origin.0, move |b| {
+        b.import_for(&req, &owner)
+    })
+    .await
+}
+
+/// Progress of the import of `?repo=` started by the same session.
+pub(crate) async fn import_progress(
+    State(state): State<AppState>,
+    Extension(origin): Extension<EffectiveOrigin>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    let Some(session) = session_from(&state, &headers, &origin.0) else {
+        return no_session();
+    };
+    let owner = import_owner(&session);
+    let repo = q.get("repo").cloned().unwrap_or_default();
+    with_backend(state, &headers, &origin.0, move |b| {
+        b.import_progress(&owner, &repo)
+    })
+    .await
+}
+
+/// The tools a project needs (`?project=`, the browser needs access to it) and their sizes;
+/// without a project — every tool the agent can install.
+pub(crate) async fn environment(
+    State(state): State<AppState>,
+    Extension(origin): Extension<EffectiveOrigin>,
+    headers: HeaderMap,
+    Query(q): Query<HashMap<String, String>>,
+) -> Response {
+    if session_from(&state, &headers, &origin.0).is_none() {
+        return no_session();
+    }
+    let project = q.get("project").cloned();
+    if let Some(project) = &project
+        && !project_allowed(&state, &headers, &origin.0, project).await
+    {
+        return error(StatusCode::FORBIDDEN, "no access to this project");
+    }
+    with_backend(state, &headers, &origin.0, move |b| {
+        b.environment(project.as_deref())
+    })
+    .await
 }
 
 /// Saves to the user's copy on GitHub. The first save of a project is confirmed in the native
