@@ -26,8 +26,13 @@ use vf_protocol::Cancel;
 use vf_toolchains::estimates::catalog;
 use vf_toolchains::{Mise, Need, Progress, install};
 
-/// Folders, relative to the tools folder, where installers download.
-const DOWNLOADS: [&str; 2] = ["mise-data/downloads", "rustup/downloads"];
+/// Folders, relative to the tools folder, where installers download, with the deepest level of the
+/// downloaded files: `mise` keeps `<tool>/<version>/<file>` (and unpacks Java next to it, deeper),
+/// rustup its files in the folder itself.
+const DOWNLOADS: [(&str, usize); 2] = [("mise-data/downloads", 2), ("rustup/downloads", 0)];
+
+/// Slack for the state files beside a download that the progress counts and the download does not.
+const STATE_FILES: u64 = 4096;
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -60,9 +65,9 @@ fn main() -> ExitCode {
     );
     println!();
     println!(
-        "| tool | spec | version | download, bytes | installed, bytes | byte reports | last done / total | unpacking | seconds |"
+        "| tool | spec | version | download, bytes | installed, bytes | byte reports | last done / total | unpacking | seconds | progress |"
     );
-    println!("|---|---|---|---:|---:|---:|---|---|---:|");
+    println!("|---|---|---|---:|---:|---:|---|---|---:|---|");
     let mut ok = true;
     for need in needs {
         match measure(&out, &shared, &need, &cancel) {
@@ -73,7 +78,7 @@ fn main() -> ExitCode {
             Err(e) => {
                 ok = false;
                 println!(
-                    "| {} | {} | failed: {e} | | | | | | |",
+                    "| {} | {} | failed: {e} | | | | | | | FAILED |",
                     need.name, need.spec
                 );
             }
@@ -100,15 +105,18 @@ struct Measured {
 }
 
 impl Measured {
-    /// The progress had bytes while downloading and an unpacking stage.
+    /// The progress had bytes while downloading, never more than was downloaded (the small state
+    /// files `mise` keeps beside a download aside), and an unpacking stage.
     fn progress_ok(&self) -> bool {
-        self.byte_reports > 0 && self.extracting
+        self.byte_reports > 0
+            && self.last_done <= self.download.saturating_add(STATE_FILES)
+            && self.extracting
     }
 
     fn row(&self) -> String {
         let total = self.last_total.map_or("?".into(), |t| t.to_string());
         format!(
-            "| {} | {} | {} | {} | {} | {} | {} / {} | {} | {} |",
+            "| {} | {} | {} | {} | {} | {} | {} / {} | {} | {} | {} |",
             self.need.name,
             self.need.spec,
             self.version,
@@ -118,7 +126,8 @@ impl Measured {
             self.last_done,
             total,
             if self.extracting { "yes" } else { "no" },
-            self.seconds
+            self.seconds,
+            if self.progress_ok() { "ok" } else { "FAILED" }
         )
     }
 }
@@ -154,8 +163,8 @@ fn measure(out: &Path, shared: &Mise, need: &Need, cancel: &Cancel) -> Result<Me
         std::thread::spawn(move || {
             let mut seen: HashMap<PathBuf, u64> = HashMap::new();
             loop {
-                for d in DOWNLOADS {
-                    largest_files(&tools.join(d), &mut seen);
+                for (d, deepest) in DOWNLOADS {
+                    largest_files(&tools.join(d), deepest, &mut seen);
                 }
                 if stop.load(Ordering::Relaxed) {
                     return seen;
@@ -202,14 +211,18 @@ fn measure(out: &Path, shared: &Mise, need: &Need, cancel: &Cancel) -> Result<Me
         return Err("not installed".into());
     }
     m.version = versions(&tools.join("mise-data/installs").join(&need.name));
+    if m.version.is_empty() {
+        // Rust: `mise` links rustup's toolchain.
+        m.version = versions(&tools.join("rustup/toolchains"));
+    }
     // The tools folder without `mise` itself, the downloads it was told to keep and temp files.
     let leftover: u64 = ["bin", "mise-data/downloads", "tmp"]
         .iter()
         .map(|d| folder_bytes(&tools.join(d)))
         .sum();
     m.installed = folder_bytes(&tools).saturating_sub(leftover);
-    for d in DOWNLOADS {
-        for (path, bytes) in files(&tools.join(d)) {
+    for (d, deepest) in DOWNLOADS {
+        for (path, bytes) in files(&tools.join(d), deepest) {
             eprintln!("  download {bytes:>12}  {}", path.display());
         }
     }
@@ -233,8 +246,8 @@ fn versions(dir: &Path) -> String {
 /// Records each file under `dir` by the largest size it reached. A file being downloaded counts as
 /// the file it becomes: `mise` writes `.<name>.mise-part` (and its `.mise-part.json` state),
 /// rustup `<name>.partial`.
-fn largest_files(dir: &Path, seen: &mut HashMap<PathBuf, u64>) {
-    for (path, bytes) in files(dir) {
+fn largest_files(dir: &Path, deepest: usize, seen: &mut HashMap<PathBuf, u64>) {
+    for (path, bytes) in files(dir, deepest) {
         let name = path
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
@@ -255,11 +268,12 @@ fn largest_files(dir: &Path, seen: &mut HashMap<PathBuf, u64>) {
     }
 }
 
-/// Every file under `dir` with its size; links are not followed.
-fn files(dir: &Path) -> Vec<(PathBuf, u64)> {
+/// Every file under `dir` down to level `deepest` (`0` — its own files) with its size; links are
+/// not followed.
+fn files(dir: &Path, deepest: usize) -> Vec<(PathBuf, u64)> {
     let mut out = Vec::new();
-    let mut stack = vec![dir.to_path_buf()];
-    while let Some(d) = stack.pop() {
+    let mut stack = vec![(dir.to_path_buf(), 0)];
+    while let Some((d, depth)) = stack.pop() {
         let Ok(rd) = std::fs::read_dir(&d) else {
             continue;
         };
@@ -270,8 +284,8 @@ fn files(dir: &Path) -> Vec<(PathBuf, u64)> {
             };
             if meta.is_file() {
                 out.push((path, meta.len()));
-            } else if meta.is_dir() {
-                stack.push(path);
+            } else if meta.is_dir() && depth < deepest {
+                stack.push((path, depth + 1));
             }
         }
     }
@@ -280,5 +294,5 @@ fn files(dir: &Path) -> Vec<(PathBuf, u64)> {
 
 /// Bytes of every file under `dir`.
 fn folder_bytes(dir: &Path) -> u64 {
-    files(dir).iter().map(|(_, b)| b).sum()
+    files(dir, usize::MAX).iter().map(|(_, b)| b).sum()
 }
