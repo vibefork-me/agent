@@ -1,10 +1,13 @@
 //! Progress of one `mise install` read from the tools folder, not from `mise`'s output (without a
 //! terminal `mise` prints no progress, and its wording is not an interface).
 //!
-//! `mise` downloads a tool into `mise-data/downloads/<tool>/` and unpacks it into a new folder of
-//! `mise-data/installs/<tool>/`; rustup (Rust) downloads into `rustup/downloads/`. So:
+//! `mise` downloads a tool into `mise-data/downloads/<tool>/` (as `.<file>.mise-part`, renamed when
+//! complete) and unpacks it into a new folder of `mise-data/installs/<tool>/` (a `.tmp…` folder,
+//! then the version folder); rustup (Rust) downloads into `rustup/downloads/`. Before downloading,
+//! `mise` already writes `.mise.backend.toml` into the install folder. So:
 //! - bytes added to the download folders since the install started — downloading, `done` bytes;
-//! - a new entry in the tool's install folder — unpacking.
+//! - a file in a new folder of the tool's install folder — unpacking (a new file or an empty
+//!   folder there is not).
 //!
 //! The expected download size comes from [`crate::estimates`]; the time left goes by the average
 //! speed so far ([`vf_core::progress`]). Nothing is reported for a stage that is not seen.
@@ -73,7 +76,8 @@ impl InstallWatch {
         }
         if entries(&self.installs)
             .iter()
-            .any(|e| !self.base_entries.contains(e))
+            .filter(|e| !self.base_entries.contains(*e))
+            .any(|e| has_file(&self.installs.join(e), 0))
         {
             self.seen = Seen::Extracting;
             return Some(Progress::Extracting {
@@ -106,6 +110,19 @@ fn entries(dir: &Path) -> HashSet<OsString> {
     std::fs::read_dir(dir)
         .map(|rd| rd.flatten().map(|e| e.file_name()).collect())
         .unwrap_or_default()
+}
+
+/// Whether `dir` is a folder with a file in it, `MAX_DEPTH` levels deep; links are not followed.
+fn has_file(dir: &Path, depth: usize) -> bool {
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    rd.flatten()
+        .any(|entry| match entry.path().symlink_metadata() {
+            Ok(meta) if meta.is_file() => true,
+            Ok(meta) if meta.is_dir() && depth < MAX_DEPTH => has_file(&entry.path(), depth + 1),
+            _ => false,
+        })
 }
 
 /// Bytes of the files in a folder, `MAX_DEPTH` levels deep; links are not followed.
@@ -157,8 +174,12 @@ mod tests {
 
         let mut watch = InstallWatch::new(&tools, &need("node", "node@lts"), 4000);
         assert_eq!(watch.sample(100), None);
+        // What `mise` writes before it downloads is not unpacking.
+        std::fs::write(installs.join(".mise.backend.toml"), "short = \"node\"").unwrap();
+        std::fs::create_dir_all(installs.join("24.0.0")).unwrap();
+        assert_eq!(watch.sample(500), None);
 
-        std::fs::write(downloads.join("node.zip.part"), vec![0u8; 1000]).unwrap();
+        std::fs::write(downloads.join(".node.zip.mise-part"), vec![0u8; 1000]).unwrap();
         assert_eq!(
             watch.sample(2000),
             Some(Progress::Downloading {
@@ -170,10 +191,10 @@ mod tests {
             })
         );
         // Grown, but reported less than a second ago.
-        std::fs::write(downloads.join("node.zip.part"), vec![0u8; 2000]).unwrap();
+        std::fs::write(downloads.join(".node.zip.mise-part"), vec![0u8; 2000]).unwrap();
         assert_eq!(watch.sample(2500), None);
         // Larger than expected: the total follows.
-        std::fs::write(downloads.join("node.zip.part"), vec![0u8; 5000]).unwrap();
+        std::fs::write(downloads.join(".node.zip.mise-part"), vec![0u8; 5000]).unwrap();
         assert_eq!(
             watch.sample(3000),
             Some(Progress::Downloading {
@@ -184,7 +205,10 @@ mod tests {
             })
         );
 
-        std::fs::create_dir_all(installs.join("24.0.0")).unwrap();
+        // Unpacking into a temporary folder.
+        let unpacked = installs.join(".tmpAbC123").join("node-v24.0.0");
+        std::fs::create_dir_all(&unpacked).unwrap();
+        std::fs::write(unpacked.join("node.exe"), "").unwrap();
         assert_eq!(
             watch.sample(4000),
             Some(Progress::Extracting {
