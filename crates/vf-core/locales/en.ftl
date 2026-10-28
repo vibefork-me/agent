@@ -142,8 +142,13 @@ first-run-folder = Folder for tools
 first-run-folder-hint = Toolchains of your projects go here. Pick a disk with room to spare.
 # $free: free room on the folder's disk, in GB (one decimal).
 first-run-space-free = { $free } GB free on this disk
-# $needed: what the tools take, in GB (one decimal); $free as above.
-first-run-space = About { $needed } GB needed · { $free } GB free
+# $needed: what every tool not installed yet takes, in GB (one decimal); $free as above.
+first-run-space = Up to { $needed } GB for all tools · { $free } GB free
+first-run-tools = Tools the agent installs when a project needs them
+first-run-tool-installed = installed
+# $size: a size in MB (a whole number) or GB (one decimal).
+size-mb = { $size } MB
+size-gb = { $size } GB
 first-run-connect-ai = Connect an AI model
 first-run-connect-ai-hint = Your subscription (Claude Code, Codex) or an API key — in the editor.
 first-run-start = Continue

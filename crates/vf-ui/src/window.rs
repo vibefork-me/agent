@@ -65,7 +65,7 @@ impl Shell {
         let title = run.text.title.clone();
         let mut view = FirstRunView::new(run);
         let mut answer = None;
-        self.run(&title, egui::vec2(600.0, 460.0), false, |ui| {
+        self.run(&title, egui::vec2(600.0, 520.0), false, |ui| {
             if let Some(a) = view.ui(ui) {
                 answer = a;
                 ui.ctx().send_viewport_cmd(ViewportCommand::Close);

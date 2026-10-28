@@ -105,6 +105,49 @@ tray-status-running-update = Vibefork { $version }: en marcha en el puerto { $po
 tray-status-stopped = Vibefork: detenido
 tray-status-stopped-update = Vibefork: detenido · actualización { $update } disponible
 
+tray-stage-download = descargando
+tray-stage-parts = revisando las partes
+tray-stage-links = enlazando las partes
+tray-stage-tools = preparando herramientas
+tray-stage-summary = resumiendo
+tray-stage-understand = entendiendo la tarea
+tray-stage-plan = planificando
+tray-stage-change = haciendo cambios
+tray-stage-check = comprobando
+tray-stage-done = terminando
+tray-activity = «{ $project }»
+tray-activity-stage = «{ $project }» — { $stage }
+tray-activity-eta = { $line }, quedan ≈ { $minutes } min
+tray-waiting = esperando
+tray-needs-you = «{ $project }» — se necesita tu decisión
+tray-failed = «{ $project }» — la compilación falló
+tray-recent-projects = Proyectos recientes
+tray-open-log = Abrir el registro
+notify-done = Listo: { $project }
+notify-needs-you = El agente necesita tu decisión
+notify-build-failed = La compilación falló
+tray-agent-status = Estado del agente…
+
+## Agent windows
+
+status-window-title = Vibefork — estado del agente
+window-close = Cerrar
+first-run-title = Te damos la bienvenida a Vibefork
+first-run-intro = El agente trabaja en este ordenador: prepara las herramientas que necesita un proyecto, ejecuta tu modelo de IA y compila el resultado.
+first-run-folder = Carpeta de herramientas
+first-run-folder-hint = Aquí se instalan las herramientas de tus proyectos. Elige un disco con espacio de sobra.
+first-run-space-free = { $free } GB libres en este disco
+first-run-space = Hasta { $needed } GB para todas las herramientas · { $free } GB libres
+first-run-tools = Herramientas que el agente instala cuando un proyecto las necesita
+first-run-tool-installed = instalada
+size-mb = { $size } MB
+size-gb = { $size } GB
+first-run-connect-ai = Conectar un modelo de IA
+first-run-connect-ai-hint = Tu suscripción (Claude Code, Codex) o una clave de API, en el editor.
+first-run-start = Continuar
+first-run-later = Más tarde
+first-run-folder-failed = La carpeta de herramientas sigue donde estaba: { $error }
+
 ## Command line
 
 cli-status-running = en marcha · versión { $version } · puerto { $port } · pid { $pid }

@@ -107,8 +107,7 @@ fn first_run() -> i32 {
     let mut settings = vf_platform::Settings::from_env();
     let tools = settings.storage.tools.clone();
     let free = vf_builds::Machine::measure(&tools).disk_free;
-    // What the tools take is not estimated yet: only the free room is shown.
-    let space = catalog::first_run_space(lang, None, free);
+    let (space, tool_rows) = tools_room(lang, &tools, free);
     let run = FirstRun {
         text: FirstRunText {
             title: catalog::first_run_title(lang),
@@ -119,9 +118,11 @@ fn first_run() -> i32 {
             connect_ai_hint: catalog::first_run_connect_ai_hint(lang),
             start: catalog::first_run_start(lang),
             later: catalog::first_run_later(lang),
+            tools: catalog::first_run_tools(lang),
         },
         tools_dir: tools.display().to_string(),
         space: Some(space),
+        tools: tool_rows,
     };
     let answer = match shell().first_run(run) {
         Ok(a) => a,
@@ -150,6 +151,23 @@ fn first_run() -> i32 {
         App::new().act(&Action::Open);
     }
     0
+}
+
+/// The room line and the list of tools for the first-run window: every tool the agent can install
+/// with its size, as `GET /v1/environment` without a project reports it. Read here directly: the
+/// tray has no browser session, and the agent may not be running yet.
+fn tools_room(lang: vf_core::Language, tools: &Path, free: u64) -> (String, Vec<(String, String)>) {
+    let env = vf_toolchains::estimates::estimate(tools, vf_toolchains::estimates::catalog());
+    let needed = (env.total_bytes > 0).then_some(env.total_bytes);
+    let rows = env
+        .tools
+        .into_iter()
+        .map(|t| {
+            let size = catalog::first_run_tool_size(lang, t.installed, t.bytes, t.measured);
+            (t.name, size)
+        })
+        .collect();
+    (catalog::first_run_space(lang, needed, free), rows)
 }
 
 /// `status`: the agent's state, refreshed like the tray's, with the tray's actions as buttons.
@@ -253,6 +271,23 @@ fn page(lang: vf_core::Language, model: &Model) -> (StatusPage, Vec<Action>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn first_run_lists_every_tool_with_its_size() {
+        let empty = std::env::temp_dir().join(format!("vf-tray-first-run-{}", std::process::id()));
+        let (space, rows) = tools_room(vf_core::Language::En, &empty, 120 * 1_073_741_824);
+        assert!(space.starts_with("Up to "), "{space}");
+        assert!(space.ends_with("120.0 GB free"), "{space}");
+        let names: Vec<&str> = rows.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(
+            names,
+            ["java", "gradle", "maven", "node", "python", "go", "rust"]
+        );
+        assert!(
+            rows.iter()
+                .all(|(_, s)| s.ends_with(" MB") || s.ends_with(" GB"))
+        );
+    }
 
     #[test]
     fn status_page_from_the_tray_menu() {

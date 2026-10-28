@@ -6005,6 +6005,7 @@ dependencies = [
  "vf-core",
  "vf-platform",
  "vf-protocol",
+ "vf-toolchains",
  "vf-ui",
 ]
 

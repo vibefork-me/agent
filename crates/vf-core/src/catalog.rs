@@ -582,6 +582,40 @@ pub fn first_run_later(lang: Language) -> String {
     text(lang, "first-run-later")
 }
 
+/// First-run window: heading of the list of tools and their sizes.
+pub fn first_run_tools(lang: Language) -> String {
+    text(lang, "first-run-tools")
+}
+
+/// First-run window: the size of one tool in the list — "installed" when it is, otherwise its disk
+/// space in MB / GB, with "≈" when the sizes were measured on another kind of machine.
+pub fn first_run_tool_size(lang: Language, installed: bool, bytes: u64, measured: bool) -> String {
+    if installed {
+        return text(lang, "first-run-tool-installed");
+    }
+    let size = size(lang, bytes);
+    if measured {
+        size
+    } else {
+        format!("≈ {size}")
+    }
+}
+
+/// Bytes in MB (a whole number) below 1 GB, in GB with one decimal from 1 GB on.
+pub fn size(lang: Language, bytes: u64) -> String {
+    if bytes < GIB {
+        let mb = bytes.saturating_add(MIB / 2) / MIB;
+        message(lang, "size-mb", &[("size", mb.to_string().into())])
+    } else {
+        message(lang, "size-gb", &[("size", gigabytes(lang, bytes).into())])
+    }
+}
+
+/// Bytes in a mebibyte.
+const MIB: u64 = 1_048_576;
+/// Bytes in a gibibyte.
+const GIB: u64 = 1_073_741_824;
+
 /// Notification: the chosen tools folder could not be used.
 pub fn first_run_folder_failed(lang: Language, error: &str) -> String {
     message(lang, "first-run-folder-failed", &[("error", error.into())])
@@ -589,7 +623,7 @@ pub fn first_run_folder_failed(lang: Language, error: &str) -> String {
 
 /// Bytes as gigabytes with one decimal, with the language's decimal separator.
 fn gigabytes(lang: Language, bytes: u64) -> String {
-    let s = format!("{:.1}", bytes as f64 / 1_073_741_824.0);
+    let s = format!("{:.1}", bytes as f64 / GIB as f64);
     match lang {
         Language::En => s,
         _ => s.replace('.', ","),
@@ -828,7 +862,17 @@ mod tests {
         let gb = 1_073_741_824;
         assert_eq!(
             first_run_space(Language::En, Some(gb * 5 / 2), 120 * gb),
-            "About 2.5 GB needed · 120.0 GB free"
+            "Up to 2.5 GB for all tools · 120.0 GB free"
+        );
+        assert_eq!(size(Language::En, 107_345_970), "102 MB");
+        assert_eq!(size(Language::Ru, 1_407_250_000), "1,3 ГБ");
+        assert_eq!(
+            first_run_tool_size(Language::En, false, 11_784_219, false),
+            "≈ 11 MB"
+        );
+        assert_eq!(
+            first_run_tool_size(Language::En, true, 0, true),
+            "installed"
         );
         assert!(first_run_space(Language::Ru, None, gb / 2).contains("0,5"));
     }

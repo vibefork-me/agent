@@ -18,6 +18,7 @@ vf-core.workspace = true
 vf-platform.workspace = true
 vf-protocol.workspace = true
 vf-builds.workspace = true
+vf-toolchains.workspace = true
 vf-ui.workspace = true
 # Desktop notifications: WinRT toasts on Windows, NSUserNotification on macOS, D-Bus
 # `org.freedesktop.Notifications` through zbus (pure Rust, no libdbus) on Linux.

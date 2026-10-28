@@ -28,6 +28,8 @@ pub struct FirstRunText {
     pub start: String,
     /// Close without changes.
     pub later: String,
+    /// Heading of the collapsed list of [`FirstRun::tools`] (e.g. "What may go there").
+    pub tools: String,
 }
 
 /// What the first-run window shows.
@@ -40,7 +42,13 @@ pub struct FirstRun {
     /// How much room the tools take, worded by the caller (e.g. "About 2.4 GB; 120 GB free").
     /// `None`: the line is not shown.
     pub space: Option<String>,
+    /// Rows under the room line, collapsed under [`FirstRunText::tools`]: a name and its size,
+    /// worded by the caller (e.g. `("java", "328 MB")`). Empty: no list.
+    pub tools: Vec<(String, String)>,
 }
+
+/// Most rows of [`FirstRun::tools`] shown.
+const MAX_TOOLS: usize = 32;
 
 /// What the person chose.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -72,12 +80,20 @@ impl FirstRunView {
             connect_ai_hint: plain_text(&t.connect_ai_hint),
             start: line(&t.start),
             later: line(&t.later),
+            tools: line(&t.tools),
         };
+        let tools = run
+            .tools
+            .iter()
+            .take(MAX_TOOLS)
+            .map(|(name, size)| (line(name), line(size)))
+            .collect();
         Self {
             run: FirstRun {
                 text,
                 tools_dir: plain_line(&run.tools_dir, MAX_PATH),
                 space: run.space.as_deref().map(line),
+                tools,
             },
             answer: None,
         }
@@ -115,6 +131,23 @@ impl FirstRunView {
         // The room the tools take (a slot kept even before an estimate exists).
         if let Some(space) = &self.run.space {
             ui.label(RichText::new(space.as_str()).color(theme::TEXT));
+        }
+        if !self.run.tools.is_empty() {
+            egui::CollapsingHeader::new(RichText::new(t.tools.as_str()).color(theme::MUTED))
+                .id_salt("vf-first-run-tools")
+                .default_open(false)
+                .show(ui, |ui| {
+                    egui::Grid::new("vf-first-run-tools-grid")
+                        .num_columns(2)
+                        .spacing([24.0, 4.0])
+                        .show(ui, |ui| {
+                            for (name, size) in &self.run.tools {
+                                ui.label(name.as_str());
+                                ui.label(RichText::new(size.as_str()).color(theme::MUTED));
+                                ui.end_row();
+                            }
+                        });
+                });
         }
         ui.add_space(8.0);
 
@@ -175,10 +208,15 @@ mod tests {
             },
             tools_dir: "D:\\Tools\u{200B}\n".into(),
             space: Some("About 2 GB\u{0007}".into()),
+            tools: vec![("node\u{202E}".into(), "103 MB\n".into())],
         });
         assert_eq!(view.run.text.title, "Welcome");
         assert_eq!(view.run.tools_dir, "D:\\Tools");
         assert_eq!(view.run.space.as_deref(), Some("About 2 GB"));
+        assert_eq!(
+            view.run.tools,
+            vec![("node".to_owned(), "103 MB".to_owned())]
+        );
     }
 
     #[test]

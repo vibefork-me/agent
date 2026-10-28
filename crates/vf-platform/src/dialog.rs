@@ -100,6 +100,18 @@ fn ask_window(kind: &str, title: &str, text: &str, accept: &str, reject: &str) -
             return Shown::Unavailable;
         }
     };
+    // The value is read while the window runs: a value larger than the pipe's buffer would block
+    // the window's write, and the window would never exit.
+    let reader = child.stdout.take().map(|out| {
+        std::thread::spawn(move || {
+            let mut value = String::new();
+            let _ = std::io::Read::read_to_string(
+                &mut std::io::Read::take(out, window::MAX_VALUE),
+                &mut value,
+            );
+            value
+        })
+    });
     let deadline = Instant::now() + DIALOG_TIMEOUT + WINDOW_GRACE;
     loop {
         match child.try_wait() {
@@ -115,13 +127,11 @@ fn ask_window(kind: &str, title: &str, text: &str, accept: &str, reject: &str) -
             }
             Ok(Some(status)) => {
                 let accepted = status.code() == Some(window::EXIT_ACCEPTED);
-                let mut value = String::new();
-                if accepted && let Some(out) = child.stdout.take() {
-                    let _ = std::io::Read::read_to_string(
-                        &mut std::io::Read::take(out, window::MAX_VALUE),
-                        &mut value,
-                    );
-                }
+                // The window has exited: its end of the pipe is closed and the read ends.
+                let value = match reader {
+                    Some(r) if accepted => r.join().unwrap_or_default(),
+                    _ => String::new(),
+                };
                 return Shown::Answered { accepted, value };
             }
             Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(100)),
