@@ -172,3 +172,17 @@ cli-storage-moved =
         [one] { $files } Datei
        *[other] { $files } Dateien
     }) nach { $path }
+
+## Installer (install.ps1, install.sh)
+
+install-downloading = Vibefork { $version } wird heruntergeladen…
+install-installing = Wird installiert…
+install-done = Vibefork { $version } ist installiert: { $path }
+install-done-check = Zum Prüfen öffne ein neues Terminal und führe aus: vibefork doctor
+install-failed-system = Vibefork kann hier nicht installiert werden: Dieses System ({ $system }) wird nicht unterstützt. Vibefork läuft unter Windows, macOS und Linux.
+install-failed-processor = Vibefork kann auf diesem Computer nicht installiert werden: Sein Prozessor ({ $cpu }) wird nicht unterstützt.
+install-failed-no-build = Vibefork { $version } ist für diesen Computer ({ $platform }) noch nicht verfügbar. Versuch es später noch einmal.
+install-failed-download = { $asset } konnte nicht heruntergeladen werden. Prüfe deine Internetverbindung und versuch es noch einmal.
+install-failed-hash = Die heruntergeladene Datei { $asset } ist nicht die erwartete: Sie könnte beschädigt oder ausgetauscht worden sein. Es wurde nichts installiert. Versuch es später noch einmal.
+install-failed-install = Vibefork konnte nicht installiert werden. Führe den Installationsbefehl noch einmal aus.
+install-failed-start = Vibefork ist installiert, aber der Agent ist nicht gestartet. Starte ihn mit: vibefork start

@@ -167,3 +167,17 @@ cli-storage-header-files = файлов
 cli-storage-unknown-folder = vibefork: неизвестная папка `{ $kind }` (projects, tools, caches, artifacts)
 cli-storage-stop-agent-first = vibefork: сначала остановите агент (он слушает порт { $port })
 cli-storage-moved = папка { $kind } ({ $size }, файлов: { $files }) перемещена в { $path }
+
+## Installer (install.ps1, install.sh)
+
+install-downloading = Загрузка Vibefork { $version }…
+install-installing = Установка…
+install-done = Vibefork { $version } установлен: { $path }
+install-done-check = Чтобы проверить, откройте новый терминал и выполните: vibefork doctor
+install-failed-system = Vibefork нельзя установить здесь: эта система ({ $system }) не поддерживается. Vibefork работает на Windows, macOS и Linux.
+install-failed-processor = Vibefork нельзя установить на этот компьютер: его процессор ({ $cpu }) не поддерживается.
+install-failed-no-build = Vibefork { $version } пока недоступен для этого компьютера ({ $platform }). Попробуйте позже.
+install-failed-download = Не удалось скачать { $asset }. Проверьте подключение к интернету и попробуйте снова.
+install-failed-hash = Скачанный файл { $asset } не совпадает с ожидаемым: он мог повредиться или быть подменён. Ничего не установлено. Попробуйте позже.
+install-failed-install = Установить Vibefork не удалось. Запустите команду установки ещё раз.
+install-failed-start = Vibefork установлен, но агент не запустился. Запустите его командой: vibefork start

@@ -6,27 +6,96 @@
 #
 # VF_UPDATE_URL may point to a mirror, but only binaries matching these embedded hashes are run.
 # VF_NO_OPEN=1 disables opening the browser.
+# Messages follow the language of the system, chosen as the agent chooses it; VF_LANG overrides it.
 set -eu
 
 CHANNEL="${VF_UPDATE_URL:-@@CHANNEL@@}"
 VERSION='@@VERSION@@'
 
+# Messages of the installer in every interface language, from the agent's string catalog: sets `t`
+# to the message $2 in the language $1, empty when there is none.
+text() {
+  case "$1:$2" in
+@@UNIX_MESSAGES@@
+    *) t='' ;;
+  esac
+}
+
+# The interface language of a language code (`ru_RU.UTF-8`, `pt-BR`, `es_AR`, ...): Spanish of Spain
+# for `es_ES` only, Latin American Spanish for any other Spanish, English when unknown.
+language_of() {
+  case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//')" in
+    ru*) echo ru ;;
+    pt | pt[!a-z0-9]*) echo pt-BR ;;
+    es[-_.@]es | es[-_.@]es[!a-z0-9]*) echo es-ES ;;
+    es | es[!a-z0-9]*) echo es-419 ;;
+    de | de[!a-z0-9]*) echo de ;;
+    *) echo en ;;
+  esac
+}
+
+# The first set variable of VF_LANG, LC_ALL, LC_MESSAGES, LANG decides; otherwise, on macOS, the
+# first of the two preferred languages that is not English.
+lang=''
+for code in "${VF_LANG:-}" "${LC_ALL:-}" "${LC_MESSAGES:-}" "${LANG:-}"; do
+  if [ -n "$(printf '%s' "$code" | tr -d '[:space:]')" ]; then lang="$(language_of "$code")"; break; fi
+done
+if [ -z "$lang" ] && [ "$(uname -s)" = Darwin ]; then
+  for code in $(defaults read -g AppleLanguages 2>/dev/null | sed -n '2,3p' | tr -d ' "'); do
+    lang="$(language_of "$code")"
+    [ "$lang" = en ] || break
+  done
+fi
+[ -n "$lang" ] || lang=en
+
+# `fill TEXT NAME VALUE`: TEXT with every {NAME} replaced by VALUE.
+fill() {
+  rest="$1"
+  out=''
+  while :; do
+    case "$rest" in
+      *"{$2}"*) out="$out${rest%%"{$2}"*}$3"; rest="${rest#*"{$2}"}" ;;
+      *) break ;;
+    esac
+  done
+  printf '%s' "$out$rest"
+}
+
+# `say ID [NAME VALUE]…`: prints the message ID in the installer's language (English when it lacks
+# one) with its {NAME} placeholders filled.
+say() {
+  text "$lang" "$1"
+  [ -n "$t" ] || text en "$1"
+  shift
+  while [ $# -ge 2 ]; do
+    t="$(fill "$t" "$1" "$2")"
+    shift 2
+  done
+  printf '%s\n' "$t"
+}
+
+# `fail ID [NAME VALUE]…`: says the message on stderr and stops.
+fail() {
+  say "$@" >&2
+  exit 1
+}
+
 case "$(uname -s)" in
   Linux) os=linux ;;
   Darwin) os=macos ;;
-  *) echo "vibefork: unsupported system $(uname -s)" >&2; exit 1 ;;
+  *) fail install-failed-system system "$(uname -s)" ;;
 esac
 case "$(uname -m)" in
   x86_64 | amd64) arch=x86_64 ;;
   arm64 | aarch64) arch=aarch64 ;;
-  *) echo "vibefork: unsupported processor $(uname -m)" >&2; exit 1 ;;
+  *) fail install-failed-processor cpu "$(uname -m)" ;;
 esac
 
 case "$os-$arch" in
 @@UNIX_HASH_CASES@@
-  *) echo "vibefork: no pinned build for $os-$arch in release $VERSION" >&2; exit 1 ;;
+  *) fail install-failed-no-build version "$VERSION" platform "$os-$arch" ;;
 esac
-[ -n "$agent_hash" ] || { echo "vibefork: no pinned build for $os-$arch in release $VERSION" >&2; exit 1; }
+[ -n "$agent_hash" ] || fail install-failed-no-build version "$VERSION" platform "$os-$arch"
 
 if command -v sha256sum >/dev/null 2>&1; then sha() { sha256sum "$1" | cut -d' ' -f1; }
 else sha() { shasum -a 256 "$1" | cut -d' ' -f1; }; fi
@@ -38,16 +107,19 @@ fetch_pinned() {
   expected="$2"
   output="$3"
   [ -n "$expected" ] || return 0
-  curl -fsSL "$CHANNEL/$asset" -o "$tmp/$output"
-  [ "$(sha "$tmp/$output")" = "$expected" ] || { echo "vibefork: $asset does not match the hash pinned in this installer" >&2; exit 1; }
+  curl -fsSL "$CHANNEL/$asset" -o "$tmp/$output" || fail install-failed-download asset "$asset"
+  [ "$(sha "$tmp/$output")" = "$expected" ] || fail install-failed-hash asset "$asset"
   chmod +x "$tmp/$output"
 }
 
+say install-downloading version "$VERSION"
 fetch_pinned "vibefork-$os-$arch" "$agent_hash" vibefork
 fetch_pinned "vibefork-tray-$os-$arch" "$tray_hash" vibefork-tray
-"$tmp/vibefork" install
+say install-installing
+"$tmp/vibefork" install || fail install-failed-install
 if [ "$os" = macos ]; then dir="${VF_INSTALL_DIR:-$HOME/Applications/Vibefork.app/Contents/MacOS}"
 else dir="${VF_INSTALL_DIR:-$HOME/.local/bin}"; fi
-"$dir/vibefork" start
+"$dir/vibefork" start || fail install-failed-start
 [ -n "${VF_NO_OPEN:-}" ] || "$dir/vibefork" open || true
-echo "Vibefork $VERSION is installed: $dir/vibefork (try \`vibefork doctor\`)"
+say install-done version "$VERSION" path "$dir/vibefork"
+say install-done-check

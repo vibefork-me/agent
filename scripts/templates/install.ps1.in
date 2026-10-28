@@ -5,6 +5,7 @@
 #
 # VF_UPDATE_URL may point to a mirror, but only binaries matching these embedded hashes are run.
 # VF_NO_OPEN = "1" disables opening the browser.
+# Messages follow the language of the system, chosen as the agent chooses it; VF_LANG overrides it.
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 
@@ -13,35 +14,105 @@ $version = '@@VERSION@@'
 $hashes = @{
 @@WINDOWS_HASH_ENTRIES@@
 }
-$arch = switch ($env:PROCESSOR_ARCHITECTURE) { 'AMD64' { 'x86_64' } 'ARM64' { 'aarch64' } default { throw "vibefork: unsupported processor $env:PROCESSOR_ARCHITECTURE" } }
+
+# Messages of the installer in every interface language, from the agent's string catalog. The file
+# stays ASCII (non-ASCII letters are \uXXXX escapes) so that it reads the same in every code page.
+$messages = @{
+@@WINDOWS_MESSAGES@@
+}
+
+# The interface language of a language code (`ru-RU`, `pt_BR.UTF-8`, `es-419`, ...): Spanish of Spain
+# for `es-ES` only, Latin American Spanish for any other Spanish, English when unknown.
+function Get-VibeforkLanguage([string]$code) {
+    $code = $code.Trim().ToLowerInvariant()
+    if ($code.StartsWith('ru')) { return 'ru' }
+    $parts = @($code -split '[-_.@]' | ForEach-Object { $_ -replace '[^a-z0-9]+$', '' })
+    $region = if ($parts.Count -gt 1) { $parts[1] } else { '' }
+    switch ($parts[0]) {
+        'pt' { return 'pt-BR' }
+        'es' { if ($region -eq 'es') { return 'es-ES' } else { return 'es-419' } }
+        'de' { return 'de' }
+        default { return 'en' }
+    }
+}
+
+# The interface language of a Windows LANGID by its primary language (lower 10 bits); for Spanish also
+# by its sublanguage (upper 6 bits): 1 and 3 are Spain, any other is Latin American Spanish.
+function Get-LanguageOfLangId([int]$id) {
+    switch ($id -band 0x3ff) {
+        0x19 { return 'ru' }
+        0x16 { return 'pt-BR' }
+        0x0a { if (($id -shr 10) -in 1, 3) { return 'es-ES' } else { return 'es-419' } }
+        0x07 { return 'de' }
+        default { return 'en' }
+    }
+}
+
+# The user's Windows display language, as the agent reads it (GetUserDefaultUILanguage). Windows
+# PowerShell 5.1 reports its own UI culture (en-US without its language pack), so it is not used
+# unless the call is unavailable (for example in constrained language mode).
+function Get-WindowsLanguage {
+    try {
+        Add-Type -Namespace VibeforkInstall -Name Kernel32 -MemberDefinition '[DllImport("kernel32.dll")] public static extern ushort GetUserDefaultUILanguage();'
+        return Get-LanguageOfLangId ([VibeforkInstall.Kernel32]::GetUserDefaultUILanguage())
+    }
+    catch { return Get-VibeforkLanguage (Get-UICulture).Name }
+}
+
+# The first set variable of VF_LANG, LC_ALL, LC_MESSAGES, LANG decides; otherwise the Windows UI language.
+$lang = $null
+foreach ($name in 'VF_LANG', 'LC_ALL', 'LC_MESSAGES', 'LANG') {
+    $value = [Environment]::GetEnvironmentVariable($name)
+    if ($value -and $value.Trim()) { $lang = Get-VibeforkLanguage $value; break }
+}
+if (-not $lang) { $lang = Get-WindowsLanguage }
+
+# The message $id in the installer's language (English when it lacks one) with {name} filled from $values.
+function Msg([string]$id, [hashtable]$values = @{}) {
+    $text = $messages[$lang][$id]
+    if (-not $text) { $text = $messages['en'][$id] }
+    $text = [regex]::Unescape($text)
+    foreach ($key in $values.Keys) { $text = $text.Replace('{' + $key + '}', [string]$values[$key]) }
+    $text
+}
+
+# Downloads $asset into $path and checks it against the pinned digest.
+function Get-PinnedAsset([string]$asset, [string]$expected, [string]$path) {
+    try { Invoke-WebRequest "$channel/$asset" -OutFile $path -UseBasicParsing }
+    catch { throw (Msg 'install-failed-download' @{ asset = $asset }) }
+    if ((Get-FileHash $path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) {
+        throw (Msg 'install-failed-hash' @{ asset = $asset })
+    }
+}
+
+$arch = switch ($env:PROCESSOR_ARCHITECTURE) {
+    'AMD64' { 'x86_64' }
+    'ARM64' { 'aarch64' }
+    default { throw (Msg 'install-failed-processor' @{ cpu = $env:PROCESSOR_ARCHITECTURE }) }
+}
 $asset = "vibefork-windows-$arch.exe"
 $expected = $hashes[$asset]
-if (-not $expected) { throw "vibefork: no pinned Windows build for $arch in release $version" }
+if (-not $expected) { throw (Msg 'install-failed-no-build' @{ version = $version; platform = "windows-$arch" }) }
 
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ("vibefork-install-" + [Guid]::NewGuid())
 New-Item -ItemType Directory -Path $tmp | Out-Null
 try {
     # The expected digest is embedded in this release-specific script. Never inspect an unpinned manifest.
+    Write-Host (Msg 'install-downloading' @{ version = $version })
     $path = Join-Path $tmp 'vibefork.exe'
-    Invoke-WebRequest "$channel/$asset" -OutFile $path -UseBasicParsing
-    if ((Get-FileHash $path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) {
-        throw "vibefork: $asset does not match the hash pinned in this installer"
-    }
+    Get-PinnedAsset $asset $expected $path
     $trayAsset = "vibefork-tray-windows-$arch.exe"
     $trayExpected = $hashes[$trayAsset]
-    if ($trayExpected) {
-        $trayPath = Join-Path $tmp 'vibefork-tray.exe'
-        Invoke-WebRequest "$channel/$trayAsset" -OutFile $trayPath -UseBasicParsing
-        if ((Get-FileHash $trayPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $trayExpected) {
-            throw "vibefork: $trayAsset does not match the hash pinned in this installer"
-        }
-    }
+    if ($trayExpected) { Get-PinnedAsset $trayAsset $trayExpected (Join-Path $tmp 'vibefork-tray.exe') }
+    Write-Host (Msg 'install-installing')
     & $path install
-    if ($LASTEXITCODE -ne 0) { throw 'vibefork: installation failed' }
+    if ($LASTEXITCODE -ne 0) { throw (Msg 'install-failed-install') }
     $dir = if ($env:VF_INSTALL_DIR) { $env:VF_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA 'Programs\vibefork' }
     & (Join-Path $dir 'vibefork.exe') start
+    if ($LASTEXITCODE -ne 0) { throw (Msg 'install-failed-start') }
     if (-not $env:VF_NO_OPEN) { & (Join-Path $dir 'vibefork.exe') open }
-    Write-Host "Vibefork $version is installed: $dir\vibefork.exe (try ``vibefork doctor`` in a new terminal)"
+    Write-Host (Msg 'install-done' @{ version = $version; path = "$dir\vibefork.exe" })
+    Write-Host (Msg 'install-done-check')
 }
 finally {
     Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue

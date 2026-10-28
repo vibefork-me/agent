@@ -852,7 +852,8 @@ mod tests {
         let values = [
             "origin", "name", "code", "project", "action", "target", "provider", "prompt",
             "endpoint", "update", "version", "port", "pid", "login", "kind", "size", "path",
-            "title", "stage", "line", "minutes", "needed", "free", "error",
+            "title", "stage", "line", "minutes", "needed", "free", "error", "system", "cpu",
+            "platform", "asset",
         ];
         let mut args = FluentArgs::new();
         for v in values {
