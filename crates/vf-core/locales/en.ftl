@@ -181,3 +181,19 @@ cli-storage-moved =
         [one] { $files } file
        *[other] { $files } files
     }) to { $path }
+
+## Installer (install.ps1, install.sh)
+# Single-line messages with plain `{ $name }` variables only: the installer scripts are rendered from
+# them and cannot run Fluent. $platform is `<system>-<processor>`, such as `linux-x86_64`.
+
+install-downloading = Downloading Vibefork { $version }…
+install-installing = Installing…
+install-done = Vibefork { $version } is installed: { $path }
+install-done-check = To check it, open a new terminal and run: vibefork doctor
+install-failed-system = Vibefork can't be installed here: this system ({ $system }) is not supported. Vibefork works on Windows, macOS and Linux.
+install-failed-processor = Vibefork can't be installed on this computer: its processor ({ $cpu }) is not supported.
+install-failed-no-build = Vibefork { $version } is not available for this computer ({ $platform }) yet. Try again later.
+install-failed-download = Couldn't download { $asset }. Check your internet connection and try again.
+install-failed-hash = The downloaded file { $asset } is not the expected one: it may be damaged or replaced. Nothing was installed. Try again later.
+install-failed-install = Vibefork could not be installed. Run the install command again.
+install-failed-start = Vibefork is installed, but the agent did not start. Start it with: vibefork start

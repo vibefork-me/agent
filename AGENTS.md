@@ -30,7 +30,7 @@ can see there are no hidden traps.
 cargo fmt --all
 cargo xtask ci
 ```
-`cargo xtask ci` runs every check CI runs on each PR: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `scripts/check_layers.py`, `scripts/check_sources.py`; it stops at the first failure.
+`cargo xtask ci` runs every check CI runs on each PR: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, `scripts/check_layers.py`, `scripts/check_sources.py`, `scripts/generate-installers.py --check`; it stops at the first failure.
 
 ## Version
 The agent version lives only in `[workspace.package] version` of the root `Cargo.toml`; every crate inherits it and `vibefork --version` prints it. `cargo xtask version` shows it, `cargo xtask version set X.Y.Z[-pre]` sets it (and refreshes `Cargo.lock`).

@@ -1,5 +1,6 @@
 //! Project tasks, run as `cargo xtask <task>`:
-//! - `ci` — every check a PR must pass: format, clippy, tests, layers, dependency sources;
+//! - `ci` — every check a PR must pass: format, clippy, tests, layers, dependency sources,
+//!   installers;
 //! - `version` — prints the agent version (`[workspace.package] version`, the only place it lives);
 //! - `version set X.Y.Z[-pre]` — sets it;
 //! - `measure-tools [tool …]` — installs each tool of the catalog (or the ones named) with the
@@ -61,6 +62,11 @@ fn ci() -> Result<(), String> {
     }
     run("layers", python(), &["scripts/check_layers.py"])?;
     run("sources", python(), &["scripts/check_sources.py"])?;
+    run(
+        "installers",
+        python(),
+        &["scripts/generate-installers.py", "--check"],
+    )?;
     println!("xtask ci: all checks passed");
     Ok(())
 }
