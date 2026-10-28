@@ -153,33 +153,7 @@ impl Engine {
         }
         // The user should not need Java / Gradle / Node installed.
         let prepared = vf_toolchains::prepare(dir, &self.tools, &self.caches, cancel, &mut |p| {
-            out(match p {
-                Progress::Installing { tool } => ServerMessage::Toolchain {
-                    status: ToolchainStatus::Installing,
-                    tool,
-                    path: None,
-                    seconds: None,
-                    error: None,
-                },
-                Progress::Ready {
-                    tool,
-                    path,
-                    seconds,
-                } => ServerMessage::Toolchain {
-                    status: ToolchainStatus::Ready,
-                    tool,
-                    path: Some(path.display().to_string()),
-                    seconds: Some(format!("{seconds:.1}")),
-                    error: None,
-                },
-                Progress::Failed { tool, error } => ServerMessage::Toolchain {
-                    status: ToolchainStatus::Failed,
-                    tool,
-                    path: None,
-                    seconds: None,
-                    error: Some(error),
-                },
-            })
+            out(toolchain_message(p));
         });
         env.prepend_path(&prepared.paths);
         for (k, v) in prepared.env {
@@ -581,6 +555,45 @@ pub(crate) fn now_rfc3339() -> String {
         rem % 3600 / 60,
         rem % 60
     )
+}
+
+/// The message for the editor about a tool being prepared.
+pub(crate) fn toolchain_message(p: Progress) -> ServerMessage {
+    let (status, tool) = match &p {
+        Progress::Installing { tool } => (ToolchainStatus::Installing, tool.clone()),
+        Progress::Downloading { tool, .. } => (ToolchainStatus::Downloading, tool.clone()),
+        Progress::Extracting { tool } => (ToolchainStatus::Extracting, tool.clone()),
+        Progress::Ready { tool, .. } => (ToolchainStatus::Ready, tool.clone()),
+        Progress::Failed { tool, .. } => (ToolchainStatus::Failed, tool.clone()),
+    };
+    let (done, total, eta) = match &p {
+        Progress::Downloading {
+            done, total, eta, ..
+        } => (Some(*done), *total, *eta),
+        _ => (None, None, None),
+    };
+    let (path, seconds) = match &p {
+        Progress::Ready { path, seconds, .. } => (
+            Some(path.display().to_string()),
+            Some(format!("{seconds:.1}")),
+        ),
+        _ => (None, None),
+    };
+    let (error, code) = match p {
+        Progress::Failed { error, code, .. } => (Some(error), Some(code.to_owned())),
+        _ => (None, None),
+    };
+    ServerMessage::Toolchain {
+        status,
+        tool,
+        done,
+        total,
+        eta,
+        path,
+        seconds,
+        error,
+        code,
+    }
 }
 
 #[cfg(test)]

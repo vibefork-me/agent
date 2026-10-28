@@ -11,9 +11,10 @@
 //! A project without an original on GitHub is saved into an empty private repository of the user,
 //! on its default branch; its first save holds every file.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use vf_core::Secret;
@@ -25,8 +26,8 @@ use vf_github::{
 use vf_journal::{JournalStore as _, Vcs as _};
 use vf_protocol::canvas::{CanvasEvent, Stage};
 use vf_protocol::http::{
-    ForeignChanges, GithubConnectResponse, GithubStatusResponse, ImportRequest, ImportResponse,
-    SaveRequest, SaveResponse, SaveStep,
+    ForeignChanges, GithubConnectResponse, GithubStatusResponse, ImportProgressResponse,
+    ImportRequest, ImportResponse, ImportState, SaveRequest, SaveResponse, SaveStep,
 };
 use vf_protocol::ws::ServerMessage;
 use vf_protocol::{BackendError, Cancel};
@@ -259,9 +260,78 @@ impl Engine {
         }
     }
 
+    /// Takes a project from GitHub; while it runs, [`Engine::import_progress_of`] tells `owner`
+    /// (a browser session; empty — nobody) where it is.
     pub(crate) fn import_project(
         &self,
         req: &ImportRequest,
+        owner: &str,
+    ) -> Result<ImportResponse, BackendError> {
+        self.import_update(owner, Some(&req.repo), |p| {
+            p.state = ImportState::Resolving;
+        });
+        let result = self.import_steps(req, owner);
+        self.import_update(owner, None, |p| match &result {
+            Ok(_) => {
+                p.state = ImportState::Ready;
+                p.eta = Some(0);
+            }
+            Err(e) => {
+                p.error = Some(import_error_code(p.state, e).into());
+                p.state = ImportState::Failed;
+                p.eta = None;
+            }
+        });
+        result
+    }
+
+    /// Progress of the import of `repo` started by `owner`.
+    pub(crate) fn import_progress_of(&self, owner: &str, repo: &str) -> ImportProgressResponse {
+        let key = repo_key(repo);
+        self.imports
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(owner)
+            .filter(|i| !key.is_empty() && i.repo == key)
+            .map(|i| i.progress.clone())
+            .unwrap_or_default()
+    }
+
+    /// Changes the progress `owner` sees; a `repo` starts a new import.
+    fn import_update(
+        &self,
+        owner: &str,
+        repo: Option<&str>,
+        change: impl FnOnce(&mut ImportProgressResponse),
+    ) {
+        if owner.is_empty() {
+            return;
+        }
+        let mut imports = self
+            .imports
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(repo) = repo {
+            if imports.len() >= MAX_IMPORTS && !imports.contains_key(owner) {
+                imports.clear();
+            }
+            imports.insert(
+                owner.to_owned(),
+                Import {
+                    repo: repo_key(repo),
+                    progress: ImportProgressResponse::default(),
+                },
+            );
+        }
+        if let Some(import) = imports.get_mut(owner) {
+            change(&mut import.progress);
+        }
+    }
+
+    fn import_steps(
+        &self,
+        req: &ImportRequest,
+        owner: &str,
     ) -> Result<ImportResponse, BackendError> {
         let upstream = parse_repo(&req.repo)
             .ok_or_else(|| BackendError::BadRequest("not a GitHub project (owner/name)".into()))?;
@@ -308,7 +378,26 @@ impl Engine {
         let foreign = (matches!(git_ref, Some(GitRef::Pull(_)))
             || !original.eq_ignore_ascii_case(&info.full_name))
         .then(|| foreign_changes(&client, &original, &info, git_ref.as_ref()));
-        let archive = client.tarball(&info.full_name, &sha).map_err(gh)?;
+        // GitHub declares no size for most archives: the repository's size (with its history)
+        // stands in for it.
+        let guess = info.size_kib.map(|k| k.saturating_mul(1024));
+        let started = Instant::now();
+        let archive = client
+            .tarball_with(&info.full_name, &sha, &mut |r| {
+                let elapsed = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+                self.import_update(owner, None, |p| {
+                    download_progress(p, r, guess, elapsed);
+                });
+            })
+            .map_err(gh)?;
+        let size = u64::try_from(archive.len()).unwrap_or(u64::MAX);
+        self.import_update(owner, None, |p| {
+            p.state = ImportState::Extracting;
+            p.done = size;
+            p.total = size;
+            p.total_estimated = false;
+            p.eta = Some(0);
+        });
         let base = info
             .full_name
             .split('/')
@@ -361,7 +450,6 @@ impl Engine {
         )?;
         // The project's session stream starts with its download.
         if let Some(_hold) = self.hold(&name) {
-            let size = u64::try_from(archive.len()).unwrap_or(u64::MAX);
             let mut sink = |_: ServerMessage| {};
             let mut stream = crate::canvas::Stream::new(&self.canvas, &name, &mut sink);
             stream.emit(CanvasEvent::Stage {
@@ -742,6 +830,62 @@ impl LowercaseFirst for str {
 
 pub(crate) type SignInState = Arc<Mutex<SignIn>>;
 
+/// Most browser sessions whose last import is remembered.
+const MAX_IMPORTS: usize = 64;
+
+/// The last import of a browser session.
+#[derive(Debug)]
+pub(crate) struct Import {
+    /// `owner/name`, lowercase.
+    repo: String,
+    progress: ImportProgressResponse,
+}
+
+/// Imports by browser session.
+pub(crate) type Imports = Mutex<HashMap<String, Import>>;
+
+/// `owner/name` of a project as a key: lowercase; empty when `repo` is not a GitHub project.
+fn repo_key(repo: &str) -> String {
+    parse_repo(repo)
+        .map(|r| r.to_ascii_lowercase())
+        .unwrap_or_default()
+}
+
+/// Download numbers from the bytes received `elapsed_ms` after the download started; `guess` is
+/// the size to expect when the server declares none.
+fn download_progress(
+    p: &mut ImportProgressResponse,
+    r: vf_github::Received,
+    guess: Option<u64>,
+    elapsed_ms: u64,
+) {
+    p.state = ImportState::Downloading;
+    p.done = r.done;
+    (p.total, p.total_estimated) = match (r.declared, guess) {
+        (Some(declared), _) => (declared.max(r.done), false),
+        (None, Some(guess)) => (guess.max(r.done), true),
+        (None, None) => (0, false),
+    };
+    p.speed = vf_core::progress::speed(r.done, elapsed_ms);
+    p.eta = if p.total == 0 {
+        None
+    } else {
+        vf_core::progress::eta(r.done, p.total, elapsed_ms)
+    };
+}
+
+/// The code of a failed import, by where it was when it failed.
+fn import_error_code(state: ImportState, e: &BackendError) -> &'static str {
+    match (state, e) {
+        (_, BackendError::RateLimited { .. }) => "rate_limit",
+        (ImportState::Downloading, _) => "download_failed",
+        (ImportState::Extracting, _) => "extract_failed",
+        (_, BackendError::BadRequest(_)) => "bad_request",
+        (_, BackendError::NotFound(_) | BackendError::Forbidden(_)) => "not_found",
+        (_, BackendError::Internal(_)) => "internal",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -760,6 +904,125 @@ mod tests {
             save_branch("Spoon-Knife-2", "octocat/Spoon-Knife"),
             "vibefork-Spoon-Knife-2"
         );
+    }
+
+    fn engine(tag: &str) -> Engine {
+        let base =
+            std::env::temp_dir().join(format!("vf-engine-import-{tag}-{}", std::process::id()));
+        let settings = vf_platform::Settings {
+            state_dir: base.join("state"),
+            port: 1,
+            extra_origins: vec![],
+            ignored_extra_origins: vec![],
+            ui_bundle_url: String::new(),
+            storage: vf_platform::settings::Storage {
+                projects: base.join("projects"),
+                tools: base.join("tools"),
+                caches: base.join("caches"),
+                artifacts: base.join("artifacts"),
+            },
+            simulate_clean_machine: false,
+            update_url: String::new(),
+            auto_update: false,
+        };
+        Engine::new(&settings, Vec::new())
+    }
+
+    #[test]
+    fn download_numbers_prefer_the_declared_size() {
+        let mut p = ImportProgressResponse::default();
+        let received = |done, declared| vf_github::Received { done, declared };
+        // 12 of 38 MB in 4 s.
+        download_progress(
+            &mut p,
+            received(12_000_000, Some(38_000_000)),
+            Some(90_000_000),
+            4_000,
+        );
+        assert_eq!(p.state, ImportState::Downloading);
+        assert_eq!(
+            (p.done, p.total, p.total_estimated),
+            (12_000_000, 38_000_000, false)
+        );
+        assert_eq!((p.speed, p.eta), (3_000_000, Some(9)));
+        // No declared size: GitHub's size of the repository, marked as a guess.
+        download_progress(&mut p, received(12_000_000, None), Some(38_000_000), 4_000);
+        assert_eq!(
+            (p.total, p.total_estimated, p.eta),
+            (38_000_000, true, Some(9))
+        );
+        // A guess that was too small follows the bytes received.
+        download_progress(&mut p, received(50_000_000, None), Some(38_000_000), 4_000);
+        assert_eq!((p.total, p.eta), (50_000_000, Some(0)));
+        // Nothing to go by: bytes and speed only.
+        download_progress(&mut p, received(1_000, None), None, 1_000);
+        assert_eq!(
+            (p.total, p.total_estimated, p.speed, p.eta),
+            (0, false, 1_000, None)
+        );
+    }
+
+    #[test]
+    fn a_failed_import_has_a_code_by_its_stage() {
+        let internal = BackendError::Internal("x".into());
+        assert_eq!(
+            import_error_code(ImportState::Downloading, &internal),
+            "download_failed"
+        );
+        assert_eq!(
+            import_error_code(ImportState::Extracting, &internal),
+            "extract_failed"
+        );
+        assert_eq!(
+            import_error_code(ImportState::Resolving, &internal),
+            "internal"
+        );
+        assert_eq!(
+            import_error_code(ImportState::Resolving, &BackendError::NotFound("x".into())),
+            "not_found"
+        );
+        assert_eq!(
+            import_error_code(
+                ImportState::Resolving,
+                &BackendError::BadRequest("x".into())
+            ),
+            "bad_request"
+        );
+        assert_eq!(
+            import_error_code(
+                ImportState::Downloading,
+                &BackendError::RateLimited { reset_minutes: 5 }
+            ),
+            "rate_limit"
+        );
+    }
+
+    #[test]
+    fn import_progress_is_seen_only_by_its_session_and_repo() {
+        let engine = engine("owner");
+        // Not a GitHub project: fails before any network call.
+        let req = ImportRequest {
+            repo: "Octo/Notes-App".into(),
+            git_ref: Some("no such ref with spaces".into()),
+            upstream: None,
+        };
+        assert!(engine.import_project(&req, "key-a ui").is_err());
+        let seen = engine.import_progress_of("key-a ui", "https://github.com/octo/notes-app");
+        assert_eq!(seen.state, ImportState::Failed);
+        assert_eq!(seen.error.as_deref(), Some("bad_request"));
+        assert_eq!(
+            engine
+                .import_progress_of("key-b ui", "octo/notes-app")
+                .state,
+            ImportState::Idle
+        );
+        assert_eq!(
+            engine.import_progress_of("key-a ui", "octo/other").state,
+            ImportState::Idle
+        );
+        // Without an owner nothing is remembered.
+        assert!(engine.import_project(&req, "").is_err());
+        assert_eq!(engine.imports.lock().unwrap().len(), 1);
     }
 
     #[test]

@@ -255,6 +255,85 @@ pub struct ForeignChanges {
     pub compare_url: String,
 }
 
+/// Where an import is (`GET /v1/projects/import/progress`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ImportState {
+    /// No import of this project by this browser is known.
+    #[default]
+    Idle,
+    /// Finding the project and its commit on GitHub.
+    Resolving,
+    /// Downloading the archive of the commit.
+    Downloading,
+    /// Unpacking the archive into the projects folder.
+    Extracting,
+    /// The project is taken (`POST /v1/projects/import` answers now).
+    Ready,
+    /// The import failed; `error` has the code.
+    Failed,
+}
+
+/// Response of `GET /v1/projects/import/progress?repo=owner/name`: the import of `repo` started by
+/// the same browser session. Polled while `POST /v1/projects/import` runs. Numbers only; an editor
+/// words them itself ("12 of 38 MB · 9 s left").
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportProgressResponse {
+    /// Where the import is.
+    pub state: ImportState,
+    /// Bytes of the archive downloaded so far.
+    pub done: u64,
+    /// Size of the archive in bytes; `0` while unknown.
+    pub total: u64,
+    /// `total` is a guess (GitHub's size of the repository with its history) rather than the size
+    /// the server declared; `done` may stop short of it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub total_estimated: bool,
+    /// Average download speed so far, bytes per second.
+    pub speed: u64,
+    /// Seconds left of the download at that speed; absent while unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub eta: Option<u64>,
+    /// When `failed`: `bad_request` (not a GitHub project or ref), `not_found` (no such project or
+    /// no access), `rate_limit` (GitHub's limit of requests), `download_failed` (including an
+    /// archive over the agent's bound), `extract_failed`, `internal`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Response of `GET /v1/environment[?project=]`: the tools a project needs before anything is
+/// installed, with the disk space each takes; without `project`, every tool the agent can install.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct EnvironmentResponse {
+    /// The tools, in install order.
+    pub tools: Vec<ToolEstimate>,
+    /// Disk space the missing tools take once installed, bytes (`0` when all are installed).
+    pub total_bytes: u64,
+    /// What the missing tools download, bytes.
+    pub total_download_bytes: u64,
+}
+
+/// One tool of [`EnvironmentResponse`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolEstimate {
+    /// Tool: `java`, `gradle`, `maven`, `node`, `python`, `go`, `rust`.
+    pub name: String,
+    /// What is installed, e.g. `java@temurin-21`.
+    pub spec: String,
+    /// Already in the agent's tools folder: nothing to download, `bytes` and `downloadBytes` are 0.
+    pub installed: bool,
+    /// Disk space once installed, bytes.
+    pub bytes: u64,
+    /// Download size, bytes (`0` when not known for this tool).
+    pub download_bytes: u64,
+    /// The sizes were measured on this kind of machine (OS and CPU); otherwise they are the
+    /// measurements of another one, used as an estimate.
+    pub measured: bool,
+}
+
 /// Request of `POST /v1/save`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct SaveRequest {

@@ -5,10 +5,11 @@
 use std::sync::Arc;
 
 use vf_protocol::http::{
-    AiResponse, DescribeRequest, FileDiffResponse, FileResponse, GithubConnectResponse,
-    GithubStatusResponse, GraphResponse, GraphSource, ImportRequest, ImportResponse,
-    JournalResponse, ModelsResponse, ProjectFilesResponse, ProjectsResponse, RollbackResponse,
-    SaveRequest, SaveResponse, SaveStep,
+    AiResponse, DescribeRequest, EnvironmentResponse, FileDiffResponse, FileResponse,
+    GithubConnectResponse, GithubStatusResponse, GraphResponse, GraphSource,
+    ImportProgressResponse, ImportRequest, ImportResponse, ImportState, JournalResponse,
+    ModelsResponse, ProjectFilesResponse, ProjectsResponse, RollbackResponse, SaveRequest,
+    SaveResponse, SaveStep, ToolEstimate,
 };
 use vf_protocol::ws::ServerMessage;
 use vf_protocol::{Backend, BackendError, Cancel, TaskRequest};
@@ -64,6 +65,40 @@ impl Backend for FakeBackend {
             return Err(BackendError::RateLimited { reset_minutes: 42 });
         }
         Err(BackendError::BadRequest(req.repo.clone()))
+    }
+    /// Echoes whose import it is in `error`, so a test sees the owner the server passed.
+    fn import_progress(
+        &self,
+        owner: &str,
+        repo: &str,
+    ) -> Result<ImportProgressResponse, BackendError> {
+        Ok(ImportProgressResponse {
+            state: ImportState::Downloading,
+            done: 1,
+            total: 2,
+            error: Some(format!("{owner}|{repo}")),
+            ..ImportProgressResponse::default()
+        })
+    }
+    fn environment(&self, project: Option<&str>) -> Result<EnvironmentResponse, BackendError> {
+        let tool = |name: &str, spec: &str| ToolEstimate {
+            name: name.into(),
+            spec: spec.into(),
+            installed: false,
+            bytes: 10,
+            download_bytes: 4,
+            measured: true,
+        };
+        let tools = match project {
+            Some("demo") => vec![tool("node", "node@lts")],
+            Some(_) => return Err(BackendError::NotFound("project not found".into())),
+            None => vec![tool("node", "node@lts"), tool("go", "go@latest")],
+        };
+        Ok(EnvironmentResponse {
+            total_bytes: 10 * tools.len() as u64,
+            total_download_bytes: 4 * tools.len() as u64,
+            tools,
+        })
     }
     fn save_needs_confirm(&self, _: &str) -> bool {
         true
