@@ -1012,6 +1012,97 @@ async fn files_need_a_session_and_a_project_grant() {
 }
 
 #[tokio::test]
+async fn import_progress_belongs_to_the_session_that_imports() {
+    let app = app(true);
+    let path = "/v1/projects/import/progress?repo=octo/notes-app";
+    assert_eq!(
+        call(&app, Req::get(path, Some(UI))).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    let browser = Browser::new();
+    let key_id = pair(&app, &browser, UI).await;
+    let token = login(&app, &browser, &key_id, UI).await;
+    let (status, v, _) = call(
+        &app,
+        Req {
+            token: Some(&token),
+            ..Req::get(path, Some(UI))
+        },
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(v["state"], json!("downloading"));
+    // The owner is the session's key and origin, never something the request names.
+    assert_eq!(v["error"], json!(format!("{key_id} {UI}|octo/notes-app")));
+    let other = Browser::new();
+    let other_key = pair(&app, &other, UI).await;
+    let other_token = login(&app, &other, &other_key, UI).await;
+    let (_, v, _) = call(
+        &app,
+        Req {
+            token: Some(&other_token),
+            ..Req::get(path, Some(UI))
+        },
+    )
+    .await;
+    assert_eq!(
+        v["error"],
+        json!(format!("{other_key} {UI}|octo/notes-app"))
+    );
+}
+
+#[tokio::test]
+async fn the_environment_of_a_project_needs_its_grant() {
+    let dir = temp_dir();
+    let browser = Browser::new();
+    let make = |allows: bool| {
+        router(
+            Config {
+                port: PORT,
+                allowed_origins: vec![UI.into()],
+                extra_origins: vec![],
+            },
+            Auth::load(dir.clone(), Arc::new(Always(allows))).unwrap(),
+            Arc::new(RwLock::new(None)),
+            common::backend(),
+        )
+    };
+    let key_id = pair(&make(true), &browser, UI).await;
+    let denying = make(false);
+    for path in ["/v1/environment", "/v1/environment?project=demo"] {
+        assert_eq!(
+            call(&denying, Req::get(path, Some(UI))).await.0,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+    let denied = login(&denying, &browser, &key_id, UI).await;
+    let r = Req {
+        token: Some(&denied),
+        ..Req::get("/v1/environment?project=demo", Some(UI))
+    };
+    assert_eq!(call(&denying, r).await.0, StatusCode::FORBIDDEN);
+    // Every tool the agent can install needs no project grant.
+    let r = Req {
+        token: Some(&denied),
+        ..Req::get("/v1/environment", Some(UI))
+    };
+    let (status, v, _) = call(&denying, r).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(v["tools"].as_array().map(Vec::len), Some(2));
+    let allowing = make(true);
+    let token = login(&allowing, &browser, &key_id, UI).await;
+    let r = Req {
+        token: Some(&token),
+        ..Req::get("/v1/environment?project=demo", Some(UI))
+    };
+    let (status, v, _) = call(&allowing, r).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(v["tools"][0]["spec"], json!("node@lts"));
+    assert_eq!(v["totalBytes"], json!(10));
+    assert_eq!(v["totalDownloadBytes"], json!(4));
+}
+
+#[tokio::test]
 async fn ai_status_needs_a_session() {
     let dir = temp_dir();
     let browser = Browser::new();

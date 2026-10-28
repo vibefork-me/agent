@@ -28,10 +28,11 @@ use vf_journal::{CanvasLog as _, JournalStore as _};
 use vf_platform::{CanvasFiles, JournalFiles, ProjectError, Projects, Settings};
 use vf_protocol::canvas::{CanvasEvent, CanvasResponse, MAX_CANVAS_PAGE, Stage};
 use vf_protocol::http::{
-    AiConnected, AiKind, AiProvider, AiResponse, DescribeRequest, FileDiffResponse, FileResponse,
-    GithubConnectResponse, GithubStatusResponse, GraphResponse, ImportRequest, ImportResponse,
-    JournalResponse, ModelsResponse, ProjectFilesResponse, ProjectInfo, ProjectsResponse,
-    RollbackResponse, SaveRequest, SaveResponse,
+    AiConnected, AiKind, AiProvider, AiResponse, DescribeRequest, EnvironmentResponse,
+    FileDiffResponse, FileResponse, GithubConnectResponse, GithubStatusResponse, GraphResponse,
+    ImportProgressResponse, ImportRequest, ImportResponse, JournalResponse, ModelsResponse,
+    ProjectFilesResponse, ProjectInfo, ProjectsResponse, RollbackResponse, SaveRequest,
+    SaveResponse,
 };
 use vf_protocol::ws::ServerMessage;
 use vf_protocol::{Backend, BackendError, Cancel, ModelInfo, TaskRequest};
@@ -62,6 +63,8 @@ pub struct Engine {
     sandbox_helper: Option<PathBuf>,
     state_dir: PathBuf,
     sign_in: github::SignInState,
+    /// The last import of each browser session, for its progress.
+    imports: github::Imports,
     /// CLIs being installed now.
     installing: Mutex<HashSet<String>>,
 }
@@ -92,6 +95,7 @@ impl Engine {
             sandbox_helper: None,
             state_dir: settings.state_dir.clone(),
             sign_in: Default::default(),
+            imports: Default::default(),
             installing: Mutex::new(HashSet::new()),
         }
     }
@@ -654,7 +658,31 @@ impl Backend for Engine {
     }
 
     fn import(&self, req: &ImportRequest) -> Result<ImportResponse, BackendError> {
-        self.import_project(req)
+        self.import_project(req, "")
+    }
+
+    fn import_for(&self, req: &ImportRequest, owner: &str) -> Result<ImportResponse, BackendError> {
+        self.import_project(req, owner)
+    }
+
+    fn import_progress(
+        &self,
+        owner: &str,
+        repo: &str,
+    ) -> Result<ImportProgressResponse, BackendError> {
+        Ok(self.import_progress_of(owner, repo))
+    }
+
+    fn environment(&self, project: Option<&str>) -> Result<EnvironmentResponse, BackendError> {
+        Ok(match project {
+            Some(project) => {
+                let dir = self.projects.resolve(project).map_err(project_error)?;
+                vf_toolchains::estimates::estimate_project(&dir, &self.tools)
+            }
+            None => {
+                vf_toolchains::estimates::estimate(&self.tools, vf_toolchains::estimates::catalog())
+            }
+        })
     }
 
     fn save_needs_confirm(&self, project: &str) -> bool {

@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::canvas::{CanvasEvent, NoteAttachment};
 use crate::event::Event;
-use crate::http::ImportStatus;
 use crate::model::ModelInfo;
 
 /// Messages from the browser.
@@ -135,11 +134,11 @@ pub struct StepInfo {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolchainStatus {
-    /// Installing.
+    /// Installing (started; what it is doing is not known yet).
     Installing,
-    /// Downloading installer or archive.
+    /// Downloading the tool; `done` / `total` in bytes when known.
     Downloading,
-    /// Extracting archive files.
+    /// Unpacking and setting the tool up.
     Extracting,
     /// Ready.
     Ready,
@@ -200,47 +199,29 @@ pub enum ServerMessage {
         status: ToolchainStatus,
         /// Tool, e.g. `java@temurin-21`.
         tool: String,
-        /// Downloaded bytes so far (if known).
+        /// When downloading: bytes downloaded so far (measured on disk).
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        downloaded: Option<u64>,
-        /// Total bytes to download (if known).
+        done: Option<u64>,
+        /// When downloading: the expected download size in bytes (the agent's estimate for the
+        /// tool, raised to `done` when the download is larger).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         total: Option<u64>,
-        /// Estimated seconds remaining.
+        /// When downloading: seconds left at the average speed so far.
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        eta: Option<f64>,
+        eta: Option<u64>,
         /// Install path when ready.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         path: Option<String>,
         /// Seconds spent, when ready.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         seconds: Option<String>,
-        /// Error, when failed.
+        /// Error, when failed, in plain English; an editor words it itself by `code`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         error: Option<String>,
-    },
-    /// Project import progress.
-    ImportProgress {
-        /// Status.
-        status: ImportStatus,
-        /// Repo being imported.
+        /// Machine-readable error code, when failed: `unsupported_platform` (no `mise` build for
+        /// this OS), `download_failed` (of `mise`), `install_failed`, `timed_out`, `cancelled`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        repo: Option<String>,
-        /// Downloaded bytes.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        downloaded: Option<u64>,
-        /// Total bytes.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        total: Option<u64>,
-        /// Speed in bytes per second.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        speed: Option<f64>,
-        /// ETA in seconds.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        eta: Option<f64>,
-        /// Error message if failed.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        error: Option<String>,
+        code: Option<String>,
     },
     /// A step (or a single task) started.
     Started {

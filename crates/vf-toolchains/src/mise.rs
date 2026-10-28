@@ -13,6 +13,10 @@ use crate::download::download;
 pub const VERSION: &str = "2026.10.3";
 /// How long one tool install may take.
 const INSTALL_TIMEOUT: Duration = Duration::from_secs(1800);
+/// The error of a `mise` run stopped by its time limit.
+pub const TIMED_OUT: &str = "timed out";
+/// The error of a `mise` run stopped by the user.
+pub const CANCELLED: &str = "cancelled";
 
 /// Release asset and its SHA-256 for this OS and CPU.
 fn asset() -> Option<(&'static str, &'static str)> {
@@ -44,6 +48,11 @@ fn asset() -> Option<(&'static str, &'static str)> {
         ),
         _ => return None,
     })
+}
+
+/// Whether there is a pinned `mise` build for this OS and CPU.
+pub fn is_supported() -> bool {
+    asset().is_some()
 }
 
 /// `RUSTUP_HOME` and `CARGO_HOME` in `tools`: toolchains, the `cargo` / `rustc` proxies and the
@@ -102,7 +111,7 @@ impl Mise {
         ] {
             cmd.env(k, self.tools.join(dir));
         }
-        cmd.env("MISE_YES", "1");
+        cmd.env("MISE_YES", "1").env("MISE_QUIET", "1");
         // Installers run tools of their own (Node, rustup): their temp files stay here too.
         let tmp = self.tools.join("tmp");
         let _ = std::fs::create_dir_all(&tmp);
@@ -117,22 +126,21 @@ impl Mise {
 
     /// Installs a tool (no-op when installed) and returns its folder.
     pub fn install(&self, spec: &str, cancel: &Cancel) -> Result<PathBuf, String> {
-        self.install_with_progress(spec, cancel, &mut |_| {})
+        self.install_with(spec, cancel, &mut || {})
     }
 
-    /// Installs a tool and reports downloading/extracting progress as it runs.
-    pub fn install_with_progress(
+    /// [`Mise::install`] that calls `tick` about every 200 ms while `mise` runs.
+    pub fn install_with(
         &self,
         spec: &str,
         cancel: &Cancel,
-        progress: &mut dyn FnMut(crate::Progress),
+        tick: &mut dyn FnMut(),
     ) -> Result<PathBuf, String> {
-        let (code, stdout, stderr) = run_with_progress(
+        let (code, stdout, stderr) = run(
             self.command(&["install", spec]),
             cancel,
             INSTALL_TIMEOUT,
-            spec,
-            progress,
+            tick,
         )?;
         if code != 0 {
             let output = stdout + &stderr;
@@ -155,6 +163,7 @@ impl Mise {
             self.command(&["where", spec]),
             cancel,
             Duration::from_secs(60),
+            &mut || {},
         )?;
         let path = stdout
             .lines()
@@ -184,153 +193,49 @@ fn plain_command(bin: &Path) -> Command {
     Command::new(bin)
 }
 
-/// Runs to the end; returns the exit code, stdout and stderr.
+/// Runs to the end, calling `tick` between checks; returns the exit code, stdout and stderr.
 fn run(
-    cmd: Command,
-    cancel: &Cancel,
-    timeout: Duration,
-) -> Result<(i32, String, String), String> {
-    run_with_progress(cmd, cancel, timeout, "", &mut |_| {})
-}
-
-/// Runs to the end, parsing progress lines as they arrive from stderr.
-fn run_with_progress(
     mut cmd: Command,
     cancel: &Cancel,
     timeout: Duration,
-    tool: &str,
-    progress: &mut dyn FnMut(crate::Progress),
+    tick: &mut dyn FnMut(),
 ) -> Result<(i32, String, String), String> {
-    use std::io::{BufRead, BufReader, Read};
-    use std::sync::mpsc;
-
+    use std::io::Read;
+    fn reader(pipe: Option<impl Read + Send + 'static>) -> std::thread::JoinHandle<String> {
+        std::thread::spawn(move || {
+            let mut s = String::new();
+            if let Some(mut p) = pipe {
+                let _ = p.read_to_string(&mut s);
+            }
+            s
+        })
+    }
     cmd.stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
     let mut child = cmd.spawn().map_err(|e| format!("cannot start mise: {e}"))?;
-
-    let out_handle = std::thread::spawn({
-        let mut stdout = child.stdout.take();
-        move || {
-            let mut s = String::new();
-            if let Some(mut p) = stdout.take() {
-                let _ = p.read_to_string(&mut s);
-            }
-            s
-        }
-    });
-
-    let (tx, rx) = mpsc::channel();
-    let err_handle = std::thread::spawn({
-        let stderr = child.stderr.take();
-        let tool_name = tool.to_owned();
-        move || {
-            let mut all_err = String::new();
-            if let Some(p) = stderr {
-                let reader = BufReader::new(p);
-                for line_res in reader.lines() {
-                    if let Ok(line) = line_res {
-                        if let Some(p) = parse_progress_line(&line, &tool_name) {
-                            let _ = tx.send(p);
-                        }
-                        all_err.push_str(&line);
-                        all_err.push('\n');
-                    }
-                }
-            }
-            all_err
-        }
-    });
-
+    let out = reader(child.stdout.take());
+    let err = reader(child.stderr.take());
     let started = std::time::Instant::now();
     loop {
-        while let Ok(p) = rx.try_recv() {
-            progress(p);
-        }
         if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
-            while let Ok(p) = rx.try_recv() {
-                progress(p);
-            }
             return Ok((
                 status.code().unwrap_or(-1),
-                out_handle.join().unwrap_or_default(),
-                err_handle.join().unwrap_or_default(),
+                out.join().unwrap_or_default(),
+                err.join().unwrap_or_default(),
             ));
         }
-        if cancel.wait(Duration::from_millis(100)) || started.elapsed() > timeout {
+        if cancel.wait(Duration::from_millis(200)) || started.elapsed() > timeout {
             let _ = child.kill();
             let _ = child.wait();
             return Err(if cancel.is_cancelled() {
-                "cancelled".into()
+                CANCELLED.into()
             } else {
-                "timed out".into()
+                TIMED_OUT.into()
             });
         }
+        tick();
     }
-}
-
-fn parse_progress_line(line: &str, tool: &str) -> Option<crate::Progress> {
-    if line.contains("downloading") {
-        let (downloaded, total) = parse_bytes_fraction(line)?;
-        let eta = parse_eta(line, downloaded, total);
-        Some(crate::Progress::Downloading {
-            tool: tool.to_owned(),
-            downloaded,
-            total,
-            eta,
-        })
-    } else if line.contains("extracting") {
-        Some(crate::Progress::Extracting {
-            tool: tool.to_owned(),
-        })
-    } else {
-        None
-    }
-}
-
-fn parse_bytes_fraction(line: &str) -> Option<(u64, Option<u64>)> {
-    let parts: Vec<&str> = line.split_whitespace().collect();
-    for window in parts.windows(2) {
-        if let Some((curr_str, tot_str)) = window[0].split_once('/') {
-            let unit = window[1];
-            if let (Ok(curr), Ok(tot)) = (curr_str.parse::<f64>(), tot_str.parse::<f64>()) {
-                let mult = match unit {
-                    "GB" => 1024.0 * 1024.0 * 1024.0,
-                    "MB" => 1024.0 * 1024.0,
-                    "kB" | "KB" => 1024.0,
-                    _ => 1.0,
-                };
-                return Some(((curr * mult) as u64, Some((tot * mult) as u64)));
-            }
-        }
-    }
-    None
-}
-
-fn parse_eta(line: &str, downloaded: u64, total: Option<u64>) -> Option<f64> {
-    let tot = total?;
-    if tot <= downloaded {
-        return Some(0.0);
-    }
-    let parts: Vec<&str> = line.split_whitespace().collect();
-    for window in parts.windows(2) {
-        if window[1].ends_with("/s") {
-            let unit = window[1].trim_end_matches("/s");
-            if let Ok(speed_num) = window[0].parse::<f64>() {
-                let mult = match unit {
-                    "GB" => 1024.0 * 1024.0 * 1024.0,
-                    "MB" => 1024.0 * 1024.0,
-                    "kB" | "KB" => 1024.0,
-                    _ => 1.0,
-                };
-                let speed_bytes = speed_num * mult;
-                if speed_bytes > 0.0 {
-                    return Some((tot - downloaded) as f64 / speed_bytes);
-                }
-            }
-        }
-    }
-    None
 }
 
 #[cfg(unix)]

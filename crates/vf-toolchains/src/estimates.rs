@@ -1,189 +1,225 @@
-//! Disk space and download size estimates for toolchains detected by [`crate::detect`].
+//! What the tools of a project take on disk and download, before anything is installed.
 //!
-//! Real measurements on Windows x64 using pinned mise 2026.10.3 (in the agent's tools folder):
-//! - `tools/bin/mise.exe`: 188.2 MB (197,325,824 bytes)
-//! - `node@lts` (v24.22.1): archive 37.7 MB, installed 102.4 MB (107,344,000 bytes)
-//!   Command: `mise.exe install node@lts`
-//!   Output: `node@24.22.1 downloading 20.7/37.7 MB · 9.2 MB/s ... installed in 9.9s`
-//! - `python@3.12` (v3.12.15): archive 22.0 MB, installed 60.4 MB (63,320,000 bytes)
-//!   Command: `mise.exe install python@3.12`
-//!   Output: `python@3.12.15 downloading 22.0/22.0 MB ... installed in 11.2s`
-//! - `go@1.23` (v1.23.12): archive 82.0 MB, installed 232.6 MB (243,870,000 bytes)
-//!   Command: `mise.exe install go@1.23`
-//!   Output: `go@1.23.12 downloading 82.0/82.0 MB ... installed in 24.8s`
-//! - `java@temurin-21` (v21.0.12.1): archive 205.1 MB, installed 327.9 MB (343,819,264 bytes)
-//!   Command: `mise.exe install java@temurin-21`
-//!   Output: `java@temurin-21.0.12+101.0.LTS downloading 205.1 MB ... installed in 27.7s`
-//! - `gradle@8` (v8.14.6): archive 139.4 MB, installed 147.5 MB (154,635,000 bytes)
-//!   Command: `mise.exe install gradle@8`
-//!   Output: `gradle@8.14.6 downloading 139.4 MB ... installed in 22.0s`
-//! - `maven@3` (v3.10.0): archive 10.0 MB, installed 11.2 MB (11,780,000 bytes)
-//!   Command: `mise.exe install maven@3`
-//!   Output: `maven@3.10.0 downloading 10.0 MB ... installed in 40.3s`
-//! - `rust@stable`: installed 1342.2 MB (rustup toolchain: 1330.0 MB + cargo home: 12.1 MB)
-//!   Command: `mise.exe install rust@stable` (runs rustup)
+//! Sizes are measured on Windows x64 with the pinned `mise` ([`crate::mise::VERSION`]) into an
+//! agent tools folder; elsewhere they serve as estimates ([`ToolEstimate::measured`] is `false`).
+//!
+//! - Installed: `du -sb <tools>/mise-data/installs/<tool>` after `mise install <spec>`:
+//!   `node@lts` (24.22.1) 107 345 970, `python@3.12` (3.12.15) 63 228 563, `go@1.23` (1.23.12)
+//!   243 869 155, `java@temurin-21` (21.0.12+101) 343 823 876, `gradle@8` (8.14.6) 154 630 180,
+//!   `maven@3` (3.10.0) 11 784 219 bytes. `rust@stable`: `du -sb <tools>/rustup <tools>/cargo`
+//!   (rustup's toolchain with its default components and the cargo home) — see [`RUST`].
+//! - Downloaded: `Content-Length` of the files `mise` fetches for those versions:
+//!   `node-v24.22.1-win-x64.zip` 37 748 064, `cpython-3.12.15+…-x86_64-pc-windows-msvc-install_only_stripped.tar.gz`
+//!   21 990 627, `go1.23.12.windows-amd64.zip` 81 978 626, Temurin JDK 21.0.12+1 x64 Windows zip
+//!   205 073 461, `gradle-8.14.6-bin.zip` 139 420 601, `apache-maven-3.10.0-bin.zip` 10 102 082
+//!   bytes. Rust's download (rustup's components) is not measured: `0`, unknown.
 
 use std::path::Path;
 
-use vf_protocol::http::ToolEstimate;
+use vf_protocol::http::{EnvironmentResponse, ToolEstimate};
 
 use crate::detect::{Need, detect};
-use crate::mise::Mise;
 
-/// Expected disk space and download size in bytes.
+/// Disk space and download of one tool, bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SizeEstimate {
-    /// Expected folder size when extracted / installed.
-    pub installed_bytes: u64,
-    /// Expected download archive size.
-    pub download_bytes: u64,
+pub struct Size {
+    /// Disk space once installed.
+    pub installed: u64,
+    /// What is downloaded; `0` when not known.
+    pub download: u64,
 }
 
-/// Estimates disk space and download size for a known tool category.
-pub fn estimate_tool(name: &str) -> SizeEstimate {
-    match name {
-        "java" => SizeEstimate {
-            installed_bytes: 343_819_264, // ~328 MB (measured Temurin-21)
-            download_bytes: 215_062_528,  // ~205 MB zip
-        },
-        "node" => SizeEstimate {
-            installed_bytes: 107_344_000, // ~102 MB (measured Node LTS)
-            download_bytes: 39_531_000,   // ~37.7 MB zip
-        },
-        "python" => SizeEstimate {
-            installed_bytes: 63_320_000, // ~60 MB (measured Python 3.12)
-            download_bytes: 23_068_000,  // ~22 MB tar.gz
-        },
-        "go" => SizeEstimate {
-            installed_bytes: 243_870_000, // ~233 MB (measured Go 1.23)
-            download_bytes: 85_983_000,   // ~82 MB zip
-        },
-        "gradle" => SizeEstimate {
-            installed_bytes: 154_635_000, // ~148 MB (measured Gradle 8)
-            download_bytes: 146_171_000,  // ~139.4 MB zip
-        },
-        "maven" => SizeEstimate {
-            installed_bytes: 11_780_000, // ~11.2 MB (measured Maven 3)
-            download_bytes: 10_485_000,  // ~10 MB tar.gz
-        },
-        "rust" => SizeEstimate {
-            installed_bytes: 1_407_250_000, // ~1342 MB (measured rustup + cargo)
-            download_bytes: 350_000_000,    // ~350 MB components download
-        },
-        _ => SizeEstimate {
-            installed_bytes: 100_000_000, // fallback 100 MB
-            download_bytes: 50_000_000,   // fallback 50 MB
-        },
+/// Rust (`rust@stable`): rustup's stable toolchain with its default components and the cargo home.
+pub const RUST: Size = Size {
+    installed: 1_407_250_000,
+    download: 0,
+};
+
+/// Sizes of a tool by its name (`java`, `node`, …); `None` for a tool without a measurement.
+pub fn size(name: &str) -> Option<Size> {
+    let (installed, download) = match name {
+        "node" => (107_345_970, 37_748_064),
+        "python" => (63_228_563, 21_990_627),
+        "go" => (243_869_155, 81_978_626),
+        "java" => (343_823_876, 205_073_461),
+        "gradle" => (154_630_180, 139_420_601),
+        "maven" => (11_784_219, 10_102_082),
+        "rust" => return Some(RUST),
+        _ => return None,
+    };
+    Some(Size {
+        installed,
+        download,
+    })
+}
+
+/// Whether the sizes of [`size`] were measured on this kind of machine.
+pub fn measured_here() -> bool {
+    cfg!(all(windows, target_arch = "x86_64"))
+}
+
+/// Every tool the agent can install, with the spec it installs when a project does not say.
+pub fn catalog() -> Vec<Need> {
+    [
+        ("java", "java@temurin-21"),
+        ("gradle", "gradle@8"),
+        ("maven", "maven@3"),
+        ("node", "node@lts"),
+        ("python", "python@3.12"),
+        ("go", "go@latest"),
+        ("rust", "rust@stable"),
+    ]
+    .into_iter()
+    .map(|(name, spec)| Need {
+        name: name.into(),
+        spec: spec.into(),
+    })
+    .collect()
+}
+
+/// Whether `need` is in the tools folder: `mise` keeps each installed version and its aliases
+/// (`lts`, `temurin-21`, `3.12`, `stable`) under `mise-data/installs/<tool>/`.
+pub fn is_installed(tools: &Path, need: &Need) -> bool {
+    let Some((_, version)) = need.spec.split_once('@') else {
+        return false;
+    };
+    if version.is_empty() || version.contains(['/', '\\']) || version.starts_with('.') {
+        return false;
     }
+    tools
+        .join("mise-data")
+        .join("installs")
+        .join(&need.name)
+        .join(version)
+        .symlink_metadata()
+        .is_ok()
 }
 
-/// Checks which tools `dir` needs, whether each is already installed in `tools`,
-/// and calculates total disk space and download sizes required.
-pub fn estimate_environment(dir: &Path, tools: &Path) -> (Vec<ToolEstimate>, u64, u64) {
-    let needs: Vec<Need> = detect(dir);
-    let mise = Mise::new(tools);
-    let cancel = vf_protocol::Cancel::new();
-
-    let mut out = Vec::with_capacity(needs.len());
-    let mut total_bytes = 0u64;
-    let mut total_download = 0u64;
-
+/// The tools `needs` and what the missing ones take.
+pub fn estimate(tools: &Path, needs: Vec<Need>) -> EnvironmentResponse {
+    let measured = measured_here();
+    let mut out = EnvironmentResponse {
+        tools: Vec::with_capacity(needs.len()),
+        total_bytes: 0,
+        total_download_bytes: 0,
+    };
     for need in needs {
-        let is_installed = if need.name == "rust" {
-            // Rust is considered installed if cargo home has bin/cargo or rustup has toolchains
-            tools.join("cargo").join("bin").join("cargo.exe").is_file()
-                || tools.join("cargo").join("bin").join("cargo").is_file()
-                || mise.location(&need.spec, &cancel).is_ok()
-        } else {
-            mise.location(&need.spec, &cancel).is_ok()
+        let installed = is_installed(tools, &need);
+        let size = match size(&need.name) {
+            Some(s) if !installed => s,
+            _ => Size {
+                installed: 0,
+                download: 0,
+            },
         };
-
-        let est = estimate_tool(&need.name);
-        let bytes = if is_installed { 0 } else { est.installed_bytes };
-        let download_bytes = if is_installed { 0 } else { est.download_bytes };
-
-        total_bytes = total_bytes.saturating_add(bytes);
-        total_download = total_download.saturating_add(download_bytes);
-
-        out.push(ToolEstimate {
+        out.total_bytes = out.total_bytes.saturating_add(size.installed);
+        out.total_download_bytes = out.total_download_bytes.saturating_add(size.download);
+        out.tools.push(ToolEstimate {
             name: need.name,
             spec: need.spec,
-            installed: is_installed,
-            bytes,
-            download_bytes,
+            installed,
+            bytes: size.installed,
+            download_bytes: size.download,
+            measured,
         });
     }
+    out
+}
 
-    (out, total_bytes, total_download)
+/// What `dir` needs ([`detect`]) and what the missing tools take.
+pub fn estimate_project(dir: &Path, tools: &Path) -> EnvironmentResponse {
+    estimate(tools, detect(dir))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn temp_project(files: &[(&str, &str)]) -> std::path::PathBuf {
-        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let counter = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or_default();
-        let dir = std::env::temp_dir().join(format!(
-            "vf-est-test-{}-{nanos}-{counter}",
-            std::process::id()
-        ));
-        let _ = std::fs::create_dir_all(&dir);
-        for (f, c) in files {
-            let _ = std::fs::write(dir.join(f), c);
+    fn temp(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("vf-estimates-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn project(root: &Path, files: &[&str]) -> std::path::PathBuf {
+        let dir = root.join("notes-app");
+        std::fs::create_dir_all(&dir).unwrap();
+        for f in files {
+            std::fs::write(dir.join(f), "").unwrap();
         }
         dir
     }
 
     #[test]
-    fn estimates_fixtures() {
-        let dummy_tools = std::env::temp_dir().join(format!("vf-tools-dummy-{}", std::process::id()));
-        let _ = std::fs::create_dir_all(&dummy_tools);
+    fn a_project_without_build_files_needs_nothing() {
+        let root = temp("empty");
+        let dir = project(&root, &["README.md"]);
+        let env = estimate_project(&dir, &root.join("tools"));
+        assert!(env.tools.is_empty());
+        assert_eq!((env.total_bytes, env.total_download_bytes), (0, 0));
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
-        // 1. Empty project
-        let p_empty = temp_project(&[("README.md", "# test")]);
-        let (tools, total, download) = estimate_environment(&p_empty, &dummy_tools);
-        assert!(tools.is_empty());
-        assert_eq!(total, 0);
-        assert_eq!(download, 0);
-        let _ = std::fs::remove_dir_all(&p_empty);
+    #[test]
+    fn a_maven_project_needs_java_and_maven() {
+        let root = temp("maven");
+        let dir = project(&root, &["pom.xml"]);
+        let env = estimate_project(&dir, &root.join("tools"));
+        let specs: Vec<&str> = env.tools.iter().map(|t| t.spec.as_str()).collect();
+        assert_eq!(specs, ["java@temurin-21", "maven@3"]);
+        assert!(env.tools.iter().all(|t| !t.installed));
+        assert_eq!(env.total_bytes, 343_823_876 + 11_784_219);
+        assert_eq!(env.total_download_bytes, 205_073_461 + 10_102_082);
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
-        // 2. Node project
-        let p_node = temp_project(&[("package.json", "{}")]);
-        let (tools, total, download) = estimate_environment(&p_node, &dummy_tools);
-        assert_eq!(tools.len(), 1);
-        assert_eq!(tools[0].name, "node");
-        assert_eq!(tools[0].spec, "node@lts");
-        assert!(!tools[0].installed);
-        assert_eq!(tools[0].bytes, 107_344_000);
-        assert_eq!(total, 107_344_000);
-        assert_eq!(download, 39_531_000);
-        let _ = std::fs::remove_dir_all(&p_node);
+    #[test]
+    fn an_installed_tool_takes_nothing() {
+        let root = temp("installed");
+        let dir = project(&root, &["package.json", "pyproject.toml"]);
+        let tools = root.join("tools");
+        // As `mise` leaves it: the version folder and an alias file.
+        let node = tools.join("mise-data").join("installs").join("node");
+        std::fs::create_dir_all(node.join("24.0.0")).unwrap();
+        std::fs::write(node.join("lts"), "./24.0.0").unwrap();
+        let env = estimate_project(&dir, &tools);
+        assert_eq!(env.tools.len(), 2);
+        let (node, python) = (&env.tools[0], &env.tools[1]);
+        assert_eq!((node.spec.as_str(), node.installed), ("node@lts", true));
+        assert_eq!((node.bytes, node.download_bytes), (0, 0));
+        assert_eq!(
+            (python.spec.as_str(), python.installed),
+            ("python@3.12", false)
+        );
+        assert_eq!(env.total_bytes, 63_228_563);
+        assert_eq!(env.total_download_bytes, 21_990_627);
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
-        // 3. Python project
-        let p_py = temp_project(&[("pyproject.toml", "")]);
-        let (tools, total, download) = estimate_environment(&p_py, &dummy_tools);
-        assert_eq!(tools.len(), 1);
-        assert_eq!(tools[0].name, "python");
-        assert_eq!(tools[0].spec, "python@3.12");
-        assert_eq!(total, 63_320_000);
-        assert_eq!(download, 23_068_000);
-        let _ = std::fs::remove_dir_all(&p_py);
+    #[test]
+    fn the_catalog_has_a_size_for_every_tool() {
+        let root = temp("catalog");
+        let env = estimate(&root, catalog());
+        assert_eq!(env.tools.len(), 7);
+        assert!(env.tools.iter().all(|t| t.bytes > 0));
+        assert_eq!(
+            env.total_bytes,
+            env.tools.iter().map(|t| t.bytes).sum::<u64>()
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
-        // 4. Java + Maven project
-        let p_java = temp_project(&[("pom.xml", "")]);
-        let (tools, total, download) = estimate_environment(&p_java, &dummy_tools);
-        assert_eq!(tools.len(), 2);
-        assert_eq!(tools[0].name, "java");
-        assert_eq!(tools[1].name, "maven");
-        assert_eq!(total, 343_819_264 + 11_780_000);
-        assert_eq!(download, 215_062_528 + 10_485_000);
-        let _ = std::fs::remove_dir_all(&p_java);
-
-        let _ = std::fs::remove_dir_all(&dummy_tools);
+    #[test]
+    fn specs_that_leave_the_tools_folder_are_not_installed() {
+        let root = temp("escape");
+        for spec in ["node@", "node@../x", "node@..", "node@a/b", "node"] {
+            let need = Need {
+                name: "node".into(),
+                spec: spec.into(),
+            };
+            assert!(!is_installed(&root, &need), "{spec}");
+        }
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

@@ -7,10 +7,10 @@ use std::time::Duration;
 
 use crate::canvas::{CanvasResponse, NoteAttachment};
 use crate::http::{
-    AiResponse, DescribeRequest, FileDiffResponse, FileResponse, GithubConnectResponse,
-    GithubStatusResponse, GraphResponse, ImportRequest, ImportResponse, JournalResponse,
-    ModelsResponse, ProjectFilesResponse, ProjectsResponse, RollbackResponse, SaveRequest,
-    SaveResponse,
+    AiResponse, DescribeRequest, EnvironmentResponse, FileDiffResponse, FileResponse,
+    GithubConnectResponse, GithubStatusResponse, GraphResponse, ImportProgressResponse,
+    ImportRequest, ImportResponse, JournalResponse, ModelsResponse, ProjectFilesResponse,
+    ProjectsResponse, RollbackResponse, SaveRequest, SaveResponse,
 };
 use crate::note::{MAX_PENDING_NOTES, MAX_TASK_NOTES, Note, NoteRejected};
 use crate::ws::ServerMessage;
@@ -355,6 +355,30 @@ pub trait Backend: Send + Sync {
     fn github_status(&self) -> Result<GithubStatusResponse, BackendError>;
     /// Takes a project from GitHub (an archive of one commit; no git on the machine).
     fn import(&self, req: &ImportRequest) -> Result<ImportResponse, BackendError>;
+    /// [`Backend::import`] for a browser session `owner`, whose progress
+    /// [`Backend::import_progress`] reports to the same `owner` only.
+    fn import_for(&self, req: &ImportRequest, owner: &str) -> Result<ImportResponse, BackendError> {
+        let _ = owner;
+        self.import(req)
+    }
+    /// Progress of the import of `repo` (`owner/name` or its URL) started by `owner`; `idle` when
+    /// there is none.
+    fn import_progress(
+        &self,
+        owner: &str,
+        repo: &str,
+    ) -> Result<ImportProgressResponse, BackendError> {
+        let _ = (owner, repo);
+        Ok(ImportProgressResponse::default())
+    }
+    /// The tools `project` needs and the disk space they take, without installing anything; without
+    /// a project — every tool the agent can install.
+    fn environment(&self, project: Option<&str>) -> Result<EnvironmentResponse, BackendError> {
+        let _ = project;
+        Err(BackendError::NotFound(
+            "not supported by this version of the agent".into(),
+        ))
+    }
     /// Whether saving this project must be confirmed by the user first (first save).
     fn save_needs_confirm(&self, project: &str) -> bool;
     /// Saves the project's work into the user's copy on GitHub, or tells the next step.

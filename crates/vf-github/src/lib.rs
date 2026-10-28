@@ -157,6 +157,9 @@ pub struct RepoInfo {
     pub parent: Option<String>,
     /// Private.
     pub private: bool,
+    /// Size GitHub reports for the repository, in KiB (`size`): the whole history, so a rough upper
+    /// guess of a one-commit archive; `None` when missing.
+    pub size_kib: Option<u64>,
 }
 
 /// The signed-in user.
@@ -190,9 +193,30 @@ fn block_on<F: Future>(f: F) -> Result<F::Output, GithubError> {
 }
 
 /// Reads a response body of at most `limit` bytes ([`vf_core::limits`]).
-async fn read_body(mut res: reqwest::Response, limit: usize) -> Result<Vec<u8>, GithubError> {
-    let mut body = LimitedBody::new(limit, res.content_length())
-        .map_err(|e| GithubError::Data(e.to_string()))?;
+async fn read_body(res: reqwest::Response, limit: usize) -> Result<Vec<u8>, GithubError> {
+    read_body_with(res, limit, &mut |_| {}).await
+}
+
+/// Bytes of a download received so far.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Received {
+    /// Bytes received.
+    pub done: u64,
+    /// Size the server declared (`Content-Length`); GitHub sends none for most archives.
+    pub declared: Option<u64>,
+}
+
+/// [`read_body`] that reports the bytes received after each chunk.
+async fn read_body_with(
+    mut res: reqwest::Response,
+    limit: usize,
+    on_chunk: &mut dyn FnMut(Received),
+) -> Result<Vec<u8>, GithubError> {
+    let declared = res.content_length();
+    let mut body =
+        LimitedBody::new(limit, declared).map_err(|e| GithubError::Data(e.to_string()))?;
+    let mut done = 0u64;
+    on_chunk(Received { done, declared });
     while let Some(chunk) = res
         .chunk()
         .await
@@ -200,6 +224,8 @@ async fn read_body(mut res: reqwest::Response, limit: usize) -> Result<Vec<u8>, 
     {
         body.push(&chunk)
             .map_err(|e| GithubError::Data(e.to_string()))?;
+        done = done.saturating_add(u64::try_from(chunk.len()).unwrap_or(u64::MAX));
+        on_chunk(Received { done, declared });
     }
     Ok(body.into_vec())
 }
@@ -320,6 +346,7 @@ impl Client {
                 default_branch: v["default_branch"].as_str().unwrap_or("main").to_owned(),
                 parent: v["parent"]["full_name"].as_str().map(str::to_owned),
                 private: v["private"].as_bool().unwrap_or(false),
+                size_kib: v["size"].as_u64(),
             })),
             Err(GithubError::NotFound) => Ok(None),
             Err(e) => Err(e),
@@ -398,6 +425,17 @@ impl Client {
 
     /// The `.tar.gz` of a repository at a commit.
     pub fn tarball(&self, full_name: &str, sha: &str) -> Result<Vec<u8>, GithubError> {
+        self.tarball_with(full_name, sha, &mut |_| {})
+    }
+
+    /// [`Client::tarball`] that reports the bytes received after each chunk (a failed anonymous
+    /// attempt is followed by the API one, which starts again from 0).
+    pub fn tarball_with(
+        &self,
+        full_name: &str,
+        sha: &str,
+        on_chunk: &mut dyn FnMut(Received),
+    ) -> Result<Vec<u8>, GithubError> {
         // For anonymous public repositories, download via codeload without consuming REST API quota.
         if self.token.is_none() {
             let codeload_url = format!("https://codeload.github.com/{full_name}/tar.gz/{sha}");
@@ -409,7 +447,7 @@ impl Client {
                         .await
                         .map_err(|e| GithubError::Http(e.to_string()))?;
                     if res.status().is_success() {
-                        read_body(res, limits::PROJECT_ARCHIVE).await
+                        read_body_with(res, limits::PROJECT_ARCHIVE, on_chunk).await
                     } else {
                         Err(GithubError::Http(format!("HTTP {}", res.status())))
                     }
@@ -440,7 +478,7 @@ impl Client {
                     GithubError::Http(format!("HTTP {status}"))
                 });
             }
-            read_body(res, limits::PROJECT_ARCHIVE).await
+            read_body_with(res, limits::PROJECT_ARCHIVE, on_chunk).await
         })?
     }
 
@@ -680,6 +718,101 @@ impl Client {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A local server that answers one request with `body` in chunks (`Content-Length` when
+    /// `declare`), and its address.
+    fn stub_server(body: Vec<u8>, declare: bool) -> String {
+        use std::io::{BufRead as _, BufReader, Write as _};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut line = String::new();
+            while reader.read_line(&mut line).unwrap() > 2 {
+                line.clear();
+            }
+            let mut out = stream;
+            let crlf = "\r\n";
+            if declare {
+                let head = format!(
+                    "HTTP/1.1 200 OK{crlf}Content-Length: {}{crlf}Connection: close{crlf}{crlf}",
+                    body.len()
+                );
+                out.write_all(head.as_bytes()).unwrap();
+                for chunk in body.chunks(1000) {
+                    out.write_all(chunk).unwrap();
+                    out.flush().unwrap();
+                }
+            } else {
+                let head = format!(
+                    "HTTP/1.1 200 OK{crlf}Transfer-Encoding: chunked{crlf}Connection: close{crlf}{crlf}"
+                );
+                out.write_all(head.as_bytes()).unwrap();
+                for chunk in body.chunks(1000) {
+                    out.write_all(format!("{:x}{crlf}", chunk.len()).as_bytes())
+                        .unwrap();
+                    out.write_all(chunk).unwrap();
+                    out.write_all(crlf.as_bytes()).unwrap();
+                    out.flush().unwrap();
+                }
+                out.write_all(format!("0{crlf}{crlf}").as_bytes()).unwrap();
+            }
+        });
+        format!("http://{addr}/archive.tar.gz")
+    }
+
+    fn fetch(url: &str, limit: usize) -> (Result<Vec<u8>, GithubError>, Vec<Received>) {
+        let mut seen = Vec::new();
+        let got = block_on(async {
+            let res = http().unwrap().get(url).send().await.unwrap();
+            read_body_with(res, limit, &mut |r| seen.push(r)).await
+        })
+        .unwrap();
+        (got, seen)
+    }
+
+    #[test]
+    fn a_download_reports_bytes_received_and_the_declared_size() {
+        let body: Vec<u8> = (0..5000u32).map(|i| (i % 251) as u8).collect();
+        let (got, seen) = fetch(&stub_server(body.clone(), true), 1 << 20);
+        assert_eq!(got.unwrap(), body);
+        assert_eq!(
+            seen.first(),
+            Some(&Received {
+                done: 0,
+                declared: Some(5000)
+            })
+        );
+        assert_eq!(
+            seen.last(),
+            Some(&Received {
+                done: 5000,
+                declared: Some(5000)
+            })
+        );
+        assert!(seen.windows(2).all(|w| w[0].done <= w[1].done));
+    }
+
+    #[test]
+    fn a_download_without_a_declared_size_still_counts_bytes() {
+        let body = vec![7u8; 3500];
+        let (got, seen) = fetch(&stub_server(body, false), 1 << 20);
+        assert_eq!(got.unwrap().len(), 3500);
+        assert_eq!(
+            seen.last(),
+            Some(&Received {
+                done: 3500,
+                declared: None
+            })
+        );
+    }
+
+    #[test]
+    fn a_download_over_its_bound_stops() {
+        let (got, _) = fetch(&stub_server(vec![1u8; 4000], false), 2500);
+        assert!(matches!(got, Err(GithubError::Data(_))));
+    }
 
     #[test]
     fn repo_names() {

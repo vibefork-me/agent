@@ -134,6 +134,21 @@ pub(crate) fn events_for(message: &ServerMessage) -> Vec<CanvasEvent> {
                 id: None,
             },
         ],
+        // A tool's download, when its size is known; `id` is the tool (`java@temurin-21`).
+        ServerMessage::Toolchain {
+            tool,
+            done: Some(done),
+            total: Some(total),
+            eta: Some(eta),
+            ..
+        } => vec![CanvasEvent::Progress {
+            done: *done,
+            total: *total,
+            unit: "bytes".into(),
+            eta: *eta,
+            text: None,
+            id: Some(tool.clone()),
+        }],
         ServerMessage::Paused => vec![CanvasEvent::Paused],
         ServerMessage::Resumed => vec![CanvasEvent::Resumed],
         ServerMessage::Cancelled => vec![CanvasEvent::Result {
@@ -280,6 +295,43 @@ mod tests {
         let records = log.0.borrow();
         assert_eq!(records.iter().map(|r| r.seq).collect::<Vec<_>>(), [1, 2]);
         assert_ne!(records[0].session, records[1].session);
+    }
+
+    #[test]
+    fn a_tool_download_is_progress_of_that_tool() {
+        let downloading = crate::step::toolchain_message(vf_toolchains::Progress::Downloading {
+            tool: "java@temurin-21".into(),
+            done: 188,
+            total: Some(520),
+            eta: Some(10),
+        });
+        assert_eq!(
+            events_for(&downloading),
+            [CanvasEvent::Progress {
+                done: 188,
+                total: 520,
+                unit: "bytes".into(),
+                eta: 10,
+                text: None,
+                id: Some("java@temurin-21".into()),
+            }]
+        );
+        let unknown = crate::step::toolchain_message(vf_toolchains::Progress::Downloading {
+            tool: "rust@stable".into(),
+            done: 700,
+            total: None,
+            eta: None,
+        });
+        assert!(events_for(&unknown).is_empty());
+        let failed = crate::step::toolchain_message(vf_toolchains::Progress::Failed {
+            tool: "go@1.23".into(),
+            error: "timed out".into(),
+            code: "timed_out",
+        });
+        assert!(matches!(
+            failed,
+            ServerMessage::Toolchain { code: Some(ref c), .. } if c == "timed_out"
+        ));
     }
 
     #[test]

@@ -4,14 +4,16 @@
 //! - [`detect`] — by layers: hints in `AGENTS.md` → version files → heuristics by build files;
 //! - [`mise`] — the pinned `mise` binary (downloaded on first need, resumable, SHA-256 checked) and
 //!   tool installs;
+//! - [`estimates`] — what the tools take on disk and download, before anything is installed;
 //! - [`prepare`] — installs what is needed and returns `PATH` entries and variables for the model's
-//!   processes.
+//!   processes, reporting each tool's stage, bytes and time left.
 
 pub mod cli;
 pub mod detect;
 pub mod download;
 pub mod estimates;
 pub mod mise;
+mod watch;
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -19,7 +21,6 @@ use std::time::Instant;
 use vf_protocol::Cancel;
 
 pub use detect::{Need, detect};
-pub use estimates::{SizeEstimate, estimate_environment, estimate_tool};
 pub use mise::Mise;
 
 /// Progress of [`prepare`].
@@ -30,18 +31,18 @@ pub enum Progress {
         /// Tool spec.
         tool: String,
     },
-    /// Downloading installer or archive with byte count and ETA if known.
+    /// Downloading a tool.
     Downloading {
         /// Tool spec.
         tool: String,
-        /// Downloaded bytes.
-        downloaded: u64,
-        /// Total expected download bytes.
+        /// Bytes downloaded so far.
+        done: u64,
+        /// Expected download size in bytes (never below `done`); `None` when not known.
         total: Option<u64>,
-        /// Estimated seconds remaining.
-        eta: Option<f64>,
+        /// Seconds left at the average speed so far.
+        eta: Option<u64>,
     },
-    /// Extracting archive files.
+    /// Unpacking and setting up a tool.
     Extracting {
         /// Tool spec.
         tool: String,
@@ -59,8 +60,11 @@ pub enum Progress {
     Failed {
         /// Tool spec.
         tool: String,
-        /// Reason.
+        /// Reason, in plain English.
         error: String,
+        /// `unsupported_platform`, `download_failed` (of `mise`), `install_failed`, `timed_out`,
+        /// `cancelled`.
+        code: &'static str,
     },
 }
 
@@ -176,9 +180,17 @@ pub fn prepare(
                 seconds: started.elapsed().as_secs_f64(),
             }),
             Err(error) => {
+                let code = if cancel.is_cancelled() {
+                    "cancelled"
+                } else if mise::is_supported() {
+                    "download_failed"
+                } else {
+                    "unsupported_platform"
+                };
                 progress(Progress::Failed {
                     tool: "mise".into(),
                     error,
+                    code,
                 });
                 return out;
             }
@@ -192,7 +204,16 @@ pub fn prepare(
         progress(Progress::Installing {
             tool: need.spec.clone(),
         });
-        match mise.install_with_progress(&need.spec, cancel, progress) {
+        let expected = estimates::size(&need.name).map_or(0, |s| s.download);
+        let mut watch = watch::InstallWatch::new(tools, &need, expected);
+        let mut tick = || {
+            let elapsed = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+            if let Some(p) = watch.sample(elapsed) {
+                progress(p);
+            }
+        };
+        let installed = mise.install_with(&need.spec, cancel, &mut tick);
+        match installed {
             Ok(home) => {
                 // `mise where rust` is the proxies folder itself (`CARGO_HOME/bin`).
                 let bin = home.join("bin");
@@ -208,10 +229,20 @@ pub fn prepare(
                     seconds: started.elapsed().as_secs_f64(),
                 });
             }
-            Err(error) => progress(Progress::Failed {
-                tool: need.spec,
-                error,
-            }),
+            Err(error) => {
+                let code = if cancel.is_cancelled() {
+                    "cancelled"
+                } else if error == mise::TIMED_OUT {
+                    "timed_out"
+                } else {
+                    "install_failed"
+                };
+                progress(Progress::Failed {
+                    tool: need.spec,
+                    error,
+                    code,
+                });
+            }
         }
     }
     out
