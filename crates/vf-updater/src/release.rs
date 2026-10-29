@@ -43,6 +43,17 @@ pub fn asset_name(binary: &str) -> String {
     )
 }
 
+/// Release file name of the per-user Windows installer for this processor:
+/// `vibefork-windows-x86_64.msi`.
+pub fn msi_name() -> String {
+    format!("vibefork-windows-{}.msi", std::env::consts::ARCH)
+}
+
+/// Release file name of the AppImage for this processor: `vibefork-linux-x86_64.AppImage`.
+pub fn appimage_name() -> String {
+    format!("vibefork-linux-{}.AppImage", std::env::consts::ARCH)
+}
+
 /// Whether version `a` is newer than `b` (dot-separated numbers; anything after `-` is ignored).
 pub fn is_newer(a: &str, b: &str) -> bool {
     let parse = |v: &str| -> Vec<u64> {
@@ -234,6 +245,88 @@ pub fn install(binary: &Path, bytes: &[u8], expected: &str) -> Result<(), Update
     Ok(())
 }
 
+/// Installs the verified Windows installer `msi` over the installation in `dir` and checks it.
+///
+/// The `binaries` (file names in `dir`) are moved into `park` first: Windows lets a running program
+/// be renamed, not overwritten, so the installer finds no file in use. `park` must be on the disk of
+/// `dir`; files left there by an earlier update are removed. Then `msiexec /i <msi> /passive
+/// /norestart INSTALLFOLDER=<dir>` runs (a progress bar, no questions, no administrator rights for a
+/// per-user installer), and `dir/vibefork.exe` must answer `version` with `expected`. On failure
+/// the moved binaries are put back. On success the old `vibefork.exe` is kept as [`previous`].
+pub fn install_msi(
+    dir: &Path,
+    binaries: &[String],
+    msi: &[u8],
+    expected: &str,
+    park: &Path,
+) -> Result<(), UpdateError> {
+    std::fs::create_dir_all(park)?;
+    // Programs moved here by an earlier update are no longer running.
+    if let Ok(entries) = std::fs::read_dir(park) {
+        for entry in entries.flatten() {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+    let package = park.join(format!("vibefork-{expected}.msi"));
+    std::fs::write(&package, msi)?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or_default();
+    let mut moved = Vec::new();
+    for name in binaries {
+        let from = dir.join(name);
+        if !from.exists() {
+            continue;
+        }
+        let to = park.join(format!("{name}.{stamp}"));
+        if let Err(e) = std::fs::rename(&from, &to) {
+            put_back(&moved);
+            return Err(e.into());
+        }
+        moved.push((from, to));
+    }
+    let log = park.join("msiexec.log");
+    let mut folder = std::ffi::OsString::from("INSTALLFOLDER=");
+    folder.push(dir.as_os_str());
+    let status = std::process::Command::new("msiexec")
+        .arg("/i")
+        .arg(&package)
+        .args(["/passive", "/norestart"])
+        .arg(folder)
+        .arg("/l*")
+        .arg(&log)
+        .status();
+    // 0: done; 3010: done, a restart would finish replacing a file somebody else holds.
+    let installed = match status {
+        Ok(s) if matches!(s.code(), Some(0 | 3010)) => Ok(()),
+        Ok(s) => Err(UpdateError::Broken(format!(
+            "the installer stopped with code {} (log: {})",
+            s.code().unwrap_or(-1),
+            log.display()
+        ))),
+        Err(e) => Err(UpdateError::Broken(format!("msiexec: {e}"))),
+    };
+    let core = dir.join("vibefork.exe");
+    if let Err(e) = installed.and_then(|()| self_check(&core, expected)) {
+        for (from, _) in &moved {
+            let _ = std::fs::remove_file(from);
+        }
+        put_back(&moved);
+        return Err(e);
+    }
+    if let Some((_, old)) = moved.iter().find(|(from, _)| *from == core) {
+        let _ = std::fs::copy(old, previous(&core));
+    }
+    Ok(())
+}
+
+fn put_back(moved: &[(PathBuf, PathBuf)]) {
+    for (from, to) in moved {
+        let _ = std::fs::rename(to, from);
+    }
+}
+
 /// Swaps `binary` and its [`previous`] copy.
 pub fn rollback(binary: &Path) -> Result<(), UpdateError> {
     let old = previous(binary);
@@ -292,6 +385,8 @@ mod tests {
     fn names() {
         let n = asset_name("vibefork");
         assert!(n.starts_with("vibefork-") && n.contains(std::env::consts::ARCH));
+        assert!(msi_name().starts_with("vibefork-windows-") && msi_name().ends_with(".msi"));
+        assert!(appimage_name().ends_with(&format!("{}.AppImage", std::env::consts::ARCH)));
         assert_eq!(
             previous(Path::new("/a/vibefork.exe")),
             Path::new("/a/vibefork.previous.exe")

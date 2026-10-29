@@ -1,0 +1,7 @@
+#!/bin/sh
+# Without arguments: the tray (it starts the agent). With arguments: the `vibefork` command.
+here="$(dirname "$(readlink -f "$0")")"
+if [ "$#" -eq 0 ]; then
+    exec "$here/usr/bin/vibefork-tray"
+fi
+exec "$here/usr/bin/vibefork" "$@"

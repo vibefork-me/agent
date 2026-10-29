@@ -3,8 +3,10 @@
 use std::process::ExitCode;
 
 use vf_platform::Settings;
-use vf_platform::install::{BINARIES, exe_name};
-use vf_updater::release::{Release, asset_name, install, is_newer, rollback};
+use vf_platform::install::{BINARIES, Kind, current_kind, exe_name};
+use vf_updater::release::{
+    Release, appimage_name, asset_name, install, install_msi, is_newer, msi_name, rollback,
+};
 
 /// Outcome of an update check.
 pub enum Outcome {
@@ -22,7 +24,9 @@ pub fn background_check_only(auto_update: bool) -> bool {
     !auto_update
 }
 
-/// Checks the channel and, unless `check_only`, installs a newer version next to the running binary.
+/// Checks the channel and, unless `check_only`, installs a newer version the way the running binaries
+/// were installed ([`Kind`]): the Windows installer runs its newer version, an AppImage replaces
+/// itself, other installations replace the binaries next to the running one.
 pub fn update(settings: &Settings, check_only: bool) -> Result<Outcome, String> {
     let key = vf_updater::signing::public_key(vf_updater::RELEASE_PUBLIC_KEY)
         .map_err(|e| e.to_string())?;
@@ -46,6 +50,26 @@ pub fn update(settings: &Settings, check_only: bool) -> Result<Outcome, String> 
         .parent()
         .map(std::path::Path::to_path_buf)
         .unwrap_or_default();
+    match current_kind() {
+        // The installer keeps "Installed apps" and the uninstaller in step with the version.
+        Kind::Msi if release.manifest.files.contains_key(&msi_name()) => {
+            let msi = rt
+                .block_on(release.download(&msi_name()))
+                .map_err(|e| e.to_string())?;
+            let names: Vec<String> = BINARIES.iter().map(|b| exe_name(b)).collect();
+            let park = settings.state_dir.join("update");
+            install_msi(&dir, &names, &msi, &version, &park).map_err(|e| e.to_string())?;
+            return Ok(Outcome::Updated(version));
+        }
+        Kind::AppImage(image) => {
+            let bytes = rt
+                .block_on(release.download(&appimage_name()))
+                .map_err(|e| e.to_string())?;
+            install(&image, &bytes, &version).map_err(|e| e.to_string())?;
+            return Ok(Outcome::Updated(version));
+        }
+        Kind::Msi | Kind::Portable | Kind::Files => {}
+    }
     for binary in BINARIES {
         let path = dir.join(exe_name(binary));
         let asset = asset_name(binary);
@@ -75,8 +99,12 @@ pub(crate) fn run(args: &[String]) -> ExitCode {
     match args.first().map(String::as_str) {
         Some("--auto") => set_auto(args.get(1).map(String::as_str)),
         Some("--rollback") => {
-            let Ok(exe) = std::env::current_exe() else {
-                return ExitCode::FAILURE;
+            let exe = match current_kind() {
+                Kind::AppImage(image) => image,
+                _ => match std::env::current_exe() {
+                    Ok(exe) => exe,
+                    Err(_) => return ExitCode::FAILURE,
+                },
             };
             match rollback(&exe) {
                 Ok(()) => {
