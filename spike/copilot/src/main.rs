@@ -63,6 +63,14 @@ fn probe(tok: &str) {
 }
 
 fn main() {
+    if std::env::args().any(|a| a == "--cli-login") {
+        // The official CLI's own sign-in (COPILOT_HOME), no token of ours.
+        let home = std::env::current_dir().unwrap().join("home");
+        let opts = ClientOptions::new()
+            .with_use_logged_in_user(true)
+            .with_env([("COPILOT_HOME", home.into_os_string())]);
+        return tokio::runtime::Runtime::new().unwrap().block_on(session(opts));
+    }
     let tok = token();
     probe(&tok);
     if std::env::args().any(|a| a == "--probe-only") {
@@ -72,7 +80,10 @@ fn main() {
 }
 
 async fn run(tok: String) {
-    let opts = ClientOptions::new().with_github_token(tok).with_use_logged_in_user(false);
+    session(ClientOptions::new().with_github_token(tok).with_use_logged_in_user(false)).await
+}
+
+async fn session(opts: ClientOptions) {
     let client = match Client::start(opts).await {
         Ok(c) => c,
         Err(e) => return println!("client start failed: {e}"),
