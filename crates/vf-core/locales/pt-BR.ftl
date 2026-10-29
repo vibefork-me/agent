@@ -19,28 +19,6 @@ project-access-text =
 
     Permita só se você estiver fazendo isso no navegador agora.
 
-## Confirming an action
-
-confirm-action-title = Vibefork: confirme uma ação
-confirm-action-text =
-    { $origin } pede para:
-
-    { $action }
-confirm-action-text-target =
-    { $origin } pede para:
-
-    { $action }
-    Destino: { $target }
-action-build = compilar o projeto (executa os scripts de compilação dele)
-action-run = executar o programa do projeto
-action-rollback = voltar o projeto a uma versão anterior (as mudanças posteriores são descartadas)
-action-rollback-part = deixar esta parte do projeto como estava antes da última tarefa que a mudou (as outras partes ficam como estão)
-action-save = salvar as mudanças do projeto na sua cópia no GitHub (ela pode ser pública)
-action-connect-ai-subscription = configurar { $provider } (app oficial) e entrar pelo navegador
-action-connect-ai-key = conectar { $provider } com uma chave de API
-action-connect-ai-user-home = Permitir que o Vibefork use o seu login do { $provider }? As sessões do agente vão aparecer no seu histórico do { $provider }.
-action-disconnect-ai = desconectar { $provider }
-
 ## Asking permission to act on the computer: what, why, the commands to check
 
 permission-title = Vibefork: ação no seu computador
@@ -98,14 +76,6 @@ ask-text-text =
 
     { $prompt }
 custom-openai-endpoint-prompt = digite o endereço base da API compatível com OpenAI (ex.: http://localhost:11434/v1):
-custom-openai-confirm-text =
-    { $origin } pede para conectar uma API própria compatível com OpenAI:
-
-    { $endpoint }
-
-    O código do projeto e as solicitações serão enviados para este endereço.
-
-    Permitir a conexão com este servidor?
 custom-openai-key-prompt = digite a chave de API deste servidor (deixe em branco se o seu servidor local não pedir autenticação):
 custom-openai-model-prompt = digite o identificador do modelo (ex.: llama3, qwen2.5-coder):
 

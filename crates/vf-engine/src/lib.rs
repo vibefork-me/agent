@@ -67,6 +67,9 @@ pub struct Engine {
     imports: github::Imports,
     /// CLIs being installed now.
     installing: Mutex<HashSet<String>>,
+    /// Asks the person before tools are installed; without it (tests) tools are installed as
+    /// needed.
+    dialog: Option<Arc<dyn vf_core::ConfirmDialog>>,
 }
 
 impl Engine {
@@ -97,7 +100,15 @@ impl Engine {
             sign_in: Default::default(),
             imports: Default::default(),
             installing: Mutex::new(HashSet::new()),
+            dialog: None,
         }
+    }
+
+    /// Asks the person through `dialog` before installing tools a project needs: what, why, and a
+    /// link to check each tool. A tool version allowed once is not asked about again.
+    pub fn with_dialog(mut self, dialog: Arc<dyn vf_core::ConfirmDialog>) -> Self {
+        self.dialog = Some(dialog);
+        self
     }
 
     /// Hands a provider the CLI the agent installed earlier when it found none of its own.

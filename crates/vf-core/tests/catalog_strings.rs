@@ -39,64 +39,9 @@ fn english_and_russian_strings_are_unchanged() {
         "http://localhost:5173 (Firefox) запрашивает доступ к проекту:\n\nnotes-app\n\nРазрешайте, только если вы сейчас работаете в браузере."
     );
     same!(
-        |l| confirm_action_title(l),
-        "Vibefork: confirm an action",
-        "Vibefork: подтверждение действия"
-    );
-    same!(
-        |l| confirm_action_text(l, "http://localhost:5173", "save", Some("notes-app")),
-        "http://localhost:5173 asks to:\n\nsave\nTarget: notes-app",
-        "http://localhost:5173 запрашивает действие:\n\nsave\nЦель: notes-app"
-    );
-    same!(
-        |l| confirm_action_text(l, "http://localhost:5173", "save", None),
-        "http://localhost:5173 asks to:\n\nsave",
-        "http://localhost:5173 запрашивает действие:\n\nsave"
-    );
-    same!(
-        |l| action_build(l),
-        "build the project (runs its build scripts)",
-        "собрать проект (запускает его скрипты сборки)"
-    );
-    same!(
-        |l| action_run(l),
-        "run the project's program",
-        "запустить программу проекта"
-    );
-    same!(
         |l| note_taken(l),
         "Got it, I'll take it into account in the next step.",
         "Принято, учту на следующем шаге."
-    );
-    same!(
-        |l| action_rollback(l),
-        "roll the project back (later changes are dropped)",
-        "откатить проект (последующие изменения будут удалены)"
-    );
-    same!(
-        |l| action_rollback_part(l),
-        "return this part of the project to how it was before the last task changed it (other parts are kept)",
-        "вернуть эту часть проекта к виду до последней задачи, которая её меняла (остальные части не меняются)"
-    );
-    same!(
-        |l| action_save(l),
-        "save the project's changes to your copy on GitHub (it may be public)",
-        "сохранить изменения проекта в вашу копию на GitHub (она может быть публичной)"
-    );
-    same!(
-        |l| action_connect_ai_subscription(l, "Claude"),
-        "set up Claude (official app) and sign in in your browser",
-        "установить Claude (официальное приложение) и войти в браузере"
-    );
-    same!(
-        |l| action_connect_ai_key(l, "OpenRouter"),
-        "connect OpenRouter with an API key",
-        "подключить OpenRouter через API-ключ"
-    );
-    same!(
-        |l| action_connect_ai_user_home(l, "Claude Code"),
-        "Allow Vibefork to use your Claude Code login? Agent sessions will appear in your Claude Code history.",
-        "Разрешить Vibefork работать с вашим входом в Claude Code? Сессии агента появятся в вашей истории Claude Code."
     );
     same!(
         |l| ask_secret_title(l),
@@ -134,11 +79,6 @@ fn english_and_russian_strings_are_unchanged() {
         "введите адрес OpenAI-совместимого API (например, http://localhost:11434/v1):"
     );
     same!(
-        |l| custom_openai_confirm_text(l, "http://localhost:5173", "http://localhost:11434/v1"),
-        "http://localhost:5173 asks to connect a custom OpenAI-compatible API:\n\nhttp://localhost:11434/v1\n\nProject code and requests will be sent to this address.\n\nAllow connecting to this server?",
-        "http://localhost:5173 запрашивает подключение своего OpenAI-совместимого API:\n\nhttp://localhost:11434/v1\n\nКод проекта и запросы будут отправляться на этот адрес.\n\nРазрешить подключение к этому серверу?"
-    );
-    same!(
         |l| custom_openai_key_prompt(l),
         "enter API key for this server (leave empty if your local server does not require authentication):",
         "введите API-ключ для этого сервера (оставьте пустым, если локальный сервер не требует авторизации):"
@@ -147,11 +87,6 @@ fn english_and_russian_strings_are_unchanged() {
         |l| custom_openai_model_prompt(l),
         "enter model identifier (e.g. llama3, qwen2.5-coder):",
         "введите идентификатор модели (например, llama3, qwen2.5-coder):"
-    );
-    same!(
-        |l| action_disconnect_ai(l, "Gemini"),
-        "disconnect Gemini",
-        "отключить Gemini"
     );
     same!(|l| btn_allow(l), "Allow", "Разрешить");
     same!(|l| btn_block(l), "Don't allow", "Не разрешать");

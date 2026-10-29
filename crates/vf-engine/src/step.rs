@@ -152,9 +152,14 @@ impl Engine {
             env.remove("GRADLE_HOME".as_ref());
         }
         // The user should not need Java / Gradle / Node installed.
-        let prepared = vf_toolchains::prepare(dir, &self.tools, &self.caches, cancel, &mut |p| {
-            out(toolchain_message(p));
-        });
+        let prepared = vf_toolchains::prepare_allowed(
+            dir,
+            &self.tools,
+            &self.caches,
+            cancel,
+            &mut |p| out(toolchain_message(p)),
+            &mut |needs| self.allow_tools(dir, needs),
+        );
         env.prepend_path(&prepared.paths);
         for (k, v) in prepared.env {
             env.set(k, v);
@@ -180,6 +185,28 @@ impl Engine {
             .map(|p| p.display().to_string())
             .collect();
         (env, paths, level)
+    }
+
+    /// Whether the person allows installing `needs` for the project in `dir`: one question with the
+    /// tools and versions, why, and a link to check each. Without a dialog, allowed.
+    fn allow_tools(&self, dir: &Path, needs: &[vf_toolchains::Need]) -> bool {
+        let Some(dialog) = &self.dialog else {
+            return true;
+        };
+        let lang = dialog.language();
+        let project = dir
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let list = needs
+            .iter()
+            .map(|n| n.spec.replace('@', " "))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let (what, why) = vf_core::catalog::permission_tools(lang, &project, &list);
+        let request = vf_core::Permission::new(what, why)
+            .with_commands(needs.iter().map(|n| format!("mise install {}", n.spec)));
+        dialog.ask_permission(None, &request)
     }
 
     /// What a step produced, kept with its journal entry: its changes by file and part of the map.

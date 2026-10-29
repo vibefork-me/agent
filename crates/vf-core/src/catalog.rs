@@ -181,44 +181,6 @@ pub fn project_access_text(lang: Language, origin: &str, name: &str, project: &s
     message(lang, "project-access-text", &args)
 }
 
-/// Confirm action dialog title.
-pub fn confirm_action_title(lang: Language) -> String {
-    text(lang, "confirm-action-title")
-}
-
-/// Confirm action dialog text.
-pub fn confirm_action_text(
-    lang: Language,
-    origin: &str,
-    action: &str,
-    target: Option<&str>,
-) -> String {
-    match target {
-        Some(target) => {
-            let args = [
-                ("origin", origin.into()),
-                ("action", action.into()),
-                ("target", target.into()),
-            ];
-            message(lang, "confirm-action-text-target", &args)
-        }
-        None => {
-            let args = [("origin", origin.into()), ("action", action.into())];
-            message(lang, "confirm-action-text", &args)
-        }
-    }
-}
-
-/// Action prompt: build project.
-pub fn action_build(lang: Language) -> String {
-    text(lang, "action-build")
-}
-
-/// Action prompt: run the project's program.
-pub fn action_run(lang: Language) -> String {
-    text(lang, "action-run")
-}
-
 /// Answer to a message of the person that the running task took (`note.taken`).
 pub fn note_taken(lang: Language) -> String {
     text(lang, "note-taken")
@@ -247,48 +209,6 @@ pub fn thought_step(lang: Language, n: u32, of: u32, title: &str) -> String {
         ("title", title.into()),
     ];
     message(lang, "thought-step", &args)
-}
-
-/// Action prompt: rollback project.
-pub fn action_rollback(lang: Language) -> String {
-    text(lang, "action-rollback")
-}
-
-/// Action prompt: roll one part of the project back.
-pub fn action_rollback_part(lang: Language) -> String {
-    text(lang, "action-rollback-part")
-}
-
-/// Action prompt: save to GitHub fork.
-pub fn action_save(lang: Language) -> String {
-    text(lang, "action-save")
-}
-
-/// Action prompt: connect subscription CLI.
-pub fn action_connect_ai_subscription(lang: Language, provider_name: &str) -> String {
-    message(
-        lang,
-        "action-connect-ai-subscription",
-        &[("provider", provider_name.into())],
-    )
-}
-
-/// Action prompt: connect AI via API key.
-pub fn action_connect_ai_key(lang: Language, provider_name: &str) -> String {
-    message(
-        lang,
-        "action-connect-ai-key",
-        &[("provider", provider_name.into())],
-    )
-}
-
-/// Action prompt: switch AI provider to user's personal CLI home.
-pub fn action_connect_ai_user_home(lang: Language, provider_name: &str) -> String {
-    message(
-        lang,
-        "action-connect-ai-user-home",
-        &[("provider", provider_name.into())],
-    )
 }
 
 /// Secret dialog title.
@@ -328,12 +248,6 @@ pub fn custom_openai_endpoint_prompt(lang: Language) -> String {
     text(lang, "custom-openai-endpoint-prompt")
 }
 
-/// Confirmation text showing full custom endpoint with security warning.
-pub fn custom_openai_confirm_text(lang: Language, origin: &str, endpoint: &str) -> String {
-    let args = [("origin", origin.into()), ("endpoint", endpoint.into())];
-    message(lang, "custom-openai-confirm-text", &args)
-}
-
 /// Prompt for entering custom OpenAI-compatible API key (optional for local servers).
 pub fn custom_openai_key_prompt(lang: Language) -> String {
     text(lang, "custom-openai-key-prompt")
@@ -342,15 +256,6 @@ pub fn custom_openai_key_prompt(lang: Language) -> String {
 /// Prompt for entering custom OpenAI model identifier.
 pub fn custom_openai_model_prompt(lang: Language) -> String {
     text(lang, "custom-openai-model-prompt")
-}
-
-/// Action prompt: disconnect AI provider.
-pub fn action_disconnect_ai(lang: Language, provider_name: &str) -> String {
-    message(
-        lang,
-        "action-disconnect-ai",
-        &[("provider", provider_name.into())],
-    )
 }
 
 /// Native button label: Allow.
@@ -1117,17 +1022,6 @@ mod tests {
             assert!(!pair_text(lang, "site", "chrome", "1234").is_empty());
             assert!(!project_access_title(lang).is_empty());
             assert!(!project_access_text(lang, "site", "chrome", "proj").is_empty());
-            assert!(!confirm_action_title(lang).is_empty());
-            assert!(!confirm_action_text(lang, "site", "action", Some("target")).is_empty());
-            assert!(!confirm_action_text(lang, "site", "action", None).is_empty());
-            assert!(!action_build(lang).is_empty());
-            assert!(!action_run(lang).is_empty());
-            assert!(!action_rollback(lang).is_empty());
-            assert!(!action_rollback_part(lang).is_empty());
-            assert!(!action_save(lang).is_empty());
-            assert!(!action_connect_ai_subscription(lang, "Claude").is_empty());
-            assert!(!action_connect_ai_key(lang, "OpenRouter").is_empty());
-            assert!(!action_connect_ai_user_home(lang, "Claude Code").is_empty());
             assert!(!ask_secret_title(lang).is_empty());
             assert!(!ask_secret_text(lang, "site", "prompt").is_empty());
             assert!(!openrouter_key_prompt(lang).is_empty());
@@ -1180,18 +1074,6 @@ mod tests {
             project_access_title(Language::En),
             project_access_title(Language::Ru)
         );
-        assert_ne!(
-            confirm_action_title(Language::En),
-            confirm_action_title(Language::Ru)
-        );
-        assert_ne!(action_build(Language::En), action_build(Language::Ru));
-        assert_ne!(action_run(Language::En), action_run(Language::Ru));
-        assert_ne!(action_rollback(Language::En), action_rollback(Language::Ru));
-        assert_ne!(
-            action_rollback_part(Language::En),
-            action_rollback_part(Language::Ru)
-        );
-        assert_ne!(action_save(Language::En), action_save(Language::Ru));
         assert_ne!(
             ask_secret_title(Language::En),
             ask_secret_title(Language::Ru)
