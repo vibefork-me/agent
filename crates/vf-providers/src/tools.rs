@@ -170,8 +170,8 @@ pub(crate) fn inside(root: &Path, raw: &str) -> Result<PathBuf, String> {
 /// configuration, neither as written nor after links and short names are resolved.
 pub(crate) fn writable(root: &Path, raw: &str) -> Result<PathBuf, String> {
     let full = inside(root, raw)?;
-    let lexical = ProjectPath::parse(if raw.is_empty() { "." } else { raw })
-        .map_err(|e| e.to_string())?;
+    let lexical =
+        ProjectPath::parse(if raw.is_empty() { "." } else { raw }).map_err(|e| e.to_string())?;
     let real = real_relative(root, &full);
     if lexical.is_cli_config() || real.is_some_and(|r| vf_core::path::is_cli_config(&r)) {
         return Err("coding CLI settings of the project are not writable".into());
