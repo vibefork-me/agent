@@ -1057,7 +1057,10 @@ async fn files_need_a_session_and_a_project_grant() {
         token: Some(&token),
         ..Req::post("/v1/graph/describe", UI, body)
     };
-    assert_eq!(call(&allowing, r).await.0, StatusCode::BAD_REQUEST);
+    // A refusal keeps its code next to the text.
+    let (status, v, _) = call(&allowing, r).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(v["code"], json!("no_models"));
     // A file the engine refuses comes back as 403, not as content.
     assert_eq!(
         call(&allowing, get("/v1/file?project=demo&path=.env"))

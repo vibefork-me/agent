@@ -4,6 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
+use vf_core::catalog::{self, Language};
 use vf_git::Repo;
 use vf_journal::Vcs as _;
 use vf_protocol::BackendError;
@@ -152,12 +153,16 @@ impl Engine {
         &self,
         req: &DescribeRequest,
     ) -> Result<GraphResponse, BackendError> {
-        let Some((root, head, files, _)) = self.graph_input(&req.project)? else {
-            return Err(BackendError::BadRequest(
-                "the project has no files yet".into(),
-            ));
-        };
         let lang = req.lang.as_deref().unwrap_or("en");
+        let language = Language::parse(lang);
+        let input = self.graph_input(&req.project)?;
+        let Some((root, head, files, _)) = input.filter(|(_, _, files, _)| !files.is_empty())
+        else {
+            return Err(BackendError::Refused {
+                code: "project_empty",
+                message: catalog::map_no_files(language),
+            });
+        };
         // The analysis goes into the project's session stream, unless a task holds the project now.
         let hold = self.hold(&req.project);
         let timings = self.timings(&req.project);
@@ -185,8 +190,17 @@ impl Engine {
             }
         });
         let map = described.map_err(|e| {
-            tracing::info!(project = %req.project, error = %e, "map not described");
-            BackendError::BadRequest(format!("no model could describe the project: {e}"))
+            tracing::info!(project = %req.project, error = ?e, "map not described");
+            match e {
+                map::MapError::NoModels => BackendError::Refused {
+                    code: "no_models",
+                    message: catalog::map_no_models(language),
+                },
+                map::MapError::Failed(why) => BackendError::Refused {
+                    code: "map_failed",
+                    message: catalog::map_failed(language, &why),
+                },
+            }
         })?;
         if let Some(s) = stream.as_mut() {
             for ev in map::map_events(&map) {
