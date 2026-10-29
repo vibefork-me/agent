@@ -1,6 +1,6 @@
 [package]
 name = "xtask"
-description = "Project tasks: `cargo xtask ci` (all checks before a PR), `cargo xtask version`, `cargo xtask measure-tools`."
+description = "Project tasks: `cargo xtask ci` (all checks before a PR), `cargo xtask version`, `cargo xtask measure-tools`, `cargo xtask sync-i18n`."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

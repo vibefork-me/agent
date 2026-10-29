@@ -1,0 +1,42 @@
+{
+  "about": "The languages of every Vibefork product: the site, the editor and the agent. `source` is the language every text is written in first and the fallback for missing ones. `name` is the language named in itself, `mark` its short label on a compact switch. `status`: `ready` means fully translated in every product and offered to people; `planned` means being translated, may be partial, and is not offered yet.",
+  "source": "en",
+  "locales": [
+    {
+      "code": "en",
+      "name": "English",
+      "mark": "EN",
+      "status": "ready"
+    },
+    {
+      "code": "ru",
+      "name": "Русский",
+      "mark": "RU",
+      "status": "ready"
+    },
+    {
+      "code": "pt-BR",
+      "name": "Português (Brasil)",
+      "mark": "PT",
+      "status": "ready"
+    },
+    {
+      "code": "es-ES",
+      "name": "Español (España)",
+      "mark": "ES",
+      "status": "ready"
+    },
+    {
+      "code": "es-419",
+      "name": "Español (Latinoamérica)",
+      "mark": "LAT",
+      "status": "ready"
+    },
+    {
+      "code": "de",
+      "name": "Deutsch",
+      "mark": "DE",
+      "status": "ready"
+    }
+  ]
+}

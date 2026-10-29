@@ -965,6 +965,23 @@ mod tests {
         assert_eq!(btn_allow(Language::PtBr), "Permitir");
     }
 
+    /// The languages of every Vibefork product (`locales/shared/locales.json`, a copy of the shared list
+    /// that `scripts/check_i18n.py` holds to its `SOURCE.json`).
+    #[test]
+    fn languages_are_the_shared_list() {
+        let shared: serde_json::Value =
+            serde_json::from_str(include_str!("../locales/shared/locales.json")).unwrap();
+        let codes: Vec<&str> = shared["locales"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|l| l["code"].as_str().unwrap())
+            .collect();
+        let ours: Vec<&str> = Language::ALL.iter().map(Language::as_str).collect();
+        assert_eq!(ours, codes);
+        assert_eq!(Language::default().as_str(), shared["source"]);
+    }
+
     #[test]
     fn spanish_of_spain_and_latin_american_spanish_use_their_own_words() {
         assert!(first_run_intro(Language::EsEs).contains("ordenador"));
