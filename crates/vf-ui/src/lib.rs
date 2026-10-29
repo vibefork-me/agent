@@ -22,7 +22,7 @@ pub mod text;
 pub mod theme;
 mod window;
 
-pub use dialog::{Answer, Dialog, DialogKind, DialogView};
+pub use dialog::{Answer, Command, Dialog, DialogKind, DialogView, Permission};
 pub use eframe::egui;
 pub use first_run::{FirstRun, FirstRunAnswer, FirstRunText, FirstRunView};
 pub use status::{StatusEvent, StatusPage, StatusView, Tone};

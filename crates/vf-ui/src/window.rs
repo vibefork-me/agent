@@ -37,12 +37,14 @@ impl Shell {
         self
     }
 
-    /// Shows `dialog` on top of other windows and blocks until it is answered. A closed window is
+    /// Shows `dialog` on top of other windows and blocks until it is answered; a link the person
+    /// clicks goes to `open` (the window itself cannot open a browser). A closed window is
     /// [`Answer::Rejected`].
-    pub fn dialog(&self, dialog: Dialog) -> Result<Answer, UiError> {
+    pub fn dialog(&self, dialog: Dialog, mut open: impl FnMut(&str)) -> Result<Answer, UiError> {
         let mut view = DialogView::new(dialog);
         let title = view.dialog().title.clone();
-        let lines = view.dialog().text.lines().count() as f32;
+        let detail = view.dialog().permission.as_ref().map_or(0, |p| p.lines());
+        let lines = (view.dialog().text.lines().count() + detail) as f32;
         let field = if matches!(view.dialog().kind, crate::DialogKind::Confirm) {
             0.0
         } else {
@@ -54,6 +56,9 @@ impl Shell {
             if let Some(a) = view.ui(ui) {
                 answer = Some(a);
                 ui.ctx().send_viewport_cmd(ViewportCommand::Close);
+            }
+            if let Some(link) = view.take_link() {
+                open(&link);
             }
         })?;
         Ok(answer.unwrap_or(Answer::Rejected))

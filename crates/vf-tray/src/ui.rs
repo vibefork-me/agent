@@ -8,7 +8,10 @@ use std::time::Duration;
 
 use vf_core::catalog;
 use vf_platform::dialog::window;
-use vf_ui::{Answer, Dialog, DialogKind, FirstRun, FirstRunText, Shell, StatusPage, Tone};
+use vf_ui::{
+    Answer, Command, Dialog, DialogKind, FirstRun, FirstRunText, Permission, Shell, StatusPage,
+    Tone,
+};
 
 use crate::app::{self, Action, App, Entry, Look, Model, Notice};
 use crate::icon;
@@ -38,9 +41,9 @@ fn shell() -> Shell {
 
 /// `dialog <kind>`: the question in the environment, the answer as the exit code (and the value on
 /// stdout). See `vf_platform::dialog::window`.
-fn dialog(kind: &str) -> i32 {
-    let kind = match kind {
-        window::CONFIRM => DialogKind::Confirm,
+fn dialog(kind_name: &str) -> i32 {
+    let kind = match kind_name {
+        window::CONFIRM | window::PERMISSION => DialogKind::Confirm,
         window::TEXT => DialogKind::Text,
         window::SECRET => DialogKind::Secret { allow_empty: false },
         window::SECRET_OPTIONAL => DialogKind::Secret { allow_empty: true },
@@ -59,8 +62,12 @@ fn dialog(kind: &str) -> i32 {
         accept: env(window::ENV_ACCEPT),
         reject: env(window::ENV_REJECT),
         timeout: Duration::from_secs(timeout),
+        permission: (kind_name == window::PERMISSION).then(|| permission(&env)),
     };
-    match shell().dialog(question) {
+    let open = |link: &str| {
+        let _ = vf_platform::agent_process::open_url(link);
+    };
+    match shell().dialog(question, open) {
         Ok(Answer::Accepted) => window::EXIT_ACCEPTED,
         Ok(Answer::Entered(value)) => {
             let mut out = std::io::stdout().lock();
@@ -76,6 +83,27 @@ fn dialog(kind: &str) -> i32 {
         }
         Ok(Answer::Rejected | Answer::TimedOut) => window::EXIT_REJECTED,
         Err(_) => window::EXIT_NO_WINDOW,
+    }
+}
+
+/// What, why and the commands of a permission, from the environment; the links to check the
+/// commands are built here, so the agent never hands the window a link to open.
+fn permission(env: &dyn Fn(&str) -> String) -> Permission {
+    let lang = vf_platform::system_language();
+    Permission {
+        what_label: catalog::permission_what(lang),
+        what: env(window::ENV_WHAT),
+        why_label: catalog::permission_why(lang),
+        why: env(window::ENV_WHY),
+        verify_label: catalog::permission_verify(lang),
+        commands: env(window::ENV_COMMANDS)
+            .lines()
+            .filter(|c| !c.trim().is_empty())
+            .map(|c| Command {
+                text: c.to_owned(),
+                link: vf_core::permission::verify_url(c, lang),
+            })
+            .collect(),
     }
 }
 
