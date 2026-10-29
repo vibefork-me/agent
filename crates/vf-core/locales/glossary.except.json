@@ -1,0 +1,4 @@
+{
+  "about": "Agent messages exempt from a term of the shared glossary (locales/shared/glossary.json): `terms.<id>.keys.<language>` lists the message ids (`id.attribute` for an attribute) whose text in that language does not have to say the term; `note` says why.",
+  "terms": {}
+}

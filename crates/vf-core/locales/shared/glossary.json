@@ -1,0 +1,564 @@
+{
+  "about": "Product terms and how each language says them, one set for every Vibefork product. `address` is the form of address per language. A term with `match` (a JavaScript regular expression, case-insensitive unless `caseSensitive`) is checked: where the English text matches it, the text in each other language contains one of `expect` (case-insensitive). A term without `match` is for translators only. `forbidden` spellings appear in no text. Keys a product exempts from a term live in that product, not here.",
+  "address": {
+    "en": "you",
+    "ru": "вы",
+    "pt-BR": "você",
+    "es-ES": "tú",
+    "es-419": "tú",
+    "de": "du"
+  },
+  "forbidden": [
+    "VibeFork",
+    "Vibe Fork"
+  ],
+  "terms": [
+    {
+      "id": "vibefork",
+      "note": "The product name: never translated, always this spelling.",
+      "match": "\\bVibefork\\b",
+      "caseSensitive": true,
+      "say": {
+        "en": "Vibefork",
+        "ru": "Vibefork",
+        "pt-BR": "Vibefork",
+        "es-ES": "Vibefork",
+        "es-419": "Vibefork",
+        "de": "Vibefork"
+      },
+      "expect": {
+        "ru": [
+          "Vibefork"
+        ],
+        "pt-BR": [
+          "Vibefork"
+        ],
+        "es-ES": [
+          "Vibefork"
+        ],
+        "es-419": [
+          "Vibefork"
+        ],
+        "de": [
+          "Vibefork"
+        ]
+      }
+    },
+    {
+      "id": "part",
+      "note": "A piece of the project on the map.",
+      "match": "\\bparts?\\b",
+      "say": {
+        "en": "part",
+        "ru": "часть",
+        "pt-BR": "parte",
+        "es-ES": "parte",
+        "es-419": "parte",
+        "de": "Teil"
+      },
+      "expect": {
+        "ru": [
+          "част"
+        ],
+        "pt-BR": [
+          "parte"
+        ],
+        "es-ES": [
+          "parte"
+        ],
+        "es-419": [
+          "parte"
+        ],
+        "de": [
+          "teil"
+        ]
+      }
+    },
+    {
+      "id": "subpart",
+      "note": "A part inside a part.",
+      "say": {
+        "en": "subpart",
+        "ru": "подчасть",
+        "pt-BR": "subparte",
+        "es-ES": "subparte",
+        "es-419": "subparte",
+        "de": "Teilbereich"
+      }
+    },
+    {
+      "id": "map",
+      "note": "The picture of the project's parts and links.",
+      "match": "\\bmaps?\\b",
+      "say": {
+        "en": "map",
+        "ru": "карта",
+        "pt-BR": "mapa",
+        "es-ES": "mapa",
+        "es-419": "mapa",
+        "de": "Karte"
+      },
+      "expect": {
+        "ru": [
+          "карт"
+        ],
+        "pt-BR": [
+          "mapa"
+        ],
+        "es-ES": [
+          "mapa"
+        ],
+        "es-419": [
+          "mapa"
+        ],
+        "de": [
+          "karte"
+        ]
+      }
+    },
+    {
+      "id": "task",
+      "note": "What the person asks the agent to do.",
+      "match": "\\btasks?\\b",
+      "say": {
+        "en": "task",
+        "ru": "задача",
+        "pt-BR": "tarefa",
+        "es-ES": "tarea",
+        "es-419": "tarea",
+        "de": "Aufgabe"
+      },
+      "expect": {
+        "ru": [
+          "задач"
+        ],
+        "pt-BR": [
+          "tarefa"
+        ],
+        "es-ES": [
+          "tarea"
+        ],
+        "es-419": [
+          "tarea"
+        ],
+        "de": [
+          "aufgabe"
+        ]
+      }
+    },
+    {
+      "id": "step",
+      "note": "One step of the agent's plan.",
+      "match": "\\bsteps?\\b",
+      "say": {
+        "en": "step",
+        "ru": "шаг",
+        "pt-BR": "passo",
+        "es-ES": "paso",
+        "es-419": "paso",
+        "de": "Schritt"
+      },
+      "expect": {
+        "ru": [
+          "шаг"
+        ],
+        "pt-BR": [
+          "passo"
+        ],
+        "es-ES": [
+          "paso"
+        ],
+        "es-419": [
+          "paso"
+        ],
+        "de": [
+          "schritt"
+        ]
+      }
+    },
+    {
+      "id": "stage",
+      "note": "A stage of the work shown on the progress line (download, plan, changes…).",
+      "match": "\\bstages?\\b",
+      "say": {
+        "en": "stage",
+        "ru": "этап",
+        "pt-BR": "etapa",
+        "es-ES": "etapa",
+        "es-419": "etapa",
+        "de": "Phase"
+      },
+      "expect": {
+        "ru": [
+          "этап"
+        ],
+        "pt-BR": [
+          "etapa"
+        ],
+        "es-ES": [
+          "etapa"
+        ],
+        "es-419": [
+          "etapa"
+        ],
+        "de": [
+          "phase"
+        ]
+      }
+    },
+    {
+      "id": "message-the-agent",
+      "note": "The field at the bottom of the workspace.",
+      "match": "Message the agent",
+      "say": {
+        "en": "Message the agent",
+        "ru": "Сообщение агенту",
+        "pt-BR": "Mensagem ao agente",
+        "es-ES": "Mensaje al agente",
+        "es-419": "Mensaje al agente",
+        "de": "Nachricht an den Agenten"
+      },
+      "expect": {
+        "ru": [
+          "Сообщение агенту"
+        ],
+        "pt-BR": [
+          "Mensagem ao agente"
+        ],
+        "es-ES": [
+          "Mensaje al agente"
+        ],
+        "es-419": [
+          "Mensaje al agente"
+        ],
+        "de": [
+          "Nachricht an den Agenten"
+        ]
+      }
+    },
+    {
+      "id": "undo",
+      "note": "Putting a part back as it was before the agent changed it.",
+      "match": "\\bas it was\\b",
+      "say": {
+        "en": "Put it back as it was",
+        "ru": "Вернуть как было",
+        "pt-BR": "Deixar como estava",
+        "es-ES": "Dejar como estaba",
+        "es-419": "Dejar como estaba",
+        "de": "Rückgängig machen"
+      },
+      "expect": {
+        "ru": [
+          "как было"
+        ],
+        "pt-BR": [
+          "como estava"
+        ],
+        "es-ES": [
+          "como estaba"
+        ],
+        "es-419": [
+          "como estaba"
+        ],
+        "de": [
+          "wie vorher",
+          "rückgängig"
+        ]
+      }
+    },
+    {
+      "id": "build",
+      "note": "Building the project into a ready program. de: the noun is \"Build\", the verb \"bauen\".",
+      "match": "\\bbuild(s|ing)?\\b|\\bbuilt\\b",
+      "say": {
+        "en": "build",
+        "ru": "сборка, собрать",
+        "pt-BR": "compilação, compilar",
+        "es-ES": "compilación, compilar",
+        "es-419": "compilación, compilar",
+        "de": "Build, bauen"
+      },
+      "expect": {
+        "ru": [
+          "сбор",
+          "собр",
+          "собир"
+        ],
+        "pt-BR": [
+          "compil"
+        ],
+        "es-ES": [
+          "compil"
+        ],
+        "es-419": [
+          "compil"
+        ],
+        "de": [
+          "build",
+          "bau"
+        ]
+      }
+    },
+    {
+      "id": "program",
+      "note": "The built project when it runs.",
+      "match": "\\bprograms?\\b",
+      "say": {
+        "en": "program",
+        "ru": "программа",
+        "pt-BR": "programa",
+        "es-ES": "programa",
+        "es-419": "programa",
+        "de": "Programm"
+      },
+      "expect": {
+        "ru": [
+          "программ"
+        ],
+        "pt-BR": [
+          "programa"
+        ],
+        "es-ES": [
+          "programa"
+        ],
+        "es-419": [
+          "programa"
+        ],
+        "de": [
+          "programm"
+        ]
+      }
+    },
+    {
+      "id": "journal",
+      "note": "The panel with what the agent does, the build and the program.",
+      "match": "\\bJournal\\b",
+      "say": {
+        "en": "Journal",
+        "ru": "Журнал",
+        "pt-BR": "Registro",
+        "es-ES": "Registro",
+        "es-419": "Registro",
+        "de": "Protokoll"
+      },
+      "expect": {
+        "ru": [
+          "журнал"
+        ],
+        "pt-BR": [
+          "registro"
+        ],
+        "es-ES": [
+          "registro"
+        ],
+        "es-419": [
+          "registro"
+        ],
+        "de": [
+          "protokoll"
+        ]
+      }
+    },
+    {
+      "id": "ai",
+      "note": "Artificial intelligence; product names such as Google AI Studio stay as they are.",
+      "match": "\\bAI\\b(?! Studio)",
+      "caseSensitive": true,
+      "say": {
+        "en": "AI",
+        "ru": "ИИ",
+        "pt-BR": "IA",
+        "es-ES": "IA",
+        "es-419": "IA",
+        "de": "KI"
+      },
+      "expect": {
+        "ru": [
+          "ИИ",
+          "искусственный интеллект"
+        ],
+        "pt-BR": [
+          "IA"
+        ],
+        "es-ES": [
+          "IA"
+        ],
+        "es-419": [
+          "IA"
+        ],
+        "de": [
+          "KI"
+        ]
+      }
+    },
+    {
+      "id": "model",
+      "note": "An AI model.",
+      "match": "\\bmodels?\\b",
+      "say": {
+        "en": "model",
+        "ru": "модель",
+        "pt-BR": "modelo",
+        "es-ES": "modelo",
+        "es-419": "modelo",
+        "de": "Modell"
+      },
+      "expect": {
+        "ru": [
+          "модел"
+        ],
+        "pt-BR": [
+          "modelo"
+        ],
+        "es-ES": [
+          "modelo"
+        ],
+        "es-419": [
+          "modelo"
+        ],
+        "de": [
+          "modell"
+        ]
+      }
+    },
+    {
+      "id": "author",
+      "note": "The author of the original project.",
+      "match": "\\bauthors?\\b",
+      "say": {
+        "en": "author",
+        "ru": "автор",
+        "pt-BR": "autor",
+        "es-ES": "autor",
+        "es-419": "autor",
+        "de": "Autor"
+      },
+      "expect": {
+        "ru": [
+          "автор"
+        ],
+        "pt-BR": [
+          "autor"
+        ],
+        "es-ES": [
+          "autor"
+        ],
+        "es-419": [
+          "autor"
+        ],
+        "de": [
+          "autor"
+        ]
+      }
+    },
+    {
+      "id": "offer",
+      "note": "What the agent offers to do next.",
+      "match": "\\boffers?\\b",
+      "say": {
+        "en": "offer",
+        "ru": "предложение",
+        "pt-BR": "sugestão",
+        "es-ES": "sugerencia",
+        "es-419": "sugerencia",
+        "de": "Vorschlag"
+      },
+      "expect": {
+        "ru": [
+          "предлож"
+        ],
+        "pt-BR": [
+          "sugest"
+        ],
+        "es-ES": [
+          "sugerencia"
+        ],
+        "es-419": [
+          "sugerencia"
+        ],
+        "de": [
+          "vorschlag"
+        ]
+      }
+    },
+    {
+      "id": "computer",
+      "note": "The person's computer, where the agent runs. es-ES says \"ordenador\", es-419 \"computadora\".",
+      "match": "\\bcomputers?\\b",
+      "say": {
+        "en": "computer",
+        "ru": "компьютер",
+        "pt-BR": "computador",
+        "es-ES": "ordenador",
+        "es-419": "computadora",
+        "de": "Computer"
+      },
+      "expect": {
+        "es-ES": [
+          "ordenador"
+        ],
+        "es-419": [
+          "computadora"
+        ]
+      }
+    },
+    {
+      "id": "add",
+      "note": "Adding something (an AI, a file). es-ES says \"añadir\", es-419 \"agregar\".",
+      "match": "\\badds?\\b",
+      "say": {
+        "en": "add",
+        "ru": "добавить",
+        "pt-BR": "adicionar",
+        "es-ES": "añadir",
+        "es-419": "agregar",
+        "de": "hinzufügen"
+      },
+      "expect": {
+        "es-ES": [
+          "añad"
+        ],
+        "es-419": [
+          "agreg"
+        ]
+      }
+    },
+    {
+      "id": "enter",
+      "note": "Typing a key or a value. The editor's texts say \"write\" (es \"escribir\"); where a text needs \"enter\", es-ES says \"introducir\", es-419 \"ingresar\".",
+      "say": {
+        "en": "enter",
+        "ru": "ввести",
+        "pt-BR": "inserir",
+        "es-ES": "introducir",
+        "es-419": "ingresar",
+        "de": "eingeben"
+      }
+    },
+    {
+      "id": "fork",
+      "note": "A person's own copy of a project.",
+      "say": {
+        "en": "fork",
+        "ru": "форк",
+        "pt-BR": "fork",
+        "es-ES": "fork",
+        "es-419": "fork",
+        "de": "Fork"
+      }
+    },
+    {
+      "id": "maintainer",
+      "note": "The person who looks after the original project.",
+      "say": {
+        "en": "maintainer",
+        "ru": "мейнтейнер",
+        "pt-BR": "mantenedor",
+        "es-ES": "mantenedor",
+        "es-419": "mantenedor",
+        "de": "Maintainer"
+      }
+    }
+  ]
+}

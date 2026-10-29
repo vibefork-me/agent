@@ -1,17 +1,19 @@
 //! Project tasks, run as `cargo xtask <task>`:
 //! - `ci` — every check a PR must pass: format, clippy, tests, layers, dependency sources,
-//!   installers;
+//!   installers, languages and glossary;
 //! - `version` — prints the agent version (`[workspace.package] version`, the only place it lives);
 //! - `version set X.Y.Z[-pre]` — sets it;
 //! - `measure-tools [tool …]` — installs each tool of the catalog (or the ones named) with the
 //!   pinned `mise` into a clean folder under `target/measure-tools` and prints what it downloads
-//!   and takes on disk, and whether the install progress had bytes and an unpacking stage.
+//!   and takes on disk, and whether the install progress had bytes and an unpacking stage;
+//! - `sync-i18n [path]` — copies the shared language list and glossary (vibefork-me/shared
+//!   `packages/i18n`, by default from `../shared`) into `crates/vf-core/locales/shared`.
 #![allow(clippy::print_stdout, clippy::print_stderr)] // a command-line tool reports to the terminal
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
-const USAGE: &str = "usage: cargo xtask ci | cargo xtask version [set X.Y.Z[-pre]] | cargo xtask measure-tools [tool …]";
+const USAGE: &str = "usage: cargo xtask ci | cargo xtask version [set X.Y.Z[-pre]] | cargo xtask measure-tools [tool …] | cargo xtask sync-i18n [path]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -21,6 +23,11 @@ fn main() -> ExitCode {
         ["version"] => read_version().map(|v| println!("{v}")),
         ["version", "set", v] => set_version(v),
         ["measure-tools", tools @ ..] => measure_tools(tools),
+        ["sync-i18n", path @ ..] if path.len() <= 1 => run(
+            "sync-i18n",
+            python(),
+            &[&["scripts/sync_i18n.py"], path].concat(),
+        ),
         _ => Err(USAGE.to_owned()),
     };
     match result {
@@ -67,6 +74,7 @@ fn ci() -> Result<(), String> {
         python(),
         &["scripts/generate-installers.py", "--check"],
     )?;
+    run("i18n", python(), &["scripts/check_i18n.py"])?;
     println!("xtask ci: all checks passed");
     Ok(())
 }
