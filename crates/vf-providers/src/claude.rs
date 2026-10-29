@@ -1,8 +1,11 @@
 //! Claude Code CLI (the user's subscription).
 //!
 //! Runs `claude -p` with `stream-json` output. No restrictions on what the model may do in the
-//! project, but none of the user's personal environment: only project / local settings, no MCP
-//! servers, no slash commands (invariant 7).
+//! project, but none of the user's personal environment and none of the project's CLI
+//! configuration: no settings files at all (`--setting-sources ""`; a project's `.claude/` is
+//! never read, the user's `~/.claude/settings.json` neither), every hook off, no MCP servers, no
+//! slash commands (invariant 7). The model's file tools may not write CLI configuration into the
+//! project ([`vf_core::CLI_CONFIG`]).
 
 use std::path::{Path, PathBuf};
 
@@ -175,7 +178,7 @@ pub fn args(model: &str, resume: Option<&str>, system: Option<&str>) -> Vec<Stri
         "--permission-mode",
         "acceptEdits",
         "--setting-sources",
-        "project,local",
+        "",
         "--strict-mcp-config",
         "--disable-slash-commands",
         "--allowedTools",
@@ -184,6 +187,7 @@ pub fn args(model: &str, resume: Option<&str>, system: Option<&str>) -> Vec<Stri
     ]
     .map(str::to_owned)
     .to_vec();
+    a.extend(["--settings".into(), settings()]);
     if let Some(r) = resume {
         a.extend(["--resume".into(), r.into()]);
     }
@@ -196,6 +200,16 @@ pub fn args(model: &str, resume: Option<&str>, system: Option<&str>) -> Vec<Stri
     a
 }
 
+/// Settings of every run (`--settings`, applied whatever the setting sources are): every hook
+/// off, and the file tools may not write CLI configuration into the project.
+pub fn settings() -> String {
+    let deny: Vec<String> = vf_core::CLI_CONFIG
+        .iter()
+        .flat_map(|p| [format!("Edit(./{p})"), format!("Edit(./{p}/**)")])
+        .collect();
+    serde_json::json!({ "disableAllHooks": true, "permissions": { "deny": deny } }).to_string()
+}
+
 /// Arguments of a read-only question: only the read tools, one JSON result.
 pub fn ask_args(model: &str, system: Option<&str>) -> Vec<String> {
     let mut a: Vec<String> = [
@@ -205,12 +219,13 @@ pub fn ask_args(model: &str, system: Option<&str>) -> Vec<String> {
         "--tools",
         "Read,Glob,Grep",
         "--setting-sources",
-        "project,local",
+        "",
         "--strict-mcp-config",
         "--disable-slash-commands",
     ]
     .map(str::to_owned)
     .to_vec();
+    a.extend(["--settings".into(), settings()]);
     if !model.is_empty() {
         a.extend(["--model".into(), model.into()]);
     }
