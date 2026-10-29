@@ -30,7 +30,7 @@ Each release has these files besides the binaries (names carry no version):
 
 | File | What it is | Updates |
 |---|---|---|
-| `vibefork-windows-<arch>.msi` | Per-user installer: no administrator rights, `%LOCALAPPDATA%\Programsibefork` (the wizard offers another folder), Start menu shortcut, optional desktop shortcut and start at sign-in, the `vibefork://` handler and `PATH`; uninstalled in Settings → Apps, data and projects stay | the agent runs the newer installer (`msiexec /passive`) |
+| `vibefork-windows-<arch>.msi` | Per-user installer: no administrator rights, `%LOCALAPPDATA%\Programs\vibefork` (the wizard offers another folder), Start menu shortcut, optional desktop shortcut and start at sign-in, the `vibefork://` handler and `PATH`; uninstalled in Settings → Apps, data and projects stay; the wizard speaks the Windows display language when it is one of the agent's languages, English otherwise | the agent runs the newer installer (`msiexec /passive`) |
 | `vibefork-windows-<arch>-portable.zip` | Folder `Vibefork`: settings and data in `data\`, projects in `projects\` next to the programs (marker `vibefork.install` = `portable`); nothing is registered | the programs in the folder are replaced |
 | `vibefork-macos-universal.dmg` | `Vibefork.app` for Apple silicon and Intel; drag it to Applications | the programs in the app are replaced |
 | `vibefork-linux-<arch>.AppImage` (+ `.zsync`) | One file; without arguments it starts the tray, with arguments it is the `vibefork` command; the `.zsync` serves AppImageUpdate | the file is replaced |

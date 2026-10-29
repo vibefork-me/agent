@@ -1,6 +1,6 @@
 //! Project tasks, run as `cargo xtask <task>`:
 //! - `ci` — every check a PR must pass: format, clippy, tests, layers, dependency sources,
-//!   installers, languages and glossary;
+//!   installers, languages and glossary, the texts of the Windows installer wizard;
 //! - `version` — prints the agent version (`[workspace.package] version`, the only place it lives);
 //! - `version set X.Y.Z[-pre]` — sets it;
 //! - `measure-tools [tool …]` — installs each tool of the catalog (or the ones named) with the
@@ -75,6 +75,7 @@ fn ci() -> Result<(), String> {
         &["scripts/generate-installers.py", "--check"],
     )?;
     run("i18n", python(), &["scripts/check_i18n.py"])?;
+    run("wizard", python(), &["scripts/package.py", "wizard"])?;
     println!("xtask ci: all checks passed");
     Ok(())
 }
