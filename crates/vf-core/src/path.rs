@@ -59,6 +59,39 @@ impl ProjectPath {
     pub fn as_path(&self) -> &Path {
         &self.0
     }
+
+    /// Whether the path is a coding CLI's configuration in the project ([`CLI_CONFIG`]) or inside
+    /// one. Case-insensitive; trailing dots and spaces of a component are ignored, as Windows does.
+    pub fn is_cli_config(&self) -> bool {
+        is_cli_config(&self.0)
+    }
+}
+
+/// Coding CLI configuration a project may carry: hooks, helper commands, environment and MCP
+/// servers the CLI runs by itself. The model never writes these paths.
+pub const CLI_CONFIG: &[&str] = &[
+    ".claude",
+    ".codex",
+    ".mcp.json",
+    ".github/hooks",
+    ".github/copilot",
+];
+
+/// [`ProjectPath::is_cli_config`] for a relative path that is already clean.
+pub fn is_cli_config(rel: &Path) -> bool {
+    let parts: Vec<String> = rel
+        .components()
+        .map(|c| {
+            c.as_os_str()
+                .to_string_lossy()
+                .trim_end_matches(['.', ' '])
+                .to_ascii_lowercase()
+        })
+        .collect();
+    CLI_CONFIG.iter().any(|entry| {
+        let entry: Vec<&str> = entry.split('/').collect();
+        parts.len() >= entry.len() && parts.iter().zip(&entry).all(|(p, e)| p == e)
+    })
 }
 
 #[cfg(test)]
@@ -97,6 +130,38 @@ mod tests {
                 ProjectPath::parse(bad),
                 Err(PathError::NotRelative),
                 "{bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn cli_config_is_recognized_in_any_spelling() {
+        for config in [
+            ".claude/settings.json",
+            ".claude",
+            ".CLAUDE/settings.local.json",
+            ".claude./settings.json",
+            "./x/../.codex/config.toml",
+            ".mcp.json",
+            ".MCP.JSON ",
+            ".github/hooks/hooks.json",
+            ".github/copilot/settings.json",
+        ] {
+            assert!(
+                ProjectPath::parse(config).is_ok_and(|p| p.is_cli_config()),
+                "{config:?}"
+            );
+        }
+        for plain in [
+            "src/.claude/x",
+            "claude/settings.json",
+            ".mcp.json.txt",
+            ".github/workflows/ci.yml",
+            ".claudex/a",
+        ] {
+            assert!(
+                ProjectPath::parse(plain).is_ok_and(|p| !p.is_cli_config()),
+                "{plain:?}"
             );
         }
     }

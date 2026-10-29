@@ -6,7 +6,7 @@
 
 ## Invariants
 
-- Coding CLIs run without the user's personal environment and with a cleaned environment (invariant 7).
+- Coding CLIs run without the user's personal environment and with an allow-listed environment (invariant 7): tokens and keys of the user's environment are not passed.
 - Raw output is normalized to `vf_protocol::Event`.
 
 ## May depend on

@@ -2,7 +2,7 @@
 
 use std::process::ExitCode;
 
-use vf_platform::{Settings, install, secrets};
+use vf_platform::{Settings, access, install, secrets};
 use vf_providers::Provider as _;
 use vf_providers::claude::Claude;
 use vf_providers::codex::Codex;
@@ -130,6 +130,26 @@ pub(crate) fn run(json: bool) -> ExitCode {
             "{:.1} GB free for the agent's folders",
             free as f64 / 1073741824.0
         ),
+        false,
+    );
+    // The agent makes its folders owner-only on start; a missing folder is made then too.
+    let open: Vec<String> = s
+        .dirs()
+        .into_iter()
+        .filter(|d| d.exists() && !access::is_owner_only(d).unwrap_or(false))
+        .map(|d| d.display().to_string())
+        .collect();
+    add(
+        "folders",
+        open.is_empty(),
+        if open.is_empty() {
+            "only you can open the agent's folders".into()
+        } else {
+            format!(
+                "other users of this computer can open {} — restart the agent (`vibefork stop`, `vibefork start`)",
+                open.join(", ")
+            )
+        },
         false,
     );
     let kind = install::current_kind();

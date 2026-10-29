@@ -1,6 +1,7 @@
 //! Everything OS-specific: storage paths, settings, projects folder, journal files, native dialogs,
 //! secret store, per-user install (`vibefork://`, autostart, `PATH`), the background agent process.
 
+pub mod access;
 pub mod agent_process;
 pub mod canvas;
 pub mod dialog;
