@@ -154,7 +154,7 @@ fn english_and_russian_strings_are_unchanged() {
         "отключить Gemini"
     );
     same!(|l| btn_allow(l), "Allow", "Разрешить");
-    same!(|l| btn_block(l), "Block", "Заблокировать");
+    same!(|l| btn_block(l), "Don't allow", "Не разрешать");
     same!(|l| btn_ok(l), "OK", "OK");
     same!(|l| btn_cancel(l), "Cancel", "Отмена");
     same!(

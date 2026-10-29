@@ -41,6 +41,37 @@ action-connect-ai-key = conectar { $provider } com uma chave de API
 action-connect-ai-user-home = Permitir que o Vibefork use o seu login do { $provider }? As sessões do agente vão aparecer no seu histórico do { $provider }.
 action-disconnect-ai = desconectar { $provider }
 
+## Asking permission to act on the computer: what, why, the commands to check
+
+permission-title = Vibefork: ação no seu computador
+permission-from = Pedido de { $origin }.
+permission-explained = Veja o que será feito e por quê.
+permission-check = Você pode conferir cada comando em uma fonte independente antes de responder.
+permission-what = O que
+permission-why = Por que
+permission-commands = Comandos
+permission-verify = Verificar
+permission-build-what = Compilar o projeto { $project }
+permission-build-why = Para verificar se o projeto compila depois das mudanças. Os scripts de compilação dele vão rodar no seu computador.
+permission-run-what = Executar o programa do projeto { $project }
+permission-run-why = Você pediu para executar o programa compilado. Ele vai rodar no seu computador.
+permission-rollback-what = Voltar o projeto { $project } para { $target }
+permission-rollback-why = Você escolheu voltar os arquivos do projeto para este ponto. As mudanças posteriores serão descartadas.
+permission-rollback-part-what = Deixar a parte “{ $part }” do projeto { $project } como estava
+permission-rollback-part-why = Você escolheu deixar esta parte como estava antes da última tarefa que a mudou. As outras partes ficam como estão.
+permission-save-what = Salvar as mudanças do projeto { $project } na sua cópia no GitHub
+permission-save-why = Você escolheu salvar seu trabalho. Sua cópia no GitHub pode ser pública.
+permission-ai-subscription-what = Instalar o { $provider } (o app oficial) e entrar pelo navegador
+permission-ai-subscription-why = Para que o agente faça suas tarefas pela sua assinatura do { $provider }.
+permission-ai-key-what = Conectar o { $provider } com uma chave de API
+permission-ai-key-why = Para que o agente faça suas tarefas pelo { $provider }.
+permission-ai-user-home-what = Usar seu login do { $provider } de { $home }
+permission-ai-user-home-why = Para que o agente use sua assinatura sem chave de API. As sessões do agente vão aparecer no seu histórico do { $provider }.
+permission-custom-ai-what = Conectar seu próprio servidor de IA { $endpoint }
+permission-custom-ai-why = O agente vai enviar o código do projeto e suas tarefas para este endereço.
+permission-tools-what = Instalar as ferramentas de que o projeto { $project } precisa: { $tools }
+permission-tools-why = O projeto precisa delas para compilar e rodar. Elas vão para a pasta do próprio agente, não para o sistema.
+
 ## Answers in the task's conversation
 
 note-taken = Entendi, vou levar isso em conta no próximo passo.
@@ -81,7 +112,7 @@ custom-openai-model-prompt = digite o identificador do modelo (ex.: llama3, qwen
 ## Buttons of native dialogs
 
 btn-allow = Permitir
-btn-block = Bloquear
+btn-block = Não permitir
 btn-ok = OK
 btn-cancel = Cancelar
 

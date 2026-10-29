@@ -358,7 +358,7 @@ pub fn btn_allow(lang: Language) -> String {
     text(lang, "btn-allow")
 }
 
-/// Native button label: Block.
+/// Native button label: the rejecting answer ("Don't allow").
 pub fn btn_block(lang: Language) -> String {
     text(lang, "btn-block")
 }
@@ -805,6 +805,111 @@ pub fn system_instruction(lang: &str) -> String {
     crate::prompts::get(crate::prompts::Stage::Audience).render_audience(lang)
 }
 
+/// Title of a request for permission to act on the computer.
+pub fn permission_title(lang: Language) -> String {
+    text(lang, "permission-title")
+}
+
+/// The opening of a request for permission: who asks (when known), that what and why follow, and
+/// — only when there are commands — that each can be checked at an independent source.
+pub fn permission_intro(lang: Language, origin: Option<&str>, has_commands: bool) -> String {
+    let mut parts = Vec::new();
+    if let Some(origin) = origin {
+        parts.push(message(
+            lang,
+            "permission-from",
+            &[("origin", origin.into())],
+        ));
+    }
+    parts.push(text(lang, "permission-explained"));
+    if has_commands {
+        parts.push(text(lang, "permission-check"));
+    }
+    parts.join(" ")
+}
+
+/// Label of what will be done.
+pub fn permission_what(lang: Language) -> String {
+    text(lang, "permission-what")
+}
+
+/// Label of why it is needed.
+pub fn permission_why(lang: Language) -> String {
+    text(lang, "permission-why")
+}
+
+/// Label of the commands that will run.
+pub fn permission_commands(lang: Language) -> String {
+    text(lang, "permission-commands")
+}
+
+/// Label of the link that checks a command at an independent source.
+pub fn permission_verify(lang: Language) -> String {
+    text(lang, "permission-verify")
+}
+
+/// What and why of an action, from `permission-<id>-what` / `permission-<id>-why`.
+fn permission_pair(lang: Language, id: &str, args: &[(&str, FluentValue<'_>)]) -> (String, String) {
+    (
+        message(lang, &format!("permission-{id}-what"), args),
+        message(lang, &format!("permission-{id}-why"), args),
+    )
+}
+
+/// What and why: build `project`.
+pub fn permission_build(lang: Language, project: &str) -> (String, String) {
+    permission_pair(lang, "build", &[("project", project.into())])
+}
+
+/// What and why: run the program of `project`.
+pub fn permission_run(lang: Language, project: &str) -> (String, String) {
+    permission_pair(lang, "run", &[("project", project.into())])
+}
+
+/// What and why: roll `project` back to `target` (a checkpoint).
+pub fn permission_rollback(lang: Language, project: &str, target: &str) -> (String, String) {
+    let args = [("project", project.into()), ("target", target.into())];
+    permission_pair(lang, "rollback", &args)
+}
+
+/// What and why: put `part` of `project` back as it was.
+pub fn permission_rollback_part(lang: Language, project: &str, part: &str) -> (String, String) {
+    let args = [("project", project.into()), ("part", part.into())];
+    permission_pair(lang, "rollback-part", &args)
+}
+
+/// What and why: save the changes of `project` to the person's copy on GitHub.
+pub fn permission_save(lang: Language, project: &str) -> (String, String) {
+    permission_pair(lang, "save", &[("project", project.into())])
+}
+
+/// What and why: set up `provider`'s official app and sign in.
+pub fn permission_ai_subscription(lang: Language, provider: &str) -> (String, String) {
+    permission_pair(lang, "ai-subscription", &[("provider", provider.into())])
+}
+
+/// What and why: connect `provider` with an API key.
+pub fn permission_ai_key(lang: Language, provider: &str) -> (String, String) {
+    permission_pair(lang, "ai-key", &[("provider", provider.into())])
+}
+
+/// What and why: use the person's own `provider` login kept in `home`.
+pub fn permission_ai_user_home(lang: Language, provider: &str, home: &str) -> (String, String) {
+    let args = [("provider", provider.into()), ("home", home.into())];
+    permission_pair(lang, "ai-user-home", &args)
+}
+
+/// What and why: connect the person's own AI server at `endpoint`.
+pub fn permission_custom_ai(lang: Language, endpoint: &str) -> (String, String) {
+    permission_pair(lang, "custom-ai", &[("endpoint", endpoint.into())])
+}
+
+/// What and why: install `tools` (a list, as shown) that `project` needs.
+pub fn permission_tools(lang: Language, project: &str, tools: &str) -> (String, String) {
+    let args = [("project", project.into()), ("tools", tools.into())];
+    permission_pair(lang, "tools", &args)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -853,7 +958,7 @@ mod tests {
             "origin", "name", "code", "project", "action", "target", "provider", "prompt",
             "endpoint", "update", "version", "port", "pid", "login", "kind", "size", "path",
             "title", "stage", "line", "minutes", "needed", "free", "error", "system", "cpu",
-            "platform", "asset",
+            "platform", "asset", "part", "home", "tools",
         ];
         let mut args = FluentArgs::new();
         for v in values {
