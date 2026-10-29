@@ -215,7 +215,12 @@ jobs:
               test -f "release/$bin-$os_arch$ext" || { echo "missing $bin-$os_arch$ext" >&2; exit 1; }
             done
           done
-          for package in vibefork-windows-x86_64.msi vibefork-windows-x86_64-portable.zip               vibefork-windows-aarch64.msi vibefork-windows-aarch64-portable.zip vibefork-macos-universal.dmg               vibefork-linux-x86_64.AppImage vibefork-linux-x86_64.AppImage.zsync vibefork-linux-x86_64.tar.gz               vibefork-linux-aarch64.AppImage vibefork-linux-aarch64.AppImage.zsync vibefork-linux-aarch64.tar.gz; do
+          for package in \
+              vibefork-windows-x86_64.msi vibefork-windows-x86_64-portable.zip \
+              vibefork-windows-aarch64.msi vibefork-windows-aarch64-portable.zip \
+              vibefork-macos-universal.dmg \
+              vibefork-linux-x86_64.AppImage vibefork-linux-x86_64.AppImage.zsync vibefork-linux-x86_64.tar.gz \
+              vibefork-linux-aarch64.AppImage vibefork-linux-aarch64.AppImage.zsync vibefork-linux-aarch64.tar.gz; do
             test -f "release/$package" || { echo "missing $package" >&2; exit 1; }
           done
           (cd release && sha256sum -- * > ../SHA256SUMS.txt) && mv SHA256SUMS.txt release/ && cat release/SHA256SUMS.txt
