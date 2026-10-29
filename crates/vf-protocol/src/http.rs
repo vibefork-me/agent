@@ -628,7 +628,7 @@ pub struct AiResponse {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AiProvider {
-    /// `claude`, `codex`, `openrouter`.
+    /// `claude`, `codex`, `copilot`, `openrouter`.
     pub id: String,
     /// Paid subscription or free.
     pub kind: AiKind,
@@ -656,7 +656,7 @@ pub enum CliHomeMode {
     /// Isolated home inside Vibefork (`state/tools/cli-home/<provider>`).
     #[default]
     Agent,
-    /// User's personal home (`~/.claude` or `~/.codex`).
+    /// User's personal home (`~/.claude`, `~/.codex` or `~/.copilot`).
     User,
 }
 
@@ -689,7 +689,7 @@ pub enum AiConnected {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AiConnectRequest {
-    /// `claude` or `codex`.
+    /// `claude`, `codex` or `copilot`.
     pub provider: String,
     /// Desired CLI home mode (`agent` or `user`).
     #[serde(default, skip_serializing_if = "Option::is_none")]

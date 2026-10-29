@@ -18,7 +18,7 @@ pub enum CostClass {
 /// A model available on this machine.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct ModelInfo {
-    /// Provider: `claude`, `codex`, `openrouter`.
+    /// Provider: `claude`, `codex`, `copilot`, `openrouter`.
     pub provider: String,
     /// Model id; empty = provider default.
     pub model: String,

@@ -52,6 +52,8 @@ const HOME_WRITE: &[&str] = &[
     ".local/share/claude",
     ".local/share/codex",
     ".local/state/codex",
+    ".copilot",
+    ".cache/copilot",
 ];
 /// Inside the home: tool settings and installs (read only).
 const HOME_READ: &[&str] = &[

@@ -2,7 +2,7 @@
 
 **Layer 2 (adapters)**
 
-`Provider` trait and adapters: Claude Code CLI, Codex CLI, OpenAI-compatible loop.
+`Provider` trait and adapters: Claude Code CLI, Codex CLI, GitHub Copilot CLI, OpenAI-compatible loop.
 
 ## Invariants
 

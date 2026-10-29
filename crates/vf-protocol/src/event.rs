@@ -1,5 +1,5 @@
 //! One normalized event of a running task — the same shape for every provider
-//! (Claude Code, Codex, the OpenAI-compatible loop).
+//! (Claude Code, Codex, GitHub Copilot, the OpenAI-compatible loop).
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};

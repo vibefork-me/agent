@@ -286,7 +286,8 @@ impl Engine {
         });
     }
 
-    /// Planner preference (subscriptions and free only): Claude opus → Codex default → a free model.
+    /// Planner preference (subscriptions and free only): Claude opus → Codex default → Copilot →
+    /// a free model.
     fn make_plan(
         &self,
         t: &Task<'_>,
@@ -304,6 +305,9 @@ impl Engine {
         }
         if has("codex", None) {
             candidates.push(("codex", String::new(), PLANNER_TIMEOUT));
+        }
+        if has("copilot", None) {
+            candidates.push(("copilot", String::new(), PLANNER_TIMEOUT));
         }
         if let Some(custom) = inventory.iter().find(|m| m.provider == "custom") {
             candidates.push(("custom", custom.model.clone(), API_PLANNER_TIMEOUT));

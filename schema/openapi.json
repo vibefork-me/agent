@@ -16,7 +16,7 @@
             "description": "Desired CLI home mode (`agent` or `user`)."
           },
           "provider": {
-            "description": "`claude` or `codex`.",
+            "description": "`claude`, `codex` or `copilot`.",
             "type": "string"
           }
         },
@@ -131,7 +131,7 @@
             ]
           },
           "id": {
-            "description": "`claude`, `codex`, `openrouter`.",
+            "description": "`claude`, `codex`, `copilot`, `openrouter`.",
             "type": "string"
           },
           "installed": {
@@ -1160,7 +1160,7 @@
             "type": "string"
           },
           {
-            "description": "User's personal home (`~/.claude` or `~/.codex`).",
+            "description": "User's personal home (`~/.claude`, `~/.codex` or `~/.copilot`).",
             "enum": [
               "user"
             ],
@@ -1225,7 +1225,7 @@
               },
               "provider": {
                 "default": null,
-                "description": "`auto`, `plan`, or a provider: `claude`, `codex`, `openrouter`.",
+                "description": "`auto`, `plan`, or a provider: `claude`, `codex`, `copilot`, `openrouter`.",
                 "type": [
                   "string",
                   "null"
@@ -2376,7 +2376,7 @@
             "type": "string"
           },
           "provider": {
-            "description": "Provider: `claude`, `codex`, `openrouter`.",
+            "description": "Provider: `claude`, `codex`, `copilot`, `openrouter`.",
             "type": "string"
           },
           "tier": {
@@ -4030,7 +4030,7 @@
             "session": []
           }
         ],
-        "summary": "Sign in to a subscription (Claude, Codex) through its official CLI in the browser; confirmed in the native dialog"
+        "summary": "Sign in to a subscription (Claude, Codex, GitHub Copilot) through its official CLI in the browser; confirmed in the native dialog"
       }
     },
     "/v1/ai/disconnect": {

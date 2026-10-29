@@ -58,7 +58,7 @@ pub fn available() -> IsolationLevel {
     }
 }
 
-/// Whether the user's coding CLIs (Claude Code, Codex) work inside the sandbox. Windows: no —
+/// Whether the user's coding CLIs (Claude Code, Codex, GitHub Copilot) work inside the sandbox. Windows: no —
 /// Git Bash (MSYS) and PowerShell 7, the shells they run commands in, do not start in an
 /// AppContainer; there they run without isolation, the agent's own loop and builds are isolated.
 pub fn supports_coding_clis() -> bool {

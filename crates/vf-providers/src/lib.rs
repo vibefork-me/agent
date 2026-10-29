@@ -4,6 +4,8 @@
 //! - [`claude`] — the user's Claude Code (subscription), headless `-p --output-format stream-json`,
 //!   without the user's personal environment (invariant 7);
 //! - [`codex`] — the user's Codex CLI (ChatGPT subscription), `exec --json`, `--ignore-user-config`;
+//! - [`copilot`] — the user's GitHub Copilot CLI (Copilot plan, Free included), `--output-format json`,
+//!   without the built-in GitHub MCP server;
 //! - [`openai`] — the agent's own coding loop over an OpenAI-compatible API (OpenRouter) — works
 //!   with nothing installed but a key.
 //!
@@ -13,6 +15,7 @@
 pub mod claude;
 mod cli;
 pub mod codex;
+pub mod copilot;
 pub mod env;
 pub mod openai;
 pub mod process;
@@ -102,7 +105,7 @@ pub struct Answer {
 
 /// A source of coding models (a CLI or an API).
 pub trait Provider: Send + Sync {
-    /// Provider id: `claude`, `codex`, `openrouter`.
+    /// Provider id: `claude`, `codex`, `copilot`, `openrouter`.
     fn id(&self) -> &'static str;
     /// Models available now (CLI found and logged in, key present…).
     fn models(&self) -> Vec<ModelInfo>;

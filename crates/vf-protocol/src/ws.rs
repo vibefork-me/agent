@@ -22,7 +22,7 @@ pub enum ClientMessage {
         project: String,
         /// What to do.
         prompt: String,
-        /// `auto`, `plan`, or a provider: `claude`, `codex`, `openrouter`.
+        /// `auto`, `plan`, or a provider: `claude`, `codex`, `copilot`, `openrouter`.
         #[serde(default)]
         provider: Option<String>,
         /// Model of the provider; empty = its default.

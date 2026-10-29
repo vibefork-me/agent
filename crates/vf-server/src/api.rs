@@ -118,7 +118,7 @@ pub const ROUTES: &[Route] = &[
     Route {
         method: "POST",
         path: "/v1/ai/connect",
-        summary: "Sign in to a subscription (Claude, Codex) through its official CLI in the browser; confirmed in the native dialog",
+        summary: "Sign in to a subscription (Claude, Codex, GitHub Copilot) through its official CLI in the browser; confirmed in the native dialog",
         request: Some("AiConnectRequest"),
         response: Some("AiConnectResponse"),
         session: true,
