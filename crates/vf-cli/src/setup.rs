@@ -53,7 +53,15 @@ pub(crate) fn uninstall(args: &[String]) -> ExitCode {
     let full = with_projects || args.iter().any(|a| a == "--full");
     vf_platform::agent_process::stop(&s.state_dir);
     vf_sandbox::remove();
-    let mut code = print(&install::uninstall());
+    let mut code = if install::current_kind() == install::Kind::Msi {
+        // The installer's own uninstaller removes what it installed and its entry in the system.
+        println!(
+            "Vibefork was installed with the installer: remove \"Vibefork\" in Settings → Apps → Installed apps"
+        );
+        ExitCode::SUCCESS
+    } else {
+        print(&install::uninstall())
+    };
     if !full {
         println!(
             "your projects and data stay in {} and {} (`vibefork uninstall --full` removes the data too)",

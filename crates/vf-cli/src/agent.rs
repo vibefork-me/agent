@@ -51,8 +51,14 @@ pub(crate) fn ensure_started(s: &Settings) -> bool {
     if hello(s.port).is_some() {
         return true;
     }
-    let Ok(exe) = std::env::current_exe() else {
-        return false;
+    // An AppImage starts the agent through itself: the agent then keeps its own mount point and
+    // does not lose its files when this process ends.
+    let exe = match vf_platform::install::current_kind() {
+        vf_platform::install::Kind::AppImage(image) => image,
+        _ => match std::env::current_exe() {
+            Ok(exe) => exe,
+            Err(_) => return false,
+        },
     };
     if let Err(e) = agent_process::start_detached(&exe, &s.state_dir) {
         eprintln!("vibefork: cannot start the agent: {e}");

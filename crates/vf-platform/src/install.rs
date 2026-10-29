@@ -50,6 +50,83 @@ pub fn exe_name(binary: &str) -> String {
     }
 }
 
+/// File next to the binaries that names how they were installed: `msi` (the Windows installer) or
+/// `portable` (a folder that keeps its data next to the binaries). Release packages ship it; the
+/// install script and `vibefork install` do not write it.
+pub const KIND_MARKER: &str = "vibefork.install";
+
+/// How the running binaries were installed. It decides how an update replaces them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Kind {
+    /// The per-user Windows installer: an update runs the newer installer.
+    Msi,
+    /// A portable folder: data in `data\` and projects in `projects\` next to the binaries; an
+    /// update replaces the binaries in the folder.
+    Portable,
+    /// An AppImage (this file): an update replaces the file.
+    AppImage(PathBuf),
+    /// Binaries in a folder (`.tar.gz`, install script, the macOS app): an update replaces them.
+    Files,
+}
+
+impl Kind {
+    /// Short name for `doctor` and logs: `msi`, `portable`, `appimage`, `files`.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Msi => "msi",
+            Self::Portable => "portable",
+            Self::AppImage(_) => "appimage",
+            Self::Files => "files",
+        }
+    }
+}
+
+/// How the binaries in `exe_dir` were installed. `appimage` and `appdir` are the `APPIMAGE` and
+/// `APPDIR` variables the AppImage runtime sets: an AppImage only when the binaries run from its
+/// mount point. Otherwise the [`KIND_MARKER`] next to the binaries decides; no marker or an
+/// unknown word is [`Kind::Files`].
+pub fn kind_of(exe_dir: &Path, appimage: Option<&Path>, appdir: Option<&Path>) -> Kind {
+    if let (Some(image), Some(mount)) = (appimage, appdir)
+        && !mount.as_os_str().is_empty()
+        && exe_dir.starts_with(mount)
+        && image.is_file()
+    {
+        return Kind::AppImage(image.to_path_buf());
+    }
+    let marker = std::fs::read_to_string(exe_dir.join(KIND_MARKER)).unwrap_or_default();
+    match marker.lines().next().map(str::trim) {
+        Some("msi") => Kind::Msi,
+        Some("portable") => Kind::Portable,
+        _ => Kind::Files,
+    }
+}
+
+/// How the running binaries were installed ([`kind_of`] for the folder of the current executable).
+pub fn current_kind() -> Kind {
+    let Some(dir) = current_exe_dir() else {
+        return Kind::Files;
+    };
+    let var = |name| {
+        std::env::var_os(name)
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+    };
+    kind_of(&dir, var("APPIMAGE").as_deref(), var("APPDIR").as_deref())
+}
+
+/// The folder of a portable installation, when the running binaries are one.
+pub fn portable_dir() -> Option<PathBuf> {
+    let dir = current_exe_dir()?;
+    (kind_of(&dir, None, None) == Kind::Portable).then_some(dir)
+}
+
+fn current_exe_dir() -> Option<PathBuf> {
+    std::env::current_exe()
+        .ok()?
+        .parent()
+        .map(Path::to_path_buf)
+}
+
 /// What an installation did.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Report {
@@ -152,6 +229,7 @@ fn remove_binaries(dir: &Path) -> Result<(), String> {
             if cfg!(windows) { ".exe" } else { "" }
         )));
     }
+    let _ = std::fs::remove_file(dir.join(KIND_MARKER));
     if cfg!(windows) {
         let _ = std::fs::remove_dir(dir);
     }
@@ -373,10 +451,17 @@ mod windows {
         .map(|_| ())
     }
 
+    /// `PATH` entries name the same folder: case and a trailing `\` do not matter (the installer
+    /// writes the folder with one).
+    fn same_dir(a: &str, b: &str) -> bool {
+        a.trim_end_matches('\\')
+            .eq_ignore_ascii_case(b.trim_end_matches('\\'))
+    }
+
     pub(super) fn add_to_path(dir: &Path) -> Result<(), String> {
         let d = dir.display().to_string();
         let current = user_path()?;
-        if current.split(';').any(|p| p.eq_ignore_ascii_case(&d)) {
+        if current.split(';').any(|p| same_dir(p, &d)) {
             return Ok(());
         }
         let new = if current.is_empty() {
@@ -392,7 +477,7 @@ mod windows {
         let current = user_path()?;
         let kept: Vec<&str> = current
             .split(';')
-            .filter(|p| !p.is_empty() && !p.eq_ignore_ascii_case(&d))
+            .filter(|p| !p.is_empty() && !same_dir(p, &d))
             .collect();
         if kept.len() == current.split(';').filter(|p| !p.is_empty()).count() {
             return Ok(());
@@ -498,6 +583,35 @@ mod tests {
     fn names_and_folders() {
         assert!(install_dir().is_absolute() || std::env::var_os("VF_INSTALL_DIR").is_some());
         assert!(exe_name("vibefork").starts_with("vibefork"));
+    }
+
+    #[test]
+    fn kind_from_marker_and_appimage() {
+        let base = std::env::temp_dir().join(format!("vf-kind-{}", std::process::id()));
+        let (bin, mount) = (base.join("bin"), base.join("mount"));
+        assert!(std::fs::create_dir_all(&bin).is_ok());
+        assert!(std::fs::create_dir_all(mount.join("usr/bin")).is_ok());
+        assert_eq!(kind_of(&bin, None, None), Kind::Files, "no marker");
+        for (word, kind) in [
+            ("msi\n", Kind::Msi),
+            ("portable\r\n", Kind::Portable),
+            ("other", Kind::Files),
+        ] {
+            assert!(std::fs::write(bin.join(KIND_MARKER), word).is_ok());
+            assert_eq!(kind_of(&bin, None, None), kind, "{word:?}");
+        }
+        let image = base.join("Vibefork.AppImage");
+        assert!(std::fs::write(&image, "image").is_ok());
+        assert_eq!(
+            kind_of(&mount.join("usr/bin"), Some(&image), Some(&mount)),
+            Kind::AppImage(image.clone())
+        );
+        assert_eq!(
+            kind_of(&bin, Some(&image), Some(&mount)),
+            Kind::Files,
+            "binaries outside the mount point are not the AppImage (inherited variables)"
+        );
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

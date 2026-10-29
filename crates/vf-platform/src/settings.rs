@@ -7,7 +7,7 @@
 //! | `VF_PORT` | `port` | last used port, else `47801` | Preferred port (the next 4 are tried if busy) |
 //! | `VF_EXTRA_ORIGINS` | `extraOrigins` | — | Extra web origins allowed to call the agent (comma-separated); honoured only in builds with the `dev-extra-origins` feature |
 //! | `VF_UI_BUNDLE_URL` | `uiBundleUrl` | `https://code.vibefork.me/bundle` | Where the signed UI bundle is downloaded from |
-//! | `VF_PROJECTS_DIR` | `storage.projects` | `~/vibefork-projects` | Projects (git repositories) |
+//! | `VF_PROJECTS_DIR` | `storage.projects` | `~/vibefork-projects`; portable: `projects` next to the binaries | Projects (git repositories) |
 //! | `VF_TOOLS_DIR` | `storage.tools` | `<state>/tools` | Toolchains, `mise` |
 //! | `VF_CACHES_DIR` | `storage.caches` | `<state>/caches` | Package caches (Gradle, npm, …) |
 //! | `VF_ARTIFACTS_DIR` | `storage.artifacts` | `<state>/artifacts` | Build artifacts |
@@ -144,7 +144,7 @@ impl Settings {
         let storage = Storage {
             projects: env_path("VF_PROJECTS_DIR")
                 .or(stored.projects)
-                .unwrap_or_else(|| home().join("vibefork-projects")),
+                .unwrap_or_else(default_projects_dir),
             tools: env_path("VF_TOOLS_DIR")
                 .or(stored.tools)
                 .unwrap_or_else(|| state_dir.join("tools")),
@@ -383,7 +383,17 @@ fn home() -> PathBuf {
         .unwrap_or_default()
 }
 
+fn default_projects_dir() -> PathBuf {
+    match crate::install::portable_dir() {
+        Some(dir) => dir.join("projects"),
+        None => home().join("vibefork-projects"),
+    }
+}
+
 fn default_state_dir() -> PathBuf {
+    if let Some(dir) = crate::install::portable_dir() {
+        return dir.join("data");
+    }
     if cfg!(windows)
         && let Some(local) = std::env::var_os("LOCALAPPDATA")
     {

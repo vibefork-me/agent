@@ -117,6 +117,8 @@ pub(crate) fn run(json: bool) -> ExitCode {
         ),
         false,
     );
+    let kind = install::current_kind();
+    add("installed as", true, kind.name().to_owned(), false);
     let handler = install::protocol_target();
     add(
         "vibefork://",
