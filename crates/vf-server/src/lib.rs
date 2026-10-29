@@ -82,6 +82,8 @@ pub struct AppState {
     pub(crate) backend: Arc<dyn Backend>,
     /// Subscriptions whose sign-in is running.
     pub(crate) connecting: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
+    /// Projects where a paired browser started work (`ws`).
+    pub(crate) started: Arc<ws::StartedWork>,
 }
 
 /// The router (used by [`serve`] and by tests).
@@ -92,6 +94,7 @@ pub fn router(config: Config, auth: Auth, ui: UiSlot, backend: Arc<dyn Backend>)
         ui,
         backend,
         connecting: Arc::default(),
+        started: Arc::default(),
     };
     Router::new()
         .route("/", get(ui::root))

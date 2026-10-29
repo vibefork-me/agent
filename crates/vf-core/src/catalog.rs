@@ -181,6 +181,32 @@ pub fn project_access_text(lang: Language, origin: &str, name: &str, project: &s
     message(lang, "project-access-text", &args)
 }
 
+/// Title of the question before the first task of an editor in a project.
+pub fn start_work_title(lang: Language) -> String {
+    text(lang, "start-work-title")
+}
+
+/// The question before the first task of an editor in a project: who asks, the project, the task
+/// as given, and what the model may do on the computer.
+pub fn start_work_text(lang: Language, origin: &str, project: &str, task: &str) -> String {
+    let args = [
+        ("origin", origin.into()),
+        ("project", project.into()),
+        ("task", task.into()),
+    ];
+    message(lang, "start-work-text", &args)
+}
+
+/// Native button label: start the work ("Start").
+pub fn btn_start(lang: Language) -> String {
+    text(lang, "btn-start")
+}
+
+/// Native button label: not now ("Not now").
+pub fn btn_not_now(lang: Language) -> String {
+    text(lang, "btn-not-now")
+}
+
 /// Answer to a message of the person that the running task took (`note.taken`).
 pub fn note_taken(lang: Language) -> String {
     text(lang, "note-taken")

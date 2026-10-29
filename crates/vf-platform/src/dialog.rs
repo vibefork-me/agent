@@ -217,6 +217,17 @@ impl ConfirmDialog for NativeConfirmDialog {
         system_confirm(&title, &text, lang)
     }
 
+    fn confirm_with(&self, title: &str, text: &str, accept: &str, reject: &str) -> bool {
+        let (title, text) = (dialog_text(title), dialog_text(text));
+        let (accept, reject) = (dialog_text(accept), dialog_text(reject));
+        if let Shown::Answered { accepted, .. } =
+            ask_window(window::CONFIRM, &title, &text, &accept, &reject, &[])
+        {
+            return accepted;
+        }
+        system_confirm(&title, &text, self.language())
+    }
+
     fn ask_permission(&self, origin: Option<&str>, request: &vf_core::Permission) -> bool {
         let lang = self.language();
         let request = request.cleaned();

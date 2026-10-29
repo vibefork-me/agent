@@ -14,6 +14,13 @@ pub trait ConfirmDialog: Send + Sync {
     /// on Don't allow, on timeout and when no dialog can be shown.
     fn confirm(&self, title: &str, text: &str) -> bool;
 
+    /// [`ConfirmDialog::confirm`] with its own button labels (`accept`, `reject`). By default it is
+    /// that dialog with the usual labels.
+    fn confirm_with(&self, title: &str, text: &str, accept: &str, reject: &str) -> bool {
+        let _ = (accept, reject);
+        self.confirm(title, text)
+    }
+
     /// Asks permission to act on the computer: who asks (`origin`, when known), what will be done,
     /// why, and each command with a link to check it at an independent source. Answers as
     /// [`ConfirmDialog::confirm`]. By default it is that dialog with all of it as plain text.
