@@ -2153,6 +2153,44 @@
         ],
         "type": "object"
       },
+      "IdentityRequest": {
+        "description": "`POST /v1/identity`: the editor's random challenge.",
+        "properties": {
+          "challenge": {
+            "description": "Random base64url, 22–128 characters.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "challenge"
+        ],
+        "type": "object"
+      },
+      "IdentityResponse": {
+        "description": "Response of `POST /v1/identity`: the agent signs, with its own key, the line `vibefork-agent-identity-v1\\n<origin>\\n<port>\\n<challenge>` — the request's origin, the port the agent listens on and the challenge (ECDSA P-256 / SHA-256, IEEE P1363, base64url).",
+        "properties": {
+          "agentKey": {
+            "$ref": "#/components/schemas/PublicJwk",
+            "description": "The agent's public key."
+          },
+          "port": {
+            "description": "The port the agent listens on; the editor accepts it only when it is the port it asked.",
+            "format": "uint16",
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "signature": {
+            "description": "The signature.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agentKey",
+          "port",
+          "signature"
+        ],
+        "type": "object"
+      },
       "ImportRequest": {
         "description": "Request of `POST /v1/projects/import`: a project from GitHub, without git on the machine.",
         "properties": {
@@ -2651,6 +2689,17 @@
       "PairStatusResponse": {
         "description": "Response of `GET /v1/pair/status`.",
         "properties": {
+          "agentKey": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicJwk"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The agent's public key once approved: the editor keeps it and checks `POST /v1/identity` with it before it sends anything to an agent."
+          },
           "codeAccepted": {
             "default": false,
             "description": "The right code was entered on the page (the request may still wait for Allow).",
@@ -4522,6 +4571,43 @@
           }
         },
         "summary": "Liveness and version; no origin or session needed"
+      }
+    },
+    "/v1/identity": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IdentityRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "The agent signs the editor's challenge with its own key, with the origin and its port"
       }
     },
     "/v1/journal": {

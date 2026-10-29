@@ -11,9 +11,9 @@ use vf_auth::{AuthError, SessionInfo};
 use vf_protocol::http::{
     AiConnectRequest, AiConnectResponse, AiDisconnectRequest, AiDisconnectResponse,
     ChallengeRequest, ChallengeResponse, CliHomeMode, DescribeRequest, ErrorBody, Hello,
-    ImportRequest, Me, PairCodeRequest, PairCodeResponse, PairStartRequest, PairStartResponse,
-    PairStatusResponse, RevokeRequest, RevokeResponse, RollbackRequest, SaveRequest,
-    SessionRequest, SessionResponse,
+    IdentityRequest, IdentityResponse, ImportRequest, Me, PairCodeRequest, PairCodeResponse,
+    PairStartRequest, PairStartResponse, PairStatusResponse, RevokeRequest, RevokeResponse,
+    RollbackRequest, SaveRequest, SessionRequest, SessionResponse,
 };
 use vf_protocol::{Backend, BackendError};
 
@@ -40,6 +40,7 @@ fn auth_error(e: &AuthError) -> Response {
     let (status, code) = match e {
         AuthError::BadKey => (StatusCode::BAD_REQUEST, "bad_key"),
         AuthError::Storage => (StatusCode::INTERNAL_SERVER_ERROR, "storage_error"),
+        AuthError::BadIdentityChallenge => (StatusCode::BAD_REQUEST, "bad_challenge"),
         AuthError::TooManyPairings => (StatusCode::TOO_MANY_REQUESTS, "too_many_pairings"),
         AuthError::NotPaired => (StatusCode::UNAUTHORIZED, "not_paired"),
         AuthError::BadChallenge => (StatusCode::UNAUTHORIZED, "bad_challenge"),
@@ -96,6 +97,23 @@ pub(crate) async fn pair_start(
     }
 }
 
+pub(crate) async fn identity(
+    State(state): State<AppState>,
+    Extension(origin): Extension<EffectiveOrigin>,
+    Json(req): Json<IdentityRequest>,
+) -> Response {
+    let port = state.config.port;
+    match state.auth.prove_identity(&origin.0, port, &req.challenge) {
+        Ok((agent_key, signature)) => Json(IdentityResponse {
+            agent_key,
+            port,
+            signature,
+        })
+        .into_response(),
+        Err(e) => auth_error(&e),
+    }
+}
+
 pub(crate) async fn pair_code(
     State(state): State<AppState>,
     Extension(origin): Extension<EffectiveOrigin>,
@@ -121,6 +139,7 @@ pub(crate) async fn pair_status(
             status: p.status,
             key_id: p.key_id,
             code_accepted: p.code_accepted,
+            agent_key: p.agent_key,
         })
         .into_response(),
         None => error(StatusCode::NOT_FOUND, "unknown pairing"),

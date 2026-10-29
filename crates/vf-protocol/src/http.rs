@@ -119,6 +119,32 @@ pub struct PairStatusResponse {
     /// The right code was entered on the page (the request may still wait for Allow).
     #[serde(default)]
     pub code_accepted: bool,
+    /// The agent's public key once approved: the editor keeps it and checks `POST /v1/identity`
+    /// with it before it sends anything to an agent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_key: Option<PublicJwk>,
+}
+
+/// `POST /v1/identity`: the editor's random challenge.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct IdentityRequest {
+    /// Random base64url, 22–128 characters.
+    pub challenge: String,
+}
+
+/// Response of `POST /v1/identity`: the agent signs, with its own key, the line
+/// `vibefork-agent-identity-v1\n<origin>\n<port>\n<challenge>` — the request's origin, the port the
+/// agent listens on and the challenge (ECDSA P-256 / SHA-256, IEEE P1363, base64url).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct IdentityResponse {
+    /// The agent's public key.
+    pub agent_key: PublicJwk,
+    /// The port the agent listens on; the editor accepts it only when it is the port it asked.
+    pub port: u16,
+    /// The signature.
+    pub signature: String,
 }
 
 /// `POST /v1/auth/challenge`.

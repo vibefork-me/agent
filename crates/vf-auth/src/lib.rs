@@ -7,9 +7,12 @@
 //! 2. the browser keeps a **non-extractable** P-256 key; the agent stores only the public key + origin;
 //! 3. every visit: one-time challenge → signature → short session token kept **in memory only**,
 //!    bound to the origin;
-//! 4. dangerous actions → native confirm dialog showing the action (invariant 3).
+//! 4. dangerous actions → native confirm dialog showing the action (invariant 3);
+//! 5. the agent has its own key ([`identity`]): a paired editor checks the agent's signature before
+//!    it sends anything, so another program on a loopback port cannot pass for the agent.
 
 mod crypto;
+pub mod identity;
 mod store;
 
 use std::collections::HashMap;
@@ -21,6 +24,7 @@ use vf_core::{ConfirmDialog, Secret};
 use vf_protocol::http::{PairInfo, PairState, PublicJwk};
 
 pub use crypto::key_id_of;
+use identity::AgentIdentity;
 use store::{PairRecord, PairStore};
 
 /// A session token. Never printed (invariant 6).
@@ -49,6 +53,9 @@ pub enum AuthError {
     /// Pairings could not be saved.
     #[error("storage error")]
     Storage,
+    /// The identity challenge is not base64url of an accepted length.
+    #[error("bad challenge")]
+    BadIdentityChallenge,
     /// Too many pairing requests from this origin are waiting for the user.
     #[error("too many pairing requests; answer the open dialog first")]
     TooManyPairings,
@@ -75,7 +82,7 @@ pub struct SessionInfo {
 }
 
 /// What a page may know about its pairing request (never the code).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PairingStatus {
     /// State of the request.
     pub status: PairState,
@@ -83,6 +90,8 @@ pub struct PairingStatus {
     pub key_id: Option<String>,
     /// The right code was entered on the page.
     pub code_accepted: bool,
+    /// The agent's public key, once approved: the editor keeps it to check the agent later.
+    pub agent_key: Option<PublicJwk>,
 }
 
 struct Pending {
@@ -118,19 +127,46 @@ struct State {
 pub struct Auth {
     state: Arc<Mutex<State>>,
     store: Arc<PairStore>,
+    identity: Arc<AgentIdentity>,
     dialog: Arc<dyn ConfirmDialog>,
 }
 
 impl Auth {
-    /// Loads paired browsers from `state_dir/pairs.json` (only public keys are stored there).
+    /// Loads paired browsers from `state_dir/pairs.json` (only public keys are stored there) and
+    /// the agent's own key from `state_dir/agent-key.json` (made on the first start).
     pub fn load(state_dir: PathBuf, dialog: Arc<dyn ConfirmDialog>) -> Result<Self, AuthError> {
         Ok(Self {
             state: Arc::new(Mutex::new(State::default())),
             store: Arc::new(
                 PairStore::load(state_dir.join("pairs.json")).map_err(|_| AuthError::Storage)?,
             ),
+            identity: Arc::new(
+                AgentIdentity::load_or_create(&state_dir).map_err(|_| AuthError::Storage)?,
+            ),
             dialog,
         })
+    }
+
+    /// The agent's public key.
+    pub fn agent_key(&self) -> PublicJwk {
+        self.identity.public_jwk()
+    }
+
+    /// Proves this agent to an editor at `origin`: signs [`identity::statement`] of the origin, the
+    /// `port` the agent listens on and the editor's `challenge`. Returns `(agent key, signature)`.
+    pub fn prove_identity(
+        &self,
+        origin: &str,
+        port: u16,
+        challenge: &str,
+    ) -> Result<(PublicJwk, String), AuthError> {
+        if !identity::valid_challenge(challenge) {
+            return Err(AuthError::BadIdentityChallenge);
+        }
+        Ok((
+            self.identity.public_jwk(),
+            self.identity.sign(origin, port, challenge),
+        ))
     }
 
     fn state(&self) -> MutexGuard<'_, State> {
@@ -270,6 +306,7 @@ impl Auth {
             status: p.status,
             key_id: (p.status == PairState::Approved).then(|| p.key_id.clone()),
             code_accepted: p.code_accepted,
+            agent_key: (p.status == PairState::Approved).then(|| self.identity.public_jwk()),
         })
     }
 

@@ -103,6 +103,7 @@ pub fn router(config: Config, auth: Auth, ui: UiSlot, backend: Arc<dyn Backend>)
         .route("/ui/{*path}", get(ui::file))
         .route("/v1/hello", get(routes::hello))
         .route("/v1/pair/start", post(routes::pair_start))
+        .route("/v1/identity", post(routes::identity))
         .route("/v1/pair/code", post(routes::pair_code))
         .route("/v1/pair/status", get(routes::pair_status))
         .route("/v1/auth/challenge", post(routes::challenge))
@@ -139,13 +140,17 @@ pub fn router(config: Config, auth: Auth, ui: UiSlot, backend: Arc<dyn Backend>)
 }
 
 /// Binds the preferred port or one of the next [`FALLBACK_PORTS`] on loopback.
-/// Returns the listener and the port actually bound.
+/// Returns the listener and the port actually bound. A busy port is logged as a warning: another
+/// program listens there (editors check the agent's signature and do not talk to it).
 pub async fn bind(preferred_port: u16) -> std::io::Result<(TcpListener, u16)> {
     let mut last_error = None;
     for port in preferred_port..=preferred_port.saturating_add(FALLBACK_PORTS) {
         match TcpListener::bind(bind_address(port)).await {
             Ok(listener) => return Ok((listener, port)),
-            Err(e) => last_error = Some(e),
+            Err(e) => {
+                tracing::warn!(port, error = %e, "port is used by another program; trying the next one");
+                last_error = Some(e);
+            }
         }
     }
     Err(last_error.unwrap_or_else(|| std::io::Error::other("no port")))

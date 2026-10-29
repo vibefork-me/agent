@@ -223,6 +223,53 @@ async fn start_pairing(app: &Router, browser: &Browser, origin: &str) -> (String
     (v["pairId"].as_str().unwrap().to_owned(), name)
 }
 
+/// [`start_pairing`] at another `host` (an agent on another port).
+async fn start_pairing_at(
+    app: &Router,
+    browser: &Browser,
+    origin: &str,
+    host: &str,
+) -> (String, String) {
+    let name = unique_name();
+    let (s, v, _) = call(
+        app,
+        Req {
+            host,
+            ..Req::post(
+                "/v1/pair/start",
+                origin,
+                json!({ "publicKeyJwk": browser.jwk(), "name": name }),
+            )
+        },
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    (v["pairId"].as_str().unwrap().to_owned(), name)
+}
+
+/// [`enter_code`] at another `host`.
+async fn enter_code_at(
+    app: &Router,
+    origin: &str,
+    host: &str,
+    pair_id: &str,
+    code: &str,
+) -> (StatusCode, Value) {
+    let (s, v, _) = call(
+        app,
+        Req {
+            host,
+            ..Req::post(
+                "/v1/pair/code",
+                origin,
+                json!({ "pairId": pair_id, "code": code }),
+            )
+        },
+    )
+    .await;
+    (s, v)
+}
+
 /// `POST /v1/pair/code`.
 async fn enter_code(app: &Router, origin: &str, pair_id: &str, code: &str) -> (StatusCode, Value) {
     let (s, v, _) = call(
@@ -578,6 +625,189 @@ impl ConfirmDialog for Gate {
             std::thread::sleep(Duration::from_millis(5));
         }
         true
+    }
+}
+
+/// What an editor does before it sends anything: checks the agent's signature over its origin, the
+/// port it asked and its challenge with the key it got at pairing.
+fn agent_signed(key: &Value, origin: &str, port: u16, challenge: &str, signature: &str) -> bool {
+    use p256::ecdsa::VerifyingKey;
+    use p256::ecdsa::signature::Verifier as _;
+    let mut sec1 = vec![4u8];
+    sec1.extend(URL_SAFE_NO_PAD.decode(key["x"].as_str().unwrap()).unwrap());
+    sec1.extend(URL_SAFE_NO_PAD.decode(key["y"].as_str().unwrap()).unwrap());
+    let key = VerifyingKey::from_sec1_bytes(&sec1).unwrap();
+    let Ok(bytes) = URL_SAFE_NO_PAD.decode(signature) else {
+        return false;
+    };
+    let Ok(sig) = Signature::from_slice(&bytes) else {
+        return false;
+    };
+    let statement = format!("vibefork-agent-identity-v1\n{origin}\n{port}\n{challenge}");
+    key.verify(statement.as_bytes(), &sig).is_ok()
+}
+
+/// The agent key the editor receives when pairing is approved.
+async fn paired_agent_key(app: &Router, browser: &Browser, origin: &str) -> Value {
+    let (id, name) = start_pairing(app, browser, origin).await;
+    assert!(
+        pair_status(app, origin, &id)
+            .await
+            .get("agentKey")
+            .is_none(),
+        "no agent key before approval"
+    );
+    let code = code_shown_to(&name).await;
+    enter_code(app, origin, &id, &code).await;
+    for _ in 0..200 {
+        let status = pair_status(app, origin, &id).await;
+        if status["status"] == "approved" {
+            let key = status["agentKey"].clone();
+            assert_eq!(key["kty"], "EC");
+            assert!(key.get("d").is_none(), "never the private key: {key}");
+            return key;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("pairing was not approved");
+}
+
+const CHALLENGE: &str = "Zm9yLXRoZS1pZGVudGl0eS1jaGVjaw";
+
+/// An agent that listens on `port` with its own state folder.
+fn agent_on(port: u16) -> Router {
+    router(
+        Config {
+            port,
+            allowed_origins: vec![UI.into(), OTHER.into()],
+            extra_origins: vec![],
+        },
+        Auth::load(temp_dir(), Arc::new(Always(true))).unwrap(),
+        Arc::new(RwLock::new(None)),
+        common::backend(),
+    )
+}
+
+/// The agent proves itself with the key the editor got at pairing; the proof names the origin and
+/// the port it listens on.
+#[tokio::test]
+async fn the_agent_signs_the_editors_challenge_with_its_paired_key() {
+    let app = app(true);
+    let key = paired_agent_key(&app, &Browser::new(), UI).await;
+    let (s, v, _) = call(
+        &app,
+        Req::post("/v1/identity", UI, json!({ "challenge": CHALLENGE })),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["agentKey"], key, "the same key as at pairing");
+    assert_eq!(v["port"], json!(PORT));
+    let sig = v["signature"].as_str().unwrap();
+    assert!(agent_signed(&key, UI, PORT, CHALLENGE, sig));
+    assert!(
+        !agent_signed(&key, OTHER, PORT, CHALLENGE, sig),
+        "bound to the origin"
+    );
+    assert!(
+        !agent_signed(&key, UI, PORT + 1, CHALLENGE, sig),
+        "bound to the port"
+    );
+    assert!(
+        !agent_signed(&key, UI, PORT, "another-challenge-value", sig),
+        "bound to the challenge"
+    );
+}
+
+/// A program on 47801 that relays the editor's request to the real agent on 47802 gets a proof
+/// for 47802: the editor, which asked 47801, rejects it.
+#[tokio::test]
+async fn a_relay_on_another_port_cannot_pass_for_the_agent() {
+    let real = agent_on(PORT + 1);
+    let key = {
+        // The editor paired with the real agent through its own origin and port.
+        let origin = "http://127.0.0.1:47802";
+        let browser = Browser::new();
+        let (id, name) = start_pairing_at(&real, &browser, origin, "127.0.0.1:47802").await;
+        let code = code_shown_to(&name).await;
+        let (s, _) = enter_code_at(&real, origin, "127.0.0.1:47802", &id, &code).await;
+        assert_eq!(s, StatusCode::OK);
+        let mut key = Value::Null;
+        for _ in 0..200 {
+            let path = format!("/v1/pair/status?id={id}");
+            let v = call(
+                &real,
+                Req {
+                    marker: true,
+                    host: "127.0.0.1:47802",
+                    ..Req::get(&path, Some(origin))
+                },
+            )
+            .await
+            .1;
+            if v["status"] == "approved" {
+                key = v["agentKey"].clone();
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        key
+    };
+    assert!(key.is_object());
+    // The relay forwards the editor's request with a forged Host and Origin of an allowed site.
+    let (s, v, _) = call(
+        &real,
+        Req {
+            host: "127.0.0.1:47802",
+            ..Req::post("/v1/identity", UI, json!({ "challenge": CHALLENGE }))
+        },
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    let sig = v["signature"].as_str().unwrap();
+    assert_eq!(v["port"], json!(PORT + 1));
+    assert!(
+        !agent_signed(&key, UI, PORT, CHALLENGE, sig),
+        "the editor asked port {PORT}: a proof for another port is rejected"
+    );
+}
+
+/// Another agent (another state folder, e.g. of another user of the computer) has another key.
+#[tokio::test]
+async fn another_agent_does_not_have_the_paired_key() {
+    let key = paired_agent_key(&app(true), &Browser::new(), UI).await;
+    let other = app(true);
+    let (_, v, _) = call(
+        &other,
+        Req::post("/v1/identity", UI, json!({ "challenge": CHALLENGE })),
+    )
+    .await;
+    assert_ne!(v["agentKey"], key);
+    assert!(!agent_signed(
+        &key,
+        UI,
+        PORT,
+        CHALLENGE,
+        v["signature"].as_str().unwrap()
+    ));
+}
+
+/// The identity route is guarded like pairing and signs only a well-formed challenge.
+#[tokio::test]
+async fn identity_needs_an_allowed_origin_and_a_sane_challenge() {
+    let app = app(true);
+    let (s, _, _) = call(
+        &app,
+        Req::post("/v1/identity", EVIL, json!({ "challenge": CHALLENGE })),
+    )
+    .await;
+    assert_eq!(s, StatusCode::FORBIDDEN);
+    for bad in ["short", "has\nnewline-and-is-long-enough", &"A".repeat(129)] {
+        let (s, v, _) = call(
+            &app,
+            Req::post("/v1/identity", UI, json!({ "challenge": bad })),
+        )
+        .await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{bad:?}: {v}");
     }
 }
 

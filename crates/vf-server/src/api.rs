@@ -44,6 +44,14 @@ pub const ROUTES: &[Route] = &[
         session: false,
     },
     Route {
+        method: "POST",
+        path: "/v1/identity",
+        summary: "The agent signs the editor's challenge with its own key, with the origin and its port",
+        request: Some("IdentityRequest"),
+        response: Some("IdentityResponse"),
+        session: false,
+    },
+    Route {
         method: "GET",
         path: "/v1/pair/status",
         summary: "Pairing status (query: id)",
