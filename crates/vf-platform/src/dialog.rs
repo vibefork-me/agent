@@ -1,4 +1,5 @@
-//! The agent's questions to the person at the machine: Allow / Block, a text value, a secret.
+//! The agent's questions to the person at the machine: Allow / Don't allow, a permission to act
+//! on the computer (what, why, the commands with links to check them), a text value, a secret.
 //!
 //! Windows and Linux: the agent's own window (egui, `vibefork-tray dialog <kind>` next to this
 //! binary — the core itself has no GUI dependencies). When that window cannot be shown (no binary,
@@ -12,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use vf_core::{ConfirmDialog, Secret, dialog_text};
 
-/// How long a dialog waits for the user before it counts as Block.
+/// How long a dialog waits for the user before it counts as Don't allow.
 pub const DIALOG_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// How the agent asks its own dialog window (`vibefork-tray dialog <kind>`): the kind is the
@@ -23,8 +24,10 @@ pub mod window {
     pub const PROGRAM: &str = "vibefork-tray";
     /// First argument: show a dialog.
     pub const COMMAND: &str = "dialog";
-    /// Kind: Allow / Block.
+    /// Kind: Allow / Don't allow.
     pub const CONFIRM: &str = "confirm";
+    /// Kind: Allow / Don't allow an action on the computer, with what, why and the commands.
+    pub const PERMISSION: &str = "permission";
     /// Kind: a text value.
     pub const TEXT: &str = "text";
     /// Kind: a secret, not empty.
@@ -39,6 +42,12 @@ pub mod window {
     pub const ENV_ACCEPT: &str = "VF_DIALOG_ACCEPT";
     /// Rejecting button.
     pub const ENV_REJECT: &str = "VF_DIALOG_REJECT";
+    /// Permission: what will be done.
+    pub const ENV_WHAT: &str = "VF_DIALOG_WHAT";
+    /// Permission: why it is needed.
+    pub const ENV_WHY: &str = "VF_DIALOG_WHY";
+    /// Permission: the commands, one per line (the window builds the links to check them).
+    pub const ENV_COMMANDS: &str = "VF_DIALOG_COMMANDS";
     /// Seconds the window waits.
     pub const ENV_TIMEOUT_SECS: &str = "VF_DIALOG_TIMEOUT_SECS";
     /// Exit code: accepted (a value, if any, is on stdout).
@@ -64,8 +73,16 @@ enum Shown {
     Unavailable,
 }
 
-/// Asks through the agent's own window. Never on macOS (system dialogs there).
-fn ask_window(kind: &str, title: &str, text: &str, accept: &str, reject: &str) -> Shown {
+/// Asks through the agent's own window, with `extra` variables for the kind. Never on macOS
+/// (system dialogs there).
+fn ask_window(
+    kind: &str,
+    title: &str,
+    text: &str,
+    accept: &str,
+    reject: &str,
+    extra: &[(&str, &str)],
+) -> Shown {
     if cfg!(target_os = "macos") {
         return Shown::Unavailable;
     }
@@ -89,6 +106,7 @@ fn ask_window(kind: &str, title: &str, text: &str, accept: &str, reject: &str) -
             window::ENV_TIMEOUT_SECS,
             DIALOG_TIMEOUT.as_secs().to_string(),
         )
+        .envs(extra.iter().copied())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -160,6 +178,7 @@ fn ask_value(
         text,
         &vf_core::catalog::btn_ok(lang),
         &vf_core::catalog::btn_cancel(lang),
+        &[],
     ) {
         Shown::Unavailable => None,
         Shown::Answered {
@@ -172,7 +191,7 @@ fn ask_value(
     }
 }
 
-/// The OS dialog. Returns `false` on Block, timeout or when no dialog program is available.
+/// The OS dialog. Returns `false` on Don't allow, timeout or when no dialog program is available.
 #[derive(Debug, Default)]
 pub struct NativeConfirmDialog;
 
@@ -191,16 +210,39 @@ impl ConfirmDialog for NativeConfirmDialog {
             &text,
             &vf_core::catalog::btn_allow(lang),
             &vf_core::catalog::btn_block(lang),
+            &[],
         ) {
             return accepted;
         }
-        match spawn_dialog(&title, &text, lang) {
-            Ok(child) => wait_allowed(child),
-            Err(e) => {
-                tracing::warn!(error = %e, "cannot show a confirm dialog; treating as Block");
-                false
-            }
+        system_confirm(&title, &text, lang)
+    }
+
+    fn ask_permission(&self, origin: Option<&str>, request: &vf_core::Permission) -> bool {
+        let lang = self.language();
+        let request = request.cleaned();
+        let title = vf_core::catalog::permission_title(lang);
+        let intro = dialog_text(&vf_core::catalog::permission_intro(
+            lang,
+            origin,
+            !request.commands.is_empty(),
+        ));
+        let commands = request.commands.join("\n");
+        if let Shown::Answered { accepted, .. } = ask_window(
+            window::PERMISSION,
+            &title,
+            &intro,
+            &vf_core::catalog::btn_allow(lang),
+            &vf_core::catalog::btn_block(lang),
+            &[
+                (window::ENV_WHAT, &request.what),
+                (window::ENV_WHY, &request.why),
+                (window::ENV_COMMANDS, &commands),
+            ],
+        ) {
+            return accepted;
         }
+        // A system dialog shows text only: the same request with the links written out.
+        system_confirm(&title, &request.plain_text(lang, origin), lang)
     }
 
     fn ask_secret(&self, title: &str, text: &str) -> Option<Secret<String>> {
@@ -213,6 +255,17 @@ impl ConfirmDialog for NativeConfirmDialog {
 
     fn ask_secret_optional(&self, title: &str, text: &str) -> Option<Secret<String>> {
         ask_secret_optional_with_lang(title, text, self.language())
+    }
+}
+
+/// Allow / Don't allow in a system dialog; `false` when none can be shown.
+fn system_confirm(title: &str, text: &str, lang: vf_core::Language) -> bool {
+    match spawn_dialog(title, text, lang) {
+        Ok(child) => wait_allowed(child),
+        Err(e) => {
+            tracing::warn!(error = %e, "cannot show a confirm dialog; treating as Don't allow");
+            false
+        }
     }
 }
 

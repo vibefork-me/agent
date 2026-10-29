@@ -668,6 +668,62 @@ async fn rollback_needs_a_session_and_the_dialog() {
     }
 }
 
+/// Allows everything and keeps the permissions it was asked for.
+#[derive(Default)]
+struct PermissionLog(std::sync::Mutex<Vec<(Option<String>, vf_core::Permission)>>);
+impl ConfirmDialog for PermissionLog {
+    fn confirm(&self, _title: &str, _text: &str) -> bool {
+        true
+    }
+    fn ask_permission(&self, origin: Option<&str>, request: &vf_core::Permission) -> bool {
+        self.0
+            .lock()
+            .unwrap()
+            .push((origin.map(str::to_owned), request.clone()));
+        true
+    }
+}
+
+#[tokio::test]
+async fn a_rollback_permission_names_the_project_and_the_point_and_forges_no_lines() {
+    let log = Arc::new(PermissionLog::default());
+    let app = router(
+        Config {
+            port: PORT,
+            allowed_origins: vec![UI.into()],
+            extra_origins: vec![],
+        },
+        Auth::load(temp_dir(), log.clone()).unwrap(),
+        Arc::new(RwLock::new(None)),
+        common::backend(),
+    );
+    let browser = Browser::new();
+    let key_id = pair(&app, &browser, UI).await;
+    let token = login(&app, &browser, &key_id, UI).await;
+    let commit = "abcdef1234567890\nWhy: forged";
+    let (s, _, _) = call(
+        &app,
+        Req {
+            token: Some(&token),
+            ..Req::post(
+                "/v1/rollback",
+                UI,
+                json!({ "project": "demo", "commit": commit }),
+            )
+        },
+    )
+    .await;
+    let asked = log.0.lock().unwrap().clone();
+    assert_eq!(s, StatusCode::OK);
+    let (origin, request) = asked.last().unwrap();
+    assert_eq!(origin.as_deref(), Some(UI));
+    assert!(request.what.contains("demo"), "{}", request.what);
+    assert!(request.what.contains("abcdef123456"), "{}", request.what);
+    assert!(!request.what.contains('\n') && !request.what.contains("forged"));
+    // A rollback runs no command: nothing to check, no link.
+    assert!(request.commands.is_empty());
+}
+
 #[tokio::test]
 async fn projects_need_a_grant_from_the_dialog() {
     let dir = temp_dir();

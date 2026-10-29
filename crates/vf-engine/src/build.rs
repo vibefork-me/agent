@@ -19,6 +19,14 @@ use crate::step::now_rfc3339;
 /// Longest build.
 const BUILD_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 
+/// A step as one line, the way the person reads it: the program, then its arguments.
+pub(crate) fn command_line(step: &vf_builds::Step) -> String {
+    std::iter::once(step.program.as_str())
+        .chain(step.args.iter().map(String::as_str))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 impl Engine {
     pub(crate) fn run_build(
         &self,

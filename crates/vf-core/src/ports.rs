@@ -10,9 +10,20 @@ pub trait ConfirmDialog: Send + Sync {
         crate::catalog::Language::En
     }
 
-    /// Shows `text` with an Allow / Block choice. Blocks the calling thread; returns `false` on
-    /// Block, on timeout and when no dialog can be shown.
+    /// Shows `text` with an Allow / Don't allow choice. Blocks the calling thread; returns `false`
+    /// on Don't allow, on timeout and when no dialog can be shown.
     fn confirm(&self, title: &str, text: &str) -> bool;
+
+    /// Asks permission to act on the computer: who asks (`origin`, when known), what will be done,
+    /// why, and each command with a link to check it at an independent source. Answers as
+    /// [`ConfirmDialog::confirm`]. By default it is that dialog with all of it as plain text.
+    fn ask_permission(&self, origin: Option<&str>, request: &crate::Permission) -> bool {
+        let lang = self.language();
+        self.confirm(
+            &crate::catalog::permission_title(lang),
+            &request.plain_text(lang, origin),
+        )
+    }
 
     /// Prompts the user for a secret (e.g. an API key) with input masked.
     /// Returns `None` on cancel, empty input, timeout or when no dialog can be shown.

@@ -139,9 +139,10 @@ fn auto_update() {
     }
 }
 
-/// The engine; the model's processes run in the sandbox through this binary (`sandbox-exec`).
+/// The engine; the model's processes run in the sandbox through this binary (`sandbox-exec`), and
+/// tools are installed only after the person allows them in the native dialog.
 fn engine(s: &Settings) -> Engine {
-    let engine = Engine::new(s, providers(s));
+    let engine = Engine::new(s, providers(s)).with_dialog(dialog());
     match std::env::current_exe() {
         Ok(exe) => engine.with_sandbox(exe),
         Err(e) => {

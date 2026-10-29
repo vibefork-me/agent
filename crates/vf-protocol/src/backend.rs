@@ -325,6 +325,17 @@ pub trait Backend: Send + Sync {
     /// Builds a project; the last message is [`ServerMessage::BuildDone`] or
     /// [`ServerMessage::Error`]. The caller has confirmed it with the user.
     fn build(&self, project: &str, out: &mut dyn FnMut(ServerMessage), cancel: &Cancel);
+    /// The commands [`Backend::build`] would run in `project`, as shown to the person before they
+    /// allow it; empty when not known.
+    fn build_commands(&self, project: &str) -> Vec<String> {
+        let _ = project;
+        Vec::new()
+    }
+    /// The command [`Backend::run_program`] would start in `project`; `None` when not known.
+    fn run_command(&self, project: &str) -> Option<String> {
+        let _ = project;
+        None
+    }
     /// Runs the project's program until it exits or `cancel`; its output goes out as
     /// [`ServerMessage::ProgramLog`] bounded by `vf_core::limits`, the last message is
     /// [`ServerMessage::ProgramDone`], [`ServerMessage::Cancelled`] or [`ServerMessage::Error`].

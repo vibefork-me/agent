@@ -67,6 +67,9 @@ pub struct Engine {
     imports: github::Imports,
     /// CLIs being installed now.
     installing: Mutex<HashSet<String>>,
+    /// Asks the person before tools are installed; without it (tests) tools are installed as
+    /// needed.
+    dialog: Option<Arc<dyn vf_core::ConfirmDialog>>,
 }
 
 impl Engine {
@@ -97,7 +100,15 @@ impl Engine {
             sign_in: Default::default(),
             imports: Default::default(),
             installing: Mutex::new(HashSet::new()),
+            dialog: None,
         }
+    }
+
+    /// Asks the person through `dialog` before installing tools a project needs: what, why, and a
+    /// link to check each tool. A tool version allowed once is not asked about again.
+    pub fn with_dialog(mut self, dialog: Arc<dyn vf_core::ConfirmDialog>) -> Self {
+        self.dialog = Some(dialog);
+        self
     }
 
     /// Hands a provider the CLI the agent installed earlier when it found none of its own.
@@ -649,6 +660,20 @@ impl Backend for Engine {
         self.exclusive(project, out, |out| {
             self.run_project_program(project, out, cancel);
         });
+    }
+
+    fn build_commands(&self, project: &str) -> Vec<String> {
+        self.projects
+            .resolve(project)
+            .ok()
+            .and_then(|dir| vf_builds::detect_recipe(&dir))
+            .map(|r| r.steps.iter().map(build::command_line).collect())
+            .unwrap_or_default()
+    }
+
+    fn run_command(&self, project: &str) -> Option<String> {
+        let dir = self.projects.resolve(project).ok()?;
+        vf_builds::detect_run(&dir).map(|step| build::command_line(&step))
     }
 
     fn github_connect(&self) -> Result<GithubConnectResponse, BackendError> {

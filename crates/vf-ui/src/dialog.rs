@@ -1,4 +1,5 @@
-//! A question that only the person at the machine can answer: Allow / Block, a text value, or a
+//! A question that only the person at the machine can answer: Allow / Don't allow (for an action on
+//! the computer: what, why, and the commands, each with a link to check it), a text value, or a
 //! secret typed with masked input.
 //!
 //! Keyboard: Tab moves between the field and the buttons, Enter presses the focused button (in a
@@ -18,11 +19,19 @@ use crate::theme;
 pub const INPUT_GUARD: Duration = Duration::from_millis(600);
 /// Longest value typed into a field, in characters.
 pub const MAX_INPUT: usize = 4096;
+/// The only links a window opens: a web search.
+pub const LINK_PREFIX: &str = "https://www.google.com/search?";
+/// Longest "what" / "why", characters.
+const MAX_DETAIL: usize = 400;
+/// Longest command shown, characters.
+const MAX_COMMAND: usize = 300;
+/// Most commands shown.
+const MAX_COMMANDS: usize = 12;
 
 /// What is asked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DialogKind {
-    /// Accept (allow) or reject (block).
+    /// Accept (allow) or reject (don't allow).
     Confirm,
     /// A text value, shown as typed; an empty value cannot be submitted.
     Text,
@@ -45,10 +54,71 @@ pub struct Dialog {
     pub text: String,
     /// Label of the accepting button (Allow, OK).
     pub accept: String,
-    /// Label of the rejecting button (Block, Cancel).
+    /// Label of the rejecting button (Don't allow, Cancel).
     pub reject: String,
     /// How long the window waits for the person.
     pub timeout: Duration,
+    /// For an action on the computer: what, why and the commands.
+    pub permission: Option<Permission>,
+}
+
+/// What an action on the computer does and why, with the commands it runs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Permission {
+    /// Label of what will be done ("What").
+    pub what_label: String,
+    /// What will be done.
+    pub what: String,
+    /// Label of why it is needed ("Why").
+    pub why_label: String,
+    /// Why it is needed.
+    pub why: String,
+    /// Label of the link that checks a command ("Verify").
+    pub verify_label: String,
+    /// The commands, each with its link (`None`: nothing of it may leave the computer).
+    pub commands: Vec<Command>,
+}
+
+/// A command and the link that checks it at an independent source.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Command {
+    /// The command as it runs.
+    pub text: String,
+    /// The search that explains it; only a link starting with [`LINK_PREFIX`] is kept.
+    pub link: Option<String>,
+}
+
+impl Permission {
+    /// The same, cleaned to plain lines; links other than [`LINK_PREFIX`] searches are dropped.
+    fn cleaned(&self) -> Self {
+        Self {
+            what_label: plain_line(&self.what_label, 40),
+            what: plain_line(&self.what, MAX_DETAIL),
+            why_label: plain_line(&self.why_label, 40),
+            why: plain_line(&self.why, MAX_DETAIL),
+            verify_label: plain_line(&self.verify_label, 40),
+            commands: self
+                .commands
+                .iter()
+                .map(|c| Command {
+                    text: plain_line(&c.text, MAX_COMMAND),
+                    link: c
+                        .link
+                        .as_deref()
+                        .filter(|l| l.starts_with(LINK_PREFIX) && l.is_ascii())
+                        .filter(|l| !l.chars().any(|c| c.is_ascii_whitespace()))
+                        .map(str::to_owned),
+                })
+                .filter(|c| !c.text.is_empty())
+                .take(MAX_COMMANDS)
+                .collect(),
+        }
+    }
+
+    /// Lines it takes on screen, roughly.
+    pub fn lines(&self) -> usize {
+        4 + self.commands.len()
+    }
 }
 
 /// The person's answer.
@@ -87,6 +157,8 @@ pub struct DialogView {
     answer: Option<Answer>,
     /// Whether the first focus was placed.
     focus_placed: bool,
+    /// A link clicked and not yet opened.
+    link: Option<String>,
 }
 
 impl DialogView {
@@ -97,6 +169,7 @@ impl DialogView {
             text: plain_text(&dialog.text),
             accept: plain_line(&dialog.accept, 40),
             reject: plain_line(&dialog.reject, 40),
+            permission: dialog.permission.as_ref().map(Permission::cleaned),
             ..dialog
         };
         Self {
@@ -105,7 +178,13 @@ impl DialogView {
             opened_at: None,
             answer: None,
             focus_placed: false,
+            link: None,
         }
+    }
+
+    /// The link the person clicked, once: the window opens it in the browser.
+    pub fn take_link(&mut self) -> Option<String> {
+        self.link.take()
     }
 
     /// The question as shown (cleaned).
@@ -144,6 +223,28 @@ impl DialogView {
         ui.add_space(4.0);
         ui.label(self.dialog.text.as_str());
         ui.add_space(6.0);
+        if let Some(p) = &self.dialog.permission {
+            ui.label(RichText::new(p.what_label.as_str()).strong());
+            ui.label(p.what.as_str());
+            ui.add_space(4.0);
+            ui.label(RichText::new(p.why_label.as_str()).strong());
+            ui.label(p.why.as_str());
+            ui.add_space(4.0);
+            for c in &p.commands {
+                ui.horizontal_wrapped(|ui| {
+                    ui.code(c.text.as_str());
+                    if let Some(link) = &c.link {
+                        let label = format!("{} \u{2197}", p.verify_label);
+                        let r = ui.add_enabled(ready, egui::Link::new(label));
+                        if r.clicked() {
+                            self.link = Some(link.clone());
+                        }
+                        r.on_hover_text(link.as_str());
+                    }
+                });
+            }
+            ui.add_space(6.0);
+        }
 
         let mut submit = false;
         let field = match self.dialog.kind {
@@ -244,8 +345,30 @@ mod tests {
             title: "Give access to the project?".into(),
             text: "Site: example.test\nProject: notes-app".into(),
             accept: "Allow".into(),
-            reject: "Block".into(),
+            reject: "Don't allow".into(),
             timeout: Duration::from_secs(60),
+            permission: None,
+        }
+    }
+
+    fn permission() -> Dialog {
+        Dialog {
+            title: "Vibefork: action on your computer".into(),
+            text: "Here is what will be done and why.".into(),
+            permission: Some(Permission {
+                what_label: "What".into(),
+                what: "Build the project notes-app".into(),
+                why_label: "Why".into(),
+                why: "To check that the project builds after the changes.".into(),
+                verify_label: "Verify".into(),
+                commands: vec![Command {
+                    text: "npm run build".into(),
+                    link: Some(
+                        "https://www.google.com/search?hl=en&q=what+does+npm+run+build+do".into(),
+                    ),
+                }],
+            }),
+            ..confirm()
         }
     }
 
@@ -375,6 +498,46 @@ mod tests {
         });
         assert_eq!(view.dialog().title, "Access granted");
         assert_eq!(view.dialog().text, "line one\nline two");
+    }
+
+    #[test]
+    fn only_search_links_are_kept() {
+        let mut d = permission();
+        if let Some(p) = &mut d.permission {
+            p.commands.push(Command {
+                text: "tool".into(),
+                link: Some("https://example.org/search?q=tool".into()),
+            });
+            p.commands.push(Command {
+                text: "tool two".into(),
+                link: Some("https://www.google.com/search?q=a b".into()),
+            });
+            p.commands.push(Command {
+                text: "  ".into(),
+                link: None,
+            });
+        }
+        let view = DialogView::new(d);
+        let p = view.dialog().permission.as_ref().unwrap();
+        assert_eq!(p.commands.len(), 3);
+        assert!(p.commands[0].link.is_some());
+        assert_eq!(p.commands[1].link, None);
+        assert_eq!(p.commands[2].link, None);
+    }
+
+    #[test]
+    fn a_permission_is_drawn_and_still_starts_on_the_reject_button() {
+        let ctx = egui::Context::default();
+        let mut view = DialogView::new(permission());
+        frame(&ctx, &mut view, 0.0, vec![]);
+        frame(&ctx, &mut view, 1.0, vec![]);
+        frame(&ctx, &mut view, 1.1, vec![]);
+        let mut answer = None;
+        for t in [1.2, 1.3, 1.4] {
+            answer = answer.or(frame(&ctx, &mut view, t, vec![key(Key::Enter)]));
+        }
+        assert_eq!(answer, Some(Answer::Rejected));
+        assert_eq!(view.take_link(), None);
     }
 
     #[test]

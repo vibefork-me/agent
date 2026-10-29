@@ -18,27 +18,36 @@ project-access-text =
 
     Разрешайте, только если вы сейчас работаете в браузере.
 
-## Confirming an action
+## Asking permission to act on the computer: what, why, the commands to check
 
-confirm-action-title = Vibefork: подтверждение действия
-confirm-action-text =
-    { $origin } запрашивает действие:
-
-    { $action }
-confirm-action-text-target =
-    { $origin } запрашивает действие:
-
-    { $action }
-    Цель: { $target }
-action-build = собрать проект (запускает его скрипты сборки)
-action-run = запустить программу проекта
-action-rollback = откатить проект (последующие изменения будут удалены)
-action-rollback-part = вернуть эту часть проекта к виду до последней задачи, которая её меняла (остальные части не меняются)
-action-save = сохранить изменения проекта в вашу копию на GitHub (она может быть публичной)
-action-connect-ai-subscription = установить { $provider } (официальное приложение) и войти в браузере
-action-connect-ai-key = подключить { $provider } через API-ключ
-action-connect-ai-user-home = Разрешить Vibefork работать с вашим входом в { $provider }? Сессии агента появятся в вашей истории { $provider }.
-action-disconnect-ai = отключить { $provider }
+permission-title = Vibefork: действие на вашем компьютере
+permission-from = Запрос от { $origin }.
+permission-explained = Ниже — что будет сделано и зачем.
+permission-check = Каждую команду можно проверить в независимом источнике, прежде чем ответить.
+permission-what = Что
+permission-why = Зачем
+permission-commands = Команды
+permission-verify = Проверить
+permission-build-what = Собрать проект { $project }
+permission-build-why = Чтобы проверить, что проект собирается после изменений. Его скрипты сборки запустятся на вашем компьютере.
+permission-run-what = Запустить программу проекта { $project }
+permission-run-why = Вы попросили запустить собранную программу. Она запустится на вашем компьютере.
+permission-rollback-what = Откатить проект { $project } к точке { $target }
+permission-rollback-why = Вы выбрали вернуть файлы проекта к этой точке. Последующие изменения будут удалены.
+permission-rollback-part-what = Вернуть часть «{ $part }» проекта { $project } как было
+permission-rollback-part-why = Вы выбрали вернуть эту часть к виду до последней задачи, которая её меняла. Остальные части не меняются.
+permission-save-what = Сохранить изменения проекта { $project } в вашу копию на GitHub
+permission-save-why = Вы выбрали сохранить работу. Ваша копия на GitHub может быть публичной.
+permission-ai-subscription-what = Установить { $provider } (официальное приложение) и войти в браузере
+permission-ai-subscription-why = Чтобы агент выполнял ваши задачи через вашу подписку { $provider }.
+permission-ai-key-what = Подключить { $provider } через API-ключ
+permission-ai-key-why = Чтобы агент выполнял ваши задачи через { $provider }.
+permission-ai-user-home-what = Использовать ваш вход в { $provider } из { $home }
+permission-ai-user-home-why = Чтобы агент работал через вашу подписку без API-ключа. Сессии агента появятся в вашей истории { $provider }.
+permission-custom-ai-what = Подключить ваш сервер ИИ { $endpoint }
+permission-custom-ai-why = Агент будет отправлять на этот адрес код проекта и ваши задачи.
+permission-tools-what = Установить инструменты, нужные проекту { $project }: { $tools }
+permission-tools-why = Без них проект не собрать и не запустить. Они ставятся в собственную папку агента, а не в систему.
 
 ## Answers in the task's conversation
 
@@ -66,21 +75,13 @@ ask-text-text =
 
     { $prompt }
 custom-openai-endpoint-prompt = введите адрес OpenAI-совместимого API (например, http://localhost:11434/v1):
-custom-openai-confirm-text =
-    { $origin } запрашивает подключение своего OpenAI-совместимого API:
-
-    { $endpoint }
-
-    Код проекта и запросы будут отправляться на этот адрес.
-
-    Разрешить подключение к этому серверу?
 custom-openai-key-prompt = введите API-ключ для этого сервера (оставьте пустым, если локальный сервер не требует авторизации):
 custom-openai-model-prompt = введите идентификатор модели (например, llama3, qwen2.5-coder):
 
 ## Buttons of native dialogs
 
 btn-allow = Разрешить
-btn-block = Заблокировать
+btn-block = Не разрешать
 btn-ok = OK
 btn-cancel = Отмена
 

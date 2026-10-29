@@ -2,7 +2,8 @@
 
 **Layer 2 (adapters)**
 
-The agent's windows on egui / eframe (OpenGL through glow): a confirm prompt (Allow / Block), text
+The agent's windows on egui / eframe (OpenGL through glow): a confirm prompt (Allow / Don't allow),
+optionally for an action on the computer (what, why, and each command with a "Verify ↗" link), text
 and secret prompts, the first run, the agent's status — in the Vibefork look (dark theme, the
 editor's palette, large text and buttons).
 
@@ -19,14 +20,17 @@ the person's language; every answer goes back as a value. Any egui program can u
 use std::time::Duration;
 use vf_ui::{Answer, Dialog, DialogKind, Shell};
 
-let answer = Shell::new().dialog(Dialog {
+let question = Dialog {
     kind: DialogKind::Confirm,
     title: "Give access to the project?".into(),
     text: "Site: example.test\nProject: notes-app".into(),
     accept: "Allow".into(),
-    reject: "Block".into(),
+    reject: "Don't allow".into(),
     timeout: Duration::from_secs(60),
-})?;
+    permission: None,
+};
+// A clicked link goes to the caller: the window does not open a browser itself.
+let answer = Shell::new().dialog(question, |link| println!("{link}"))?;
 assert!(matches!(answer, Answer::Accepted | Answer::Rejected | Answer::TimedOut));
 ```
 
@@ -38,6 +42,8 @@ assert!(matches!(answer, Answer::Accepted | Answer::Rejected | Answer::TimedOut)
 - The dialog answers `TimedOut` when its time is up; a thin bar shows the time left. A closed window
   is `Rejected`.
 - A secret is typed masked; an entered value is never printed by `Debug`.
+- A permission shows what, why and the commands; a command's "Verify ↗" link is kept only when it is
+  a web search (`LINK_PREFIX`), and a click hands it to the caller.
 - Standalone windows ask to be brought to the front (they are usually opened by a background process);
   a dialog stays on top of other windows.
 - Each standalone window runs its own event loop. Some window systems allow one event loop per process:

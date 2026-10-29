@@ -20,27 +20,36 @@ project-access-text =
 
     Permítelo solo si lo estás haciendo ahora mismo en tu navegador.
 
-## Confirming an action
+## Asking permission to act on the computer: what, why, the commands to check
 
-confirm-action-title = Vibefork: confirma una acción
-confirm-action-text =
-    { $origin } pide:
-
-    { $action }
-confirm-action-text-target =
-    { $origin } pide:
-
-    { $action }
-    Destino: { $target }
-action-build = compilar el proyecto (ejecuta sus scripts de compilación)
-action-run = ejecutar el programa del proyecto
-action-rollback = volver el proyecto a una versión anterior (los cambios posteriores se descartan)
-action-rollback-part = dejar esta parte del proyecto como estaba antes de la última tarea que la cambió (las demás partes no cambian)
-action-save = guardar los cambios del proyecto en tu copia de GitHub (puede ser pública)
-action-connect-ai-subscription = configurar { $provider } (app oficial) e iniciar sesión en el navegador
-action-connect-ai-key = conectar { $provider } con una clave de API
-action-connect-ai-user-home = ¿Permitir que Vibefork use tu sesión de { $provider }? Las sesiones del agente aparecerán en tu historial de { $provider }.
-action-disconnect-ai = desconectar { $provider }
+permission-title = Vibefork: acción en tu computadora
+permission-from = Solicitud de { $origin }.
+permission-explained = Esto es lo que se hará y por qué.
+permission-check = Puedes verificar cada comando en una fuente independiente antes de responder.
+permission-what = Qué
+permission-why = Por qué
+permission-commands = Comandos
+permission-verify = Verificar
+permission-build-what = Compilar el proyecto { $project }
+permission-build-why = Para verificar que el proyecto compila después de los cambios. Sus scripts de compilación se ejecutarán en tu computadora.
+permission-run-what = Ejecutar el programa del proyecto { $project }
+permission-run-why = Pediste ejecutar el programa compilado. Se ejecutará en tu computadora.
+permission-rollback-what = Volver el proyecto { $project } a { $target }
+permission-rollback-why = Elegiste devolver los archivos del proyecto a este punto. Los cambios posteriores se descartarán.
+permission-rollback-part-what = Dejar la parte “{ $part }” del proyecto { $project } como estaba
+permission-rollback-part-why = Elegiste dejar esta parte como estaba antes de la última tarea que la cambió. Las demás partes no cambian.
+permission-save-what = Guardar los cambios del proyecto { $project } en tu copia de GitHub
+permission-save-why = Elegiste guardar tu trabajo. Tu copia de GitHub puede ser pública.
+permission-ai-subscription-what = Instalar { $provider } (la aplicación oficial) e iniciar sesión en el navegador
+permission-ai-subscription-why = Para que el agente haga tus tareas con tu suscripción de { $provider }.
+permission-ai-key-what = Conectar { $provider } con una clave de API
+permission-ai-key-why = Para que el agente haga tus tareas con { $provider }.
+permission-ai-user-home-what = Usar tu sesión de { $provider } de { $home }
+permission-ai-user-home-why = Para que el agente use tu suscripción sin clave de API. Las sesiones del agente aparecerán en tu historial de { $provider }.
+permission-custom-ai-what = Conectar tu propio servidor de IA { $endpoint }
+permission-custom-ai-why = El agente enviará el código del proyecto y tus tareas a esta dirección.
+permission-tools-what = Instalar las herramientas que necesita el proyecto { $project }: { $tools }
+permission-tools-why = El proyecto las necesita para compilar y ejecutarse. Van a la carpeta propia del agente, no al sistema.
 
 ## Answers in the task's conversation
 
@@ -68,21 +77,13 @@ ask-text-text =
 
     { $prompt }
 custom-openai-endpoint-prompt = ingresa la dirección base de la API compatible con OpenAI (p. ej., http://localhost:11434/v1):
-custom-openai-confirm-text =
-    { $origin } pide conectar una API propia compatible con OpenAI:
-
-    { $endpoint }
-
-    El código del proyecto y las solicitudes se enviarán a esta dirección.
-
-    ¿Permitir la conexión con este servidor?
 custom-openai-key-prompt = ingresa la clave de API de este servidor (déjala vacía si tu servidor local no pide autenticación):
 custom-openai-model-prompt = ingresa el identificador del modelo (p. ej., llama3, qwen2.5-coder):
 
 ## Buttons of native dialogs
 
 btn-allow = Permitir
-btn-block = Bloquear
+btn-block = No permitir
 btn-ok = Aceptar
 btn-cancel = Cancelar
 

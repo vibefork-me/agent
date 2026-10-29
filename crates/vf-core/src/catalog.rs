@@ -181,44 +181,6 @@ pub fn project_access_text(lang: Language, origin: &str, name: &str, project: &s
     message(lang, "project-access-text", &args)
 }
 
-/// Confirm action dialog title.
-pub fn confirm_action_title(lang: Language) -> String {
-    text(lang, "confirm-action-title")
-}
-
-/// Confirm action dialog text.
-pub fn confirm_action_text(
-    lang: Language,
-    origin: &str,
-    action: &str,
-    target: Option<&str>,
-) -> String {
-    match target {
-        Some(target) => {
-            let args = [
-                ("origin", origin.into()),
-                ("action", action.into()),
-                ("target", target.into()),
-            ];
-            message(lang, "confirm-action-text-target", &args)
-        }
-        None => {
-            let args = [("origin", origin.into()), ("action", action.into())];
-            message(lang, "confirm-action-text", &args)
-        }
-    }
-}
-
-/// Action prompt: build project.
-pub fn action_build(lang: Language) -> String {
-    text(lang, "action-build")
-}
-
-/// Action prompt: run the project's program.
-pub fn action_run(lang: Language) -> String {
-    text(lang, "action-run")
-}
-
 /// Answer to a message of the person that the running task took (`note.taken`).
 pub fn note_taken(lang: Language) -> String {
     text(lang, "note-taken")
@@ -247,48 +209,6 @@ pub fn thought_step(lang: Language, n: u32, of: u32, title: &str) -> String {
         ("title", title.into()),
     ];
     message(lang, "thought-step", &args)
-}
-
-/// Action prompt: rollback project.
-pub fn action_rollback(lang: Language) -> String {
-    text(lang, "action-rollback")
-}
-
-/// Action prompt: roll one part of the project back.
-pub fn action_rollback_part(lang: Language) -> String {
-    text(lang, "action-rollback-part")
-}
-
-/// Action prompt: save to GitHub fork.
-pub fn action_save(lang: Language) -> String {
-    text(lang, "action-save")
-}
-
-/// Action prompt: connect subscription CLI.
-pub fn action_connect_ai_subscription(lang: Language, provider_name: &str) -> String {
-    message(
-        lang,
-        "action-connect-ai-subscription",
-        &[("provider", provider_name.into())],
-    )
-}
-
-/// Action prompt: connect AI via API key.
-pub fn action_connect_ai_key(lang: Language, provider_name: &str) -> String {
-    message(
-        lang,
-        "action-connect-ai-key",
-        &[("provider", provider_name.into())],
-    )
-}
-
-/// Action prompt: switch AI provider to user's personal CLI home.
-pub fn action_connect_ai_user_home(lang: Language, provider_name: &str) -> String {
-    message(
-        lang,
-        "action-connect-ai-user-home",
-        &[("provider", provider_name.into())],
-    )
 }
 
 /// Secret dialog title.
@@ -328,12 +248,6 @@ pub fn custom_openai_endpoint_prompt(lang: Language) -> String {
     text(lang, "custom-openai-endpoint-prompt")
 }
 
-/// Confirmation text showing full custom endpoint with security warning.
-pub fn custom_openai_confirm_text(lang: Language, origin: &str, endpoint: &str) -> String {
-    let args = [("origin", origin.into()), ("endpoint", endpoint.into())];
-    message(lang, "custom-openai-confirm-text", &args)
-}
-
 /// Prompt for entering custom OpenAI-compatible API key (optional for local servers).
 pub fn custom_openai_key_prompt(lang: Language) -> String {
     text(lang, "custom-openai-key-prompt")
@@ -344,21 +258,12 @@ pub fn custom_openai_model_prompt(lang: Language) -> String {
     text(lang, "custom-openai-model-prompt")
 }
 
-/// Action prompt: disconnect AI provider.
-pub fn action_disconnect_ai(lang: Language, provider_name: &str) -> String {
-    message(
-        lang,
-        "action-disconnect-ai",
-        &[("provider", provider_name.into())],
-    )
-}
-
 /// Native button label: Allow.
 pub fn btn_allow(lang: Language) -> String {
     text(lang, "btn-allow")
 }
 
-/// Native button label: Block.
+/// Native button label: the rejecting answer ("Don't allow").
 pub fn btn_block(lang: Language) -> String {
     text(lang, "btn-block")
 }
@@ -805,6 +710,111 @@ pub fn system_instruction(lang: &str) -> String {
     crate::prompts::get(crate::prompts::Stage::Audience).render_audience(lang)
 }
 
+/// Title of a request for permission to act on the computer.
+pub fn permission_title(lang: Language) -> String {
+    text(lang, "permission-title")
+}
+
+/// The opening of a request for permission: who asks (when known), that what and why follow, and
+/// — only when there are commands — that each can be checked at an independent source.
+pub fn permission_intro(lang: Language, origin: Option<&str>, has_commands: bool) -> String {
+    let mut parts = Vec::new();
+    if let Some(origin) = origin {
+        parts.push(message(
+            lang,
+            "permission-from",
+            &[("origin", origin.into())],
+        ));
+    }
+    parts.push(text(lang, "permission-explained"));
+    if has_commands {
+        parts.push(text(lang, "permission-check"));
+    }
+    parts.join(" ")
+}
+
+/// Label of what will be done.
+pub fn permission_what(lang: Language) -> String {
+    text(lang, "permission-what")
+}
+
+/// Label of why it is needed.
+pub fn permission_why(lang: Language) -> String {
+    text(lang, "permission-why")
+}
+
+/// Label of the commands that will run.
+pub fn permission_commands(lang: Language) -> String {
+    text(lang, "permission-commands")
+}
+
+/// Label of the link that checks a command at an independent source.
+pub fn permission_verify(lang: Language) -> String {
+    text(lang, "permission-verify")
+}
+
+/// What and why of an action, from `permission-<id>-what` / `permission-<id>-why`.
+fn permission_pair(lang: Language, id: &str, args: &[(&str, FluentValue<'_>)]) -> (String, String) {
+    (
+        message(lang, &format!("permission-{id}-what"), args),
+        message(lang, &format!("permission-{id}-why"), args),
+    )
+}
+
+/// What and why: build `project`.
+pub fn permission_build(lang: Language, project: &str) -> (String, String) {
+    permission_pair(lang, "build", &[("project", project.into())])
+}
+
+/// What and why: run the program of `project`.
+pub fn permission_run(lang: Language, project: &str) -> (String, String) {
+    permission_pair(lang, "run", &[("project", project.into())])
+}
+
+/// What and why: roll `project` back to `target` (a checkpoint).
+pub fn permission_rollback(lang: Language, project: &str, target: &str) -> (String, String) {
+    let args = [("project", project.into()), ("target", target.into())];
+    permission_pair(lang, "rollback", &args)
+}
+
+/// What and why: put `part` of `project` back as it was.
+pub fn permission_rollback_part(lang: Language, project: &str, part: &str) -> (String, String) {
+    let args = [("project", project.into()), ("part", part.into())];
+    permission_pair(lang, "rollback-part", &args)
+}
+
+/// What and why: save the changes of `project` to the person's copy on GitHub.
+pub fn permission_save(lang: Language, project: &str) -> (String, String) {
+    permission_pair(lang, "save", &[("project", project.into())])
+}
+
+/// What and why: set up `provider`'s official app and sign in.
+pub fn permission_ai_subscription(lang: Language, provider: &str) -> (String, String) {
+    permission_pair(lang, "ai-subscription", &[("provider", provider.into())])
+}
+
+/// What and why: connect `provider` with an API key.
+pub fn permission_ai_key(lang: Language, provider: &str) -> (String, String) {
+    permission_pair(lang, "ai-key", &[("provider", provider.into())])
+}
+
+/// What and why: use the person's own `provider` login kept in `home`.
+pub fn permission_ai_user_home(lang: Language, provider: &str, home: &str) -> (String, String) {
+    let args = [("provider", provider.into()), ("home", home.into())];
+    permission_pair(lang, "ai-user-home", &args)
+}
+
+/// What and why: connect the person's own AI server at `endpoint`.
+pub fn permission_custom_ai(lang: Language, endpoint: &str) -> (String, String) {
+    permission_pair(lang, "custom-ai", &[("endpoint", endpoint.into())])
+}
+
+/// What and why: install `tools` (a list, as shown) that `project` needs.
+pub fn permission_tools(lang: Language, project: &str, tools: &str) -> (String, String) {
+    let args = [("project", project.into()), ("tools", tools.into())];
+    permission_pair(lang, "tools", &args)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -853,7 +863,7 @@ mod tests {
             "origin", "name", "code", "project", "action", "target", "provider", "prompt",
             "endpoint", "update", "version", "port", "pid", "login", "kind", "size", "path",
             "title", "stage", "line", "minutes", "needed", "free", "error", "system", "cpu",
-            "platform", "asset",
+            "platform", "asset", "part", "home", "tools",
         ];
         let mut args = FluentArgs::new();
         for v in values {
@@ -1012,17 +1022,6 @@ mod tests {
             assert!(!pair_text(lang, "site", "chrome", "1234").is_empty());
             assert!(!project_access_title(lang).is_empty());
             assert!(!project_access_text(lang, "site", "chrome", "proj").is_empty());
-            assert!(!confirm_action_title(lang).is_empty());
-            assert!(!confirm_action_text(lang, "site", "action", Some("target")).is_empty());
-            assert!(!confirm_action_text(lang, "site", "action", None).is_empty());
-            assert!(!action_build(lang).is_empty());
-            assert!(!action_run(lang).is_empty());
-            assert!(!action_rollback(lang).is_empty());
-            assert!(!action_rollback_part(lang).is_empty());
-            assert!(!action_save(lang).is_empty());
-            assert!(!action_connect_ai_subscription(lang, "Claude").is_empty());
-            assert!(!action_connect_ai_key(lang, "OpenRouter").is_empty());
-            assert!(!action_connect_ai_user_home(lang, "Claude Code").is_empty());
             assert!(!ask_secret_title(lang).is_empty());
             assert!(!ask_secret_text(lang, "site", "prompt").is_empty());
             assert!(!openrouter_key_prompt(lang).is_empty());
@@ -1075,18 +1074,6 @@ mod tests {
             project_access_title(Language::En),
             project_access_title(Language::Ru)
         );
-        assert_ne!(
-            confirm_action_title(Language::En),
-            confirm_action_title(Language::Ru)
-        );
-        assert_ne!(action_build(Language::En), action_build(Language::Ru));
-        assert_ne!(action_run(Language::En), action_run(Language::Ru));
-        assert_ne!(action_rollback(Language::En), action_rollback(Language::Ru));
-        assert_ne!(
-            action_rollback_part(Language::En),
-            action_rollback_part(Language::Ru)
-        );
-        assert_ne!(action_save(Language::En), action_save(Language::Ru));
         assert_ne!(
             ask_secret_title(Language::En),
             ask_secret_title(Language::Ru)

@@ -6,8 +6,11 @@
 //!   tool installs;
 //! - [`estimates`] — what the tools take on disk and download, before anything is installed;
 //! - [`prepare`] — installs what is needed and returns `PATH` entries and variables for the model's
-//!   processes, reporting each tool's stage, bytes and time left.
+//!   processes, reporting each tool's stage, bytes and time left;
+//! - [`prepare_allowed`] — the same, but tools not allowed before are installed only after the person
+//!   allows them ([`approvals`]: an allowed tool version is not asked about again).
 
+pub mod approvals;
 pub mod cli;
 pub mod detect;
 pub mod download;
@@ -63,7 +66,7 @@ pub enum Progress {
         /// Reason, in plain English.
         error: String,
         /// `unsupported_platform`, `download_failed` (of `mise`), `install_failed`, `timed_out`,
-        /// `cancelled`.
+        /// `cancelled`, `not_allowed` (the person did not allow installing it).
         code: &'static str,
     },
 }
@@ -84,6 +87,20 @@ pub fn prepare(
     caches: &Path,
     cancel: &Cancel,
     progress: &mut dyn FnMut(Progress),
+) -> Prepared {
+    prepare_allowed(dir, tools, caches, cancel, progress, &mut |_| true)
+}
+
+/// [`prepare`] that first asks `allow` about the tools not allowed before (all of them in one
+/// question, never an empty list). Allowed: remembered and installed. Not allowed: not installed,
+/// each reported as [`Progress::Failed`] with `not_allowed`; the tools allowed before still are.
+pub fn prepare_allowed(
+    dir: &Path,
+    tools: &Path,
+    caches: &Path,
+    cancel: &Cancel,
+    progress: &mut dyn FnMut(Progress),
+    allow: &mut dyn FnMut(&[Need]) -> bool,
 ) -> Prepared {
     let mut out = Prepared::default();
 
@@ -163,7 +180,8 @@ pub fn prepare(
             .map(|(k, v)| (k.to_owned(), v.display().to_string())),
     );
 
-    let installed = install(tools, detect(dir), cancel, progress);
+    let needs = approvals::ask(tools, detect(dir), allow, progress);
+    let installed = install(tools, needs, cancel, progress);
     out.paths = installed.paths;
     out.env.extend(installed.env);
     out

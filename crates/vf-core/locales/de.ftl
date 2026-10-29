@@ -19,27 +19,36 @@ project-access-text =
 
     Erlaube es nur, wenn du das gerade in deinem Browser tust.
 
-## Confirming an action
+## Asking permission to act on the computer: what, why, the commands to check
 
-confirm-action-title = Vibefork: Aktion bestätigen
-confirm-action-text =
-    { $origin } möchte:
-
-    { $action }
-confirm-action-text-target =
-    { $origin } möchte:
-
-    { $action }
-    Ziel: { $target }
-action-build = das Projekt bauen (führt seine Build-Skripte aus)
-action-run = das Programm des Projekts starten
-action-rollback = das Projekt auf eine frühere Version zurücksetzen (spätere Änderungen werden verworfen)
-action-rollback-part = diesen Teil des Projekts so zurücksetzen, wie er vor der letzten Aufgabe war, die ihn geändert hat (die anderen Teile bleiben, wie sie sind)
-action-save = die Änderungen des Projekts in deiner Kopie auf GitHub speichern (sie kann öffentlich sein)
-action-connect-ai-subscription = { $provider } einrichten (offizielle App) und dich im Browser anmelden
-action-connect-ai-key = { $provider } mit einem API-Schlüssel verbinden
-action-connect-ai-user-home = Darf Vibefork deine Anmeldung bei { $provider } nutzen? Die Sitzungen des Agenten erscheinen dann in deinem { $provider }-Verlauf.
-action-disconnect-ai = { $provider } trennen
+permission-title = Vibefork: Aktion auf deinem Computer
+permission-from = Anfrage von { $origin }.
+permission-explained = Hier steht, was passiert und warum.
+permission-check = Du kannst jeden Befehl vor deiner Antwort bei einer unabhängigen Quelle prüfen.
+permission-what = Was
+permission-why = Warum
+permission-commands = Befehle
+permission-verify = Prüfen
+permission-build-what = Das Projekt { $project } bauen
+permission-build-why = Um zu prüfen, ob sich das Projekt nach den Änderungen bauen lässt. Seine Build-Skripte laufen auf deinem Computer.
+permission-run-what = Das Programm des Projekts { $project } starten
+permission-run-why = Du hast den Start des gebauten Programms angefordert. Es läuft auf deinem Computer.
+permission-rollback-what = Das Projekt { $project } auf { $target } zurücksetzen
+permission-rollback-why = Du hast gewählt, die Dateien des Projekts auf diesen Stand zurückzusetzen. Spätere Änderungen werden verworfen.
+permission-rollback-part-what = Den Teil „{ $part }“ des Projekts { $project } wie vorher wiederherstellen
+permission-rollback-part-why = Du hast gewählt, diesen Teil so wiederherzustellen, wie er vor der letzten Aufgabe war, die ihn geändert hat. Die anderen Teile bleiben, wie sie sind.
+permission-save-what = Die Änderungen des Projekts { $project } in deiner Kopie auf GitHub speichern
+permission-save-why = Du hast gewählt, deine Arbeit zu speichern. Deine Kopie auf GitHub kann öffentlich sein.
+permission-ai-subscription-what = { $provider } (die offizielle App) einrichten und dich im Browser anmelden
+permission-ai-subscription-why = Damit der Agent deine Aufgaben über dein { $provider }-Abonnement erledigt.
+permission-ai-key-what = { $provider } mit einem API-Schlüssel verbinden
+permission-ai-key-why = Damit der Agent deine Aufgaben über { $provider } erledigt.
+permission-ai-user-home-what = Deine Anmeldung bei { $provider } aus { $home } nutzen
+permission-ai-user-home-why = Damit der Agent dein Abonnement ohne API-Schlüssel nutzt. Die Sitzungen des Agenten erscheinen in deinem { $provider }-Verlauf.
+permission-custom-ai-what = Deinen eigenen KI-Server { $endpoint } verbinden
+permission-custom-ai-why = Der Agent sendet den Code des Projekts und deine Aufgaben an diese Adresse.
+permission-tools-what = Die Werkzeuge installieren, die das Projekt { $project } braucht: { $tools }
+permission-tools-why = Das Projekt braucht sie zum Bauen und Ausführen. Sie kommen in den eigenen Ordner des Agenten, nicht ins System.
 
 ## Answers in the task's conversation
 
@@ -67,21 +76,13 @@ ask-text-text =
 
     { $prompt }
 custom-openai-endpoint-prompt = gib die Basis-URL der OpenAI-kompatiblen API ein (z. B. http://localhost:11434/v1):
-custom-openai-confirm-text =
-    { $origin } möchte eine eigene OpenAI-kompatible API verbinden:
-
-    { $endpoint }
-
-    Der Code des Projekts und die Anfragen werden an diese Adresse gesendet.
-
-    Verbindung zu diesem Server erlauben?
 custom-openai-key-prompt = gib den API-Schlüssel für diesen Server ein (leer lassen, wenn dein lokaler Server keine Anmeldung verlangt):
 custom-openai-model-prompt = gib die Kennung des Modells ein (z. B. llama3, qwen2.5-coder):
 
 ## Buttons of native dialogs
 
 btn-allow = Erlauben
-btn-block = Blockieren
+btn-block = Nicht erlauben
 btn-ok = OK
 btn-cancel = Abbrechen
 

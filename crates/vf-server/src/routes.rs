@@ -343,9 +343,15 @@ pub(crate) async fn ai_connect(
                 let auth = state.auth.clone();
                 let o = origin.0.clone();
                 let lang = auth.dialog().language();
-                let prompt = vf_core::catalog::action_connect_ai_user_home(lang, dialog_name);
+                let home = match req.provider.as_str() {
+                    "codex" => "~/.codex",
+                    _ => "~/.claude",
+                };
+                let (what, why) =
+                    vf_core::catalog::permission_ai_user_home(lang, dialog_name, home);
+                let request = vf_core::Permission::new(what, why);
                 let approved =
-                    tokio::task::spawn_blocking(move || auth.confirm_action(&o, &prompt, None))
+                    tokio::task::spawn_blocking(move || auth.ask_permission(&o, &request))
                         .await
                         .unwrap_or(false);
                 if !approved {
@@ -432,13 +438,11 @@ pub(crate) async fn ai_connect(
         // Step 2: Show confirmation dialog with full endpoint and warning
         let auth = state.auth.clone();
         let o = origin.0.clone();
-        let confirm_title = vf_core::catalog::confirm_action_title(lang);
-        let confirm_text = vf_core::catalog::custom_openai_confirm_text(lang, &o, &clean_endpoint);
-        let confirmed = tokio::task::spawn_blocking(move || {
-            auth.dialog().confirm(&confirm_title, &confirm_text)
-        })
-        .await
-        .unwrap_or(false);
+        let (what, why) = vf_core::catalog::permission_custom_ai(lang, &clean_endpoint);
+        let request = vf_core::Permission::new(what, why);
+        let confirmed = tokio::task::spawn_blocking(move || auth.ask_permission(&o, &request))
+            .await
+            .unwrap_or(false);
 
         if !confirmed {
             state
@@ -532,12 +536,13 @@ pub(crate) async fn ai_connect(
         };
     }
 
-    let prompt = if is_key_based {
-        vf_core::catalog::action_connect_ai_key(lang, name)
+    let (what, why) = if is_key_based {
+        vf_core::catalog::permission_ai_key(lang, name)
     } else {
-        vf_core::catalog::action_connect_ai_subscription(lang, name)
+        vf_core::catalog::permission_ai_subscription(lang, name)
     };
-    let approved = tokio::task::spawn_blocking(move || auth.confirm_action(&o, &prompt, None))
+    let request = vf_core::Permission::new(what, why);
+    let approved = tokio::task::spawn_blocking(move || auth.ask_permission(&o, &request))
         .await
         .unwrap_or(false);
     if !approved {
@@ -760,15 +765,12 @@ pub(crate) async fn rollback(
     }
     let auth = state.auth.clone();
     let lang = auth.dialog().language();
-    let prompt = vf_core::catalog::action_rollback(lang);
-    let (o, target) = (
-        origin.0.clone(),
-        format!("{} → {}", req.project, req.commit),
-    );
-    let approved =
-        tokio::task::spawn_blocking(move || auth.confirm_action(&o, &prompt, Some(&target)))
-            .await
-            .unwrap_or(false);
+    let point: String = req.commit.chars().take(12).collect();
+    let (what, why) = vf_core::catalog::permission_rollback(lang, &req.project, &point);
+    let (o, request) = (origin.0.clone(), vf_core::Permission::new(what, why));
+    let approved = tokio::task::spawn_blocking(move || auth.ask_permission(&o, &request))
+        .await
+        .unwrap_or(false);
     if !approved {
         return error_with_code(
             StatusCode::FORBIDDEN,
@@ -886,9 +888,10 @@ pub(crate) async fn save(
         req.project.clone(),
     );
     let lang = auth.dialog().language();
-    let prompt = vf_core::catalog::action_save(lang);
+    let (what, why) = vf_core::catalog::permission_save(lang, &p);
+    let request = vf_core::Permission::new(what, why);
     let approved = tokio::task::spawn_blocking(move || {
-        !backend.save_needs_confirm(&p) || auth.confirm_action(&o, &prompt, Some(&p))
+        !backend.save_needs_confirm(&p) || auth.ask_permission(&o, &request)
     })
     .await
     .unwrap_or(false);
