@@ -43,16 +43,8 @@ impl Shell {
     pub fn dialog(&self, dialog: Dialog, mut open: impl FnMut(&str)) -> Result<Answer, UiError> {
         let mut view = DialogView::new(dialog);
         let title = view.dialog().title.clone();
-        let detail = view.dialog().permission.as_ref().map_or(0, |p| p.lines());
-        let lines = (view.dialog().text.lines().count() + detail) as f32;
-        let field = if matches!(view.dialog().kind, crate::DialogKind::Confirm) {
-            0.0
-        } else {
-            48.0
-        };
-        let height = (170.0 + field + 22.0 * lines).clamp(200.0, 620.0);
         let mut answer = None;
-        self.run(&title, egui::vec2(520.0, height), true, |ui| {
+        self.run(&title, egui::vec2(540.0, 320.0), true, |ui| {
             if let Some(a) = view.ui(ui) {
                 answer = Some(a);
                 ui.ctx().send_viewport_cmd(ViewportCommand::Close);
@@ -70,7 +62,7 @@ impl Shell {
         let title = run.text.title.clone();
         let mut view = FirstRunView::new(run);
         let mut answer = None;
-        self.run(&title, egui::vec2(600.0, 520.0), false, |ui| {
+        self.run(&title, egui::vec2(600.0, 480.0), false, |ui| {
             if let Some(a) = view.ui(ui) {
                 answer = a;
                 ui.ctx().send_viewport_cmd(ViewportCommand::Close);
@@ -91,7 +83,7 @@ impl Shell {
         let title = first.title.clone();
         let mut view = StatusView::new(first);
         let mut last = 0.0_f64;
-        self.run(&title, egui::vec2(560.0, 360.0), false, |ui| {
+        self.run(&title, egui::vec2(540.0, 300.0), false, |ui| {
             let now = ui.input(|i| i.time);
             if now - last >= every.as_secs_f64() {
                 last = now;
@@ -110,7 +102,8 @@ impl Shell {
         })
     }
 
-    /// Runs one window around `draw` (called every frame inside a central panel).
+    /// Runs one window around `draw` (called every frame inside a central panel). The window opens
+    /// at `size` and then takes the height of what is drawn (up to [`MAX_HEIGHT`]).
     fn run(
         &self,
         title: &str,
@@ -121,7 +114,7 @@ impl Shell {
         let mut viewport = egui::ViewportBuilder::default()
             .with_title(title)
             .with_inner_size(size)
-            .with_min_inner_size(egui::vec2(360.0, 180.0))
+            .with_min_inner_size(egui::vec2(360.0, MIN_HEIGHT))
             .with_resizable(true)
             .with_minimize_button(false)
             .with_maximize_button(false)
@@ -163,6 +156,14 @@ struct Host<'a> {
 
 /// How long a fresh window keeps asking to be brought to the front.
 const FOCUS_FOR_SECS: f64 = 2.0;
+/// How long a fresh window follows the height of what it shows; later the person sizes it.
+const FIT_FOR_SECS: f64 = 1.0;
+/// Margin around a window's content, points.
+const MARGIN: f32 = 24.0;
+/// Lowest and highest height a window takes by itself, points.
+const MIN_HEIGHT: f32 = 160.0;
+/// See [`MIN_HEIGHT`].
+const MAX_HEIGHT: f32 = 680.0;
 
 impl eframe::App for Host<'_> {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -177,12 +178,41 @@ impl eframe::App for Host<'_> {
                 .request_repaint_after(std::time::Duration::from_millis(100));
         }
         let draw = &mut self.draw;
-        egui::CentralPanel::default()
-            .frame(egui::Frame::central_panel(ui.style()).inner_margin(24.0))
+        let content = egui::CentralPanel::default()
+            .frame(egui::Frame::central_panel(ui.style()).inner_margin(MARGIN))
             .show(ui, |ui| {
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
-                    .show(ui, |ui| draw(ui));
-            });
+                    .show(ui, |ui| draw(ui))
+                    .content_size
+            })
+            .inner;
+        if now - first < FIT_FOR_SECS {
+            fit_height(ui.ctx(), content.y + 2.0 * MARGIN);
+        }
     }
+}
+
+/// Resizes the window to `wanted` points of height (within [`MIN_HEIGHT`]..[`MAX_HEIGHT`]),
+/// keeping its centre where it was.
+fn fit_height(ctx: &egui::Context, wanted: f32) {
+    let wanted = wanted.clamp(MIN_HEIGHT, MAX_HEIGHT).ceil();
+    let (inner, outer) = ctx.input(|i| (i.viewport().inner_rect, i.viewport().outer_rect));
+    let Some(inner) = inner else {
+        return;
+    };
+    let grow = wanted - inner.height();
+    if grow.abs() < 2.0 {
+        return;
+    }
+    ctx.send_viewport_cmd(ViewportCommand::InnerSize(egui::vec2(
+        inner.width(),
+        wanted,
+    )));
+    if let Some(outer) = outer {
+        ctx.send_viewport_cmd(ViewportCommand::OuterPosition(
+            outer.min - egui::vec2(0.0, grow / 2.0),
+        ));
+    }
+    ctx.request_repaint();
 }

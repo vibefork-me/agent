@@ -110,56 +110,68 @@ impl FirstRunView {
             return Some(a.clone());
         }
         let t = &self.run.text;
-        ui.add_space(4.0);
-        ui.label(RichText::new(t.title.as_str()).heading().strong());
-        ui.label(t.intro.as_str());
-        ui.add_space(8.0);
+        theme::header(ui, &t.title);
+        ui.add_space(6.0);
+        ui.label(RichText::new(t.intro.as_str()).color(theme::MUTED));
+        ui.add_space(12.0);
 
-        ui.label(RichText::new(t.folder.as_str()).strong());
-        let field = ui.add(
-            egui::TextEdit::singleline(&mut self.run.tools_dir)
-                .char_limit(MAX_PATH)
-                .desired_width(f32::INFINITY),
-        );
-        if !t.folder_hint.is_empty() {
-            ui.label(
-                RichText::new(t.folder_hint.as_str())
-                    .small()
-                    .color(theme::MUTED),
-            );
-        }
-        // The room the tools take (a slot kept even before an estimate exists).
-        if let Some(space) = &self.run.space {
-            ui.label(RichText::new(space.as_str()).color(theme::TEXT));
-        }
-        if !self.run.tools.is_empty() {
-            egui::CollapsingHeader::new(RichText::new(t.tools.as_str()).color(theme::MUTED))
-                .id_salt("vf-first-run-tools")
-                .default_open(false)
-                .show(ui, |ui| {
-                    egui::Grid::new("vf-first-run-tools-grid")
-                        .num_columns(2)
-                        .spacing([24.0, 4.0])
-                        .show(ui, |ui| {
-                            for (name, size) in &self.run.tools {
-                                ui.label(name.as_str());
-                                ui.label(RichText::new(size.as_str()).color(theme::MUTED));
-                                ui.end_row();
-                            }
-                        });
-                });
-        }
-        ui.add_space(8.0);
+        let field = theme::card()
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.spacing_mut().item_spacing.y = 6.0;
+                theme::section_label(ui, &t.folder);
+                let field = ui.add(
+                    egui::TextEdit::singleline(&mut self.run.tools_dir)
+                        .char_limit(MAX_PATH)
+                        .desired_width(f32::INFINITY)
+                        .margin(egui::vec2(10.0, 8.0)),
+                );
+                if !t.folder_hint.is_empty() {
+                    ui.label(
+                        RichText::new(t.folder_hint.as_str())
+                            .small()
+                            .color(theme::MUTED),
+                    );
+                }
+                // The room the tools take (a slot kept even before an estimate exists).
+                if let Some(space) = &self.run.space {
+                    ui.add_space(4.0);
+                    ui.label(RichText::new(space.as_str()).color(theme::TEXT));
+                }
+                if !self.run.tools.is_empty() {
+                    egui::CollapsingHeader::new(
+                        RichText::new(t.tools.as_str()).color(theme::MUTED),
+                    )
+                    .id_salt("vf-first-run-tools")
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        egui::Grid::new("vf-first-run-tools-grid")
+                            .num_columns(2)
+                            .spacing([24.0, 4.0])
+                            .show(ui, |ui| {
+                                for (name, size) in &self.run.tools {
+                                    ui.label(name.as_str());
+                                    ui.label(RichText::new(size.as_str()).color(theme::MUTED));
+                                    ui.end_row();
+                                }
+                            });
+                    });
+                }
+                field
+            })
+            .inner;
+        ui.add_space(10.0);
 
-        let connect = ui.add(theme::secondary_button(&t.connect_ai));
-        if !t.connect_ai_hint.is_empty() {
-            ui.label(
-                RichText::new(t.connect_ai_hint.as_str())
-                    .small()
-                    .color(theme::MUTED),
-            );
-        }
-        ui.add_space(8.0);
+        let connect = theme::card()
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                if !t.connect_ai_hint.is_empty() {
+                    ui.label(RichText::new(t.connect_ai_hint.as_str()).color(theme::TEXT));
+                }
+                ui.add(theme::secondary_button(&t.connect_ai))
+            })
+            .inner;
+        ui.add_space(16.0);
 
         let folder = self.run.tools_dir.trim().to_owned();
         let (start, later) = ui

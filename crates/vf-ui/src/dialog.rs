@@ -73,6 +73,8 @@ pub struct Permission {
     pub why_label: String,
     /// Why it is needed.
     pub why: String,
+    /// Label of the commands ("Commands").
+    pub commands_label: String,
     /// Label of the link that checks a command ("Verify").
     pub verify_label: String,
     /// The commands, each with its link (`None`: nothing of it may leave the computer).
@@ -96,6 +98,7 @@ impl Permission {
             what: plain_line(&self.what, MAX_DETAIL),
             why_label: plain_line(&self.why_label, 40),
             why: plain_line(&self.why, MAX_DETAIL),
+            commands_label: plain_line(&self.commands_label, 40),
             verify_label: plain_line(&self.verify_label, 40),
             commands: self
                 .commands
@@ -113,11 +116,6 @@ impl Permission {
                 .take(MAX_COMMANDS)
                 .collect(),
         }
-    }
-
-    /// Lines it takes on screen, roughly.
-    pub fn lines(&self) -> usize {
-        4 + self.commands.len()
     }
 }
 
@@ -218,43 +216,33 @@ impl DialogView {
         // Keep the countdown moving and wake up when the guard ends.
         ui.ctx().request_repaint_after(Duration::from_millis(200));
 
-        ui.add_space(4.0);
-        ui.label(RichText::new(self.dialog.title.as_str()).heading().strong());
-        ui.add_space(4.0);
-        ui.label(self.dialog.text.as_str());
+        theme::header(ui, &self.dialog.title);
         ui.add_space(6.0);
+        // Under a permission the text only introduces the card; otherwise it is the question.
+        let body = if self.dialog.permission.is_some() {
+            theme::MUTED
+        } else {
+            theme::TEXT
+        };
+        paragraphs(ui, &self.dialog.text, body);
         if let Some(p) = &self.dialog.permission {
-            ui.label(RichText::new(p.what_label.as_str()).strong());
-            ui.label(p.what.as_str());
-            ui.add_space(4.0);
-            ui.label(RichText::new(p.why_label.as_str()).strong());
-            ui.label(p.why.as_str());
-            ui.add_space(4.0);
-            for c in &p.commands {
-                ui.horizontal_wrapped(|ui| {
-                    ui.code(c.text.as_str());
-                    if let Some(link) = &c.link {
-                        let label = format!("{} \u{2197}", p.verify_label);
-                        let r = ui.add_enabled(ready, egui::Link::new(label));
-                        if r.clicked() {
-                            self.link = Some(link.clone());
-                        }
-                        r.on_hover_text(link.as_str());
-                    }
-                });
-            }
             ui.add_space(6.0);
+            if let Some(link) = permission_card(ui, p, ready) {
+                self.link = Some(link);
+            }
         }
 
         let mut submit = false;
         let field = match self.dialog.kind {
             DialogKind::Confirm => None,
             DialogKind::Text | DialogKind::Secret { .. } => {
+                ui.add_space(4.0);
                 let masked = matches!(self.dialog.kind, DialogKind::Secret { .. });
                 let edit = egui::TextEdit::singleline(&mut self.input)
                     .password(masked)
                     .char_limit(MAX_INPUT)
                     .desired_width(f32::INFINITY)
+                    .margin(egui::vec2(10.0, 8.0))
                     .interactive(ready);
                 let r = ui.add(edit);
                 if ready && r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
@@ -268,26 +256,25 @@ impl DialogView {
                 Some(r)
             }
         };
+        ui.add_space(14.0);
 
-        // Time left, as a thin bar.
-        let left = 1.0 - elapsed.as_secs_f32() / self.dialog.timeout.as_secs_f32().max(1.0);
-        ui.add(
-            egui::ProgressBar::new(left.clamp(0.0, 1.0))
-                .desired_height(3.0)
-                .fill(theme::BORDER),
-        );
-        ui.add_space(4.0);
-
+        let left = self.dialog.timeout.saturating_sub(elapsed);
         let can_submit = self.can_submit();
         let (accept, reject) = ui
-            .with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                // Right to left: the reject button is the rightmost.
-                let reject = ui.add_enabled(ready, theme::secondary_button(&self.dialog.reject));
-                let accept = ui.add_enabled(
-                    ready && can_submit,
-                    theme::primary_button(&self.dialog.accept),
-                );
-                (accept, reject)
+            .horizontal(|ui| {
+                // The time left, quietly: when it runs out the answer is "no".
+                ui.label(RichText::new(countdown(left)).small().color(theme::MUTED));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // Right to left: the reject button is the rightmost.
+                    let reject =
+                        ui.add_enabled(ready, theme::secondary_button(&self.dialog.reject));
+                    let accept = ui.add_enabled(
+                        ready && can_submit,
+                        theme::primary_button(&self.dialog.accept),
+                    );
+                    (accept, reject)
+                })
+                .inner
             })
             .inner;
 
@@ -335,6 +322,90 @@ impl DialogView {
     }
 }
 
+/// Seconds left as `m:ss`, rounded up (a window with 0.4 s left still shows 0:01).
+fn countdown(left: Duration) -> String {
+    let secs = left.as_millis().div_ceil(1000);
+    format!("{}:{:02}", secs / 60, secs % 60)
+}
+
+/// Text split at blank lines into paragraphs, with room between them.
+fn paragraphs(ui: &mut egui::Ui, text: &str, colour: egui::Color32) {
+    for (i, p) in text
+        .split("\n\n")
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .enumerate()
+    {
+        if i > 0 {
+            ui.add_space(4.0);
+        }
+        ui.label(RichText::new(p).color(colour));
+    }
+}
+
+/// What, why and the commands of a permission in a card; returns a link clicked this frame.
+fn permission_card(ui: &mut egui::Ui, p: &Permission, ready: bool) -> Option<String> {
+    let mut clicked = None;
+    theme::card().show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.spacing_mut().item_spacing.y = 4.0;
+        theme::section_label(ui, &p.what_label);
+        ui.label(RichText::new(p.what.as_str()).color(theme::TEXT));
+        ui.add_space(10.0);
+        theme::section_label(ui, &p.why_label);
+        ui.label(RichText::new(p.why.as_str()).color(theme::TEXT));
+        if p.commands.is_empty() {
+            return;
+        }
+        ui.add_space(10.0);
+        theme::section_label(ui, &p.commands_label);
+        ui.spacing_mut().item_spacing.y = 6.0;
+        for c in &p.commands {
+            ui.horizontal(|ui| {
+                let label = format!("{} \u{2197}", p.verify_label);
+                // Room for the link at the right edge; the command takes the rest and wraps.
+                let link_width = if c.link.is_some() {
+                    ui.fonts_mut(|f| {
+                        f.layout_no_wrap(
+                            label.clone(),
+                            egui::FontId::proportional(15.0),
+                            theme::ACCENT,
+                        )
+                        .size()
+                        .x
+                    }) + 24.0
+                } else {
+                    0.0
+                };
+                code_box(ui, &c.text, ui.available_width() - link_width);
+                if let Some(link) = &c.link {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let r = ui.add_enabled(ready, egui::Link::new(label));
+                        if r.clicked() {
+                            clicked = Some(link.clone());
+                        }
+                        r.on_hover_text(link.as_str());
+                    });
+                }
+            });
+        }
+    });
+    clicked
+}
+
+/// A command as it runs: monospace, in a sunken box at most `max_width` wide.
+fn code_box(ui: &mut egui::Ui, command: &str, max_width: f32) {
+    egui::Frame::new()
+        .fill(theme::SURFACE)
+        .stroke(egui::Stroke::new(1.0, theme::BORDER))
+        .corner_radius(egui::CornerRadius::same(6))
+        .inner_margin(egui::Margin::symmetric(10, 6))
+        .show(ui, |ui| {
+            ui.set_max_width((max_width - 22.0).max(80.0));
+            ui.add(egui::Label::new(RichText::new(command).monospace().color(theme::TEXT)).wrap());
+        });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -360,6 +431,7 @@ mod tests {
                 what: "Build the project notes-app".into(),
                 why_label: "Why".into(),
                 why: "To check that the project builds after the changes.".into(),
+                commands_label: "Commands".into(),
                 verify_label: "Verify".into(),
                 commands: vec![Command {
                     text: "npm run build".into(),
@@ -538,6 +610,14 @@ mod tests {
         }
         assert_eq!(answer, Some(Answer::Rejected));
         assert_eq!(view.take_link(), None);
+    }
+
+    #[test]
+    fn the_countdown_rounds_up() {
+        assert_eq!(countdown(Duration::from_secs(60)), "1:00");
+        assert_eq!(countdown(Duration::from_millis(44_100)), "0:45");
+        assert_eq!(countdown(Duration::from_millis(400)), "0:01");
+        assert_eq!(countdown(Duration::ZERO), "0:00");
     }
 
     #[test]
