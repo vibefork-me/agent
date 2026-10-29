@@ -12,5 +12,6 @@ vf-github = { path = "../../crates/vf-github" }
 vf-protocol = { path = "../../crates/vf-protocol" }
 keyring = { version = "3", features = ["windows-native"] }
 serde_json = "1"
+async-trait = "0.1"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }

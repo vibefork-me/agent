@@ -3,7 +3,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use github_copilot_sdk::handler::DenyAllHandler;
+use github_copilot_sdk::handler::{PermissionHandler, PermissionResult};
+use github_copilot_sdk::types::{PermissionRequestData, RequestId, SessionId};
 use github_copilot_sdk::types::{MessageOptions, SessionConfig};
 use github_copilot_sdk::{Client, ClientOptions};
 
@@ -62,6 +63,24 @@ fn probe(tok: &str) {
     }
 }
 
+/// Logs every permission request and denies it.
+struct LogDeny;
+
+#[async_trait::async_trait]
+impl PermissionHandler for LogDeny {
+    async fn handle(&self, _s: SessionId, _r: RequestId, data: PermissionRequestData) -> PermissionResult {
+        println!("permission asked: {}", serde_json::to_string(&data).unwrap_or_default());
+        PermissionResult::reject(None)
+    }
+}
+
+fn prompt() -> String {
+    std::env::args()
+        .skip_while(|a| a != "--prompt")
+        .nth(1)
+        .unwrap_or_else(|| "Reply with exactly one word: OK".into())
+}
+
 fn main() {
     if std::env::args().any(|a| a == "--cli-login") {
         // The official CLI's own sign-in (COPILOT_HOME), no token of ours.
@@ -105,8 +124,12 @@ async fn session(opts: ClientOptions) {
         }
         Err(e) => println!("list models failed: {e}"),
     }
+    match client.rpc().account().get_quota().await {
+        Ok(q) => println!("quota: {}", serde_json::to_string(&q).unwrap()),
+        Err(e) => println!("quota failed: {e}"),
+    }
     let model = std::env::args().skip_while(|a| a != "--model").nth(1);
-    let mut cfg = SessionConfig::default().with_permission_handler(Arc::new(DenyAllHandler));
+    let mut cfg = SessionConfig::default().with_permission_handler(Arc::new(LogDeny));
     if let Some(m) = &model {
         cfg = cfg.with_model(m.clone());
     }
@@ -118,7 +141,7 @@ async fn session(opts: ClientOptions) {
     let log = tokio::spawn(async move {
         while let Ok(ev) = events.recv().await {
             match ev.event_type.as_str() {
-                "assistant.usage" | "session.error" | "session.info" | "session.warning"
+                "assistant.usage" | "session.error" | "tool.execution_start" | "tool.execution_complete" | "session.info" | "session.warning"
                 | "assistant.message" | "session.model_change" => {
                     println!("event {}: {}", ev.event_type, ev.data)
                 }
@@ -129,7 +152,7 @@ async fn session(opts: ClientOptions) {
     });
     let r = session
         .send_and_wait(
-            MessageOptions::new("Reply with exactly one word: OK")
+            MessageOptions::new(prompt())
                 .with_wait_timeout(Duration::from_secs(120)),
         )
         .await;
