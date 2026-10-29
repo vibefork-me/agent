@@ -26,7 +26,7 @@ pub mod task;
 pub use catalog::Language;
 pub use endpoint::{endpoint_host_label, validate_custom_openai_endpoint};
 pub use limits::{LimitedBody, TooLarge};
-pub use path::{PathError, ProjectPath};
+pub use path::{CLI_CONFIG, PathError, ProjectPath};
 pub use permission::Permission;
 pub use ports::{ConfirmDialog, dialog_field, dialog_text};
 pub use secret::{Secret, clean_secret};

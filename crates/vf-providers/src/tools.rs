@@ -1,5 +1,6 @@
 //! Tools of the agent's own coding loop. Every path is a [`ProjectPath`] that must also stay inside
-//! the project after links are resolved (invariant 8); `.git` is not reachable.
+//! the project after links are resolved (invariant 8); `.git` is not reachable, and coding CLI
+//! configuration ([`vf_core::CLI_CONFIG`]) is not writable.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -102,7 +103,7 @@ pub(crate) fn call(
             Ok(Outcome::Done(crate::clip(&text, 20_000)))
         }
         "write_file" => {
-            let p = inside(dir, arg("path"))?;
+            let p = writable(dir, arg("path"))?;
             if let Some(parent) = p.parent() {
                 std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
             }
@@ -110,7 +111,7 @@ pub(crate) fn call(
             Ok(Outcome::Done("written".into()))
         }
         "edit_file" => {
-            let p = inside(dir, arg("path"))?;
+            let p = writable(dir, arg("path"))?;
             let text = std::fs::read_to_string(&p).map_err(|e| e.to_string())?;
             let old = arg("old");
             let n = if old.is_empty() {
@@ -163,6 +164,36 @@ pub(crate) fn inside(root: &Path, raw: &str) -> Result<PathBuf, String> {
         }
     }
     Ok(full)
+}
+
+/// Resolves a model-given path the model may write: inside the project and not coding CLI
+/// configuration, neither as written nor after links and short names are resolved.
+pub(crate) fn writable(root: &Path, raw: &str) -> Result<PathBuf, String> {
+    let full = inside(root, raw)?;
+    let lexical = ProjectPath::parse(if raw.is_empty() { "." } else { raw })
+        .map_err(|e| e.to_string())?;
+    let real = real_relative(root, &full);
+    if lexical.is_cli_config() || real.is_some_and(|r| vf_core::path::is_cli_config(&r)) {
+        return Err("coding CLI settings of the project are not writable".into());
+    }
+    Ok(full)
+}
+
+/// `full` relative to the real project root: its nearest existing ancestor resolved, the rest
+/// appended as written.
+fn real_relative(root: &Path, full: &Path) -> Option<PathBuf> {
+    let real_root = root.canonicalize().ok()?;
+    let mut probe = full;
+    let mut rest = Vec::new();
+    loop {
+        if let Ok(real) = probe.canonicalize() {
+            let mut rel = real.strip_prefix(&real_root).ok()?.to_path_buf();
+            rel.extend(rest.iter().rev());
+            return Some(rel);
+        }
+        rest.push(probe.file_name()?.to_owned());
+        probe = probe.parent()?;
+    }
 }
 
 fn list_dir(root: &Path, raw: &str) -> Result<String, String> {
@@ -277,6 +308,44 @@ mod tests {
         ] {
             assert!(inside(&dir, bad).is_err(), "{bad}");
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cli_settings_are_not_writable() {
+        let dir = project();
+        std::fs::create_dir_all(dir.join(".claude")).unwrap();
+        std::fs::write(dir.join(".claude/settings.json"), "{}").unwrap();
+        let env = ChildEnv::from_current();
+        let c = Cancel::new();
+        let run = |name: &str, args: Value| call(&dir, name, &args, &env, &c);
+        for path in [
+            ".claude/settings.json",
+            ".claude/settings.local.json",
+            "src/../.CLAUDE/settings.json",
+            ".codex/config.toml",
+            ".mcp.json",
+            ".github/hooks/hooks.json",
+        ] {
+            assert!(
+                run("write_file", json!({"path": path, "content": "{}"})).is_err(),
+                "{path}"
+            );
+        }
+        assert!(
+            run(
+                "edit_file",
+                json!({"path": ".claude/settings.json", "old": "{}", "new": "{\"hooks\":{}}"})
+            )
+            .is_err()
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.join(".claude/settings.json")).unwrap(),
+            "{}"
+        );
+        assert!(!dir.join(".codex").exists() && !dir.join(".mcp.json").exists());
+        // Reading stays allowed: the settings are data.
+        assert!(run("read_file", json!({"path": ".claude/settings.json"})).is_ok());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
