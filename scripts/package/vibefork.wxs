@@ -1,0 +1,166 @@
+<!--
+  The per-user Windows installer of Vibefork (WiX Toolset 5): no administrator rights, no UAC prompt.
+  Built by `scripts/package.py windows` with -d Version=<X.Y.Z> -d Stage=<folder with vibefork.exe,
+  vibefork-tray.exe, vibefork.install, vibefork.ico>.
+
+  Installs into %LOCALAPPDATA%\Programs\vibefork (the folder `vibefork install` uses; the wizard lets
+  the user choose another) and registers for the current user what `vibefork install` registers: the
+  vibefork:// link handler, the AppUserModelID of notifications, the user's PATH. Start menu
+  shortcut always; desktop shortcut and start at sign-in are wizard options (features, kept on
+  upgrades). Uninstalling stops the agent and the tray, removes the programs and the registrations;
+  data and projects stay. `msiexec /i <msi> /passive` installs or upgrades without questions
+  (the agent's self-update).
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package Name="Vibefork" Manufacturer="Vibefork" Version="$(Version)" Language="1033"
+           UpgradeCode="5B7F224F-7A0B-4871-842B-A77F93CF9D2A" Scope="perUser" InstallerVersion="500">
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="A newer version of Vibefork is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="vibefork.ico" SourceFile="$(Stage)\vibefork.ico" />
+    <Property Id="ARPPRODUCTICON" Value="vibefork.ico" />
+    <Property Id="ARPURLINFOABOUT" Value="https://vibefork.me" />
+    <Property Id="DESKTOPSHORTCUT" Value="1" />
+
+    <!-- A folder chosen at the first install is used again by upgrades. -->
+    <Property Id="INSTALLFOLDER">
+      <RegistrySearch Id="RememberedFolder" Root="HKCU" Key="Software\Vibefork\Installer"
+                      Name="InstallFolder" Type="raw" />
+    </Property>
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsFolder" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="vibefork" />
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+    <StandardDirectory Id="DesktopFolder" />
+
+    <Feature Id="Main" Title="Vibefork" Level="1" AllowAbsent="no" ConfigurableDirectory="INSTALLFOLDER">
+      <ComponentRef Id="Programs" />
+      <ComponentRef Id="LinkHandler" />
+      <ComponentRef Id="Notifications" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+    <Feature Id="DesktopShortcut" Title="Desktop shortcut" Level="1">
+      <ComponentRef Id="DesktopShortcut" />
+    </Feature>
+    <Feature Id="Autostart" Title="Start at sign-in" Level="1000">
+      <ComponentRef Id="Autostart" />
+    </Feature>
+
+    <!-- Per-user components: a value under HKCU is each one's key path. -->
+    <Component Id="Programs" Directory="INSTALLFOLDER" Guid="1181AE47-031B-498E-8F2E-312C0186241C">
+      <RegistryValue Root="HKCU" Key="Software\Vibefork\Installer" Name="InstallFolder"
+                     Value="[INSTALLFOLDER]" Type="string" KeyPath="yes" />
+      <RegistryValue Root="HKCU" Key="Software\Vibefork\Installer" Name="ProductCode"
+                     Value="[ProductCode]" Type="string" />
+      <File Id="VibeforkExe" Source="$(Stage)\vibefork.exe" />
+      <File Id="VibeforkTrayExe" Source="$(Stage)\vibefork-tray.exe" />
+      <File Id="KindMarker" Source="$(Stage)\vibefork.install" />
+      <!-- Copies the agent's own updates leave next to the programs. -->
+      <RemoveFile Id="PreviousCopies" Name="*.previous.exe" On="uninstall" />
+      <RemoveFile Id="StagedCopies" Name="*.new.exe" On="uninstall" />
+      <RemoveFile Id="OldCopies" Name="*.old" On="uninstall" />
+      <RemoveFolder Id="RemoveInstallFolder" On="uninstall" />
+      <RemoveFolder Id="RemoveProgramsFolder" Directory="ProgramsFolder" On="uninstall" />
+      <Environment Id="UserPath" Name="PATH" Value="[INSTALLFOLDER]" Part="last" Action="set" System="no" />
+    </Component>
+
+    <Component Id="LinkHandler" Directory="INSTALLFOLDER">
+      <RegistryKey Root="HKCU" Key="Software\Classes\vibefork">
+        <RegistryValue Value="URL:Vibefork" Type="string" KeyPath="yes" />
+        <RegistryValue Name="URL Protocol" Value="" Type="string" />
+        <RegistryValue Key="shell\open\command" Value="&quot;[#VibeforkExe]&quot; handle &quot;%1&quot;" Type="string" />
+      </RegistryKey>
+    </Component>
+
+    <Component Id="Notifications" Directory="INSTALLFOLDER">
+      <RegistryValue Root="HKCU" Key="Software\Classes\AppUserModelId\me.vibefork.agent" Name="DisplayName"
+                     Value="Vibefork" Type="string" KeyPath="yes" />
+    </Component>
+
+    <Component Id="StartMenuShortcut" Directory="ProgramMenuFolder">
+      <Shortcut Id="StartMenu" Name="Vibefork" Target="[#VibeforkTrayExe]" WorkingDirectory="INSTALLFOLDER"
+                Icon="vibefork.ico">
+        <ShortcutProperty Key="System.AppUserModel.ID" Value="me.vibefork.agent" />
+      </Shortcut>
+      <RegistryValue Root="HKCU" Key="Software\Vibefork\Installer" Name="StartMenuShortcut" Value="1"
+                     Type="integer" KeyPath="yes" />
+    </Component>
+
+    <Component Id="DesktopShortcut" Directory="DesktopFolder">
+      <Shortcut Id="Desktop" Name="Vibefork" Target="[#VibeforkTrayExe]" WorkingDirectory="INSTALLFOLDER"
+                Icon="vibefork.ico" />
+      <RegistryValue Root="HKCU" Key="Software\Vibefork\Installer" Name="DesktopShortcut" Value="1"
+                     Type="integer" KeyPath="yes" />
+    </Component>
+
+    <Component Id="Autostart" Directory="INSTALLFOLDER">
+      <RegistryValue Root="HKCU" Key="Software\Microsoft\Windows\CurrentVersion\Run" Name="vibefork"
+                     Value="&quot;[#VibeforkTrayExe]&quot;" Type="string" KeyPath="yes" />
+    </Component>
+
+    <!-- A real uninstall (not the removal of the old version during an upgrade) stops the agent and
+         the tray first, so no program file is in use. -->
+    <SetProperty Id="WixQuietExecCmdLine" Sequence="execute" Before="StopVibefork"
+                 Condition='REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE'
+                 Value="&quot;[System64Folder]cmd.exe&quot; /c &quot;&quot;[#VibeforkExe]&quot; stop &amp; &quot;[System64Folder]taskkill.exe&quot; /f /im vibefork-tray.exe&quot;" />
+    <CustomAction Id="StopVibefork" DllEntry="WixQuietExec" BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)"
+                  Execute="immediate" Return="ignore" />
+    <InstallExecuteSequence>
+      <Custom Action="StopVibefork" Before="InstallValidate" Condition='REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE' />
+    </InstallExecuteSequence>
+
+    <!-- "Start Vibefork" on the last page of the wizard. -->
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Start Vibefork" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <Property Id="WixShellExecTarget" Value="[#VibeforkTrayExe]" />
+    <CustomAction Id="StartVibefork" DllEntry="WixShellExec" BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)"
+                  Impersonate="yes" Return="ignore" />
+
+    <!-- Wizard: Welcome → folder → shortcuts → install → finish (no license page). -->
+    <UI Id="VibeforkUI">
+      <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="InstallDirDlg"
+               Condition="NOT Installed" Order="99" />
+      <Publish Dialog="InstallDirDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Order="99" />
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="NewDialog" Value="ShortcutsDlg"
+               Condition='WIXUI_DONTVALIDATEPATH OR WIXUI_INSTALLDIR_VALID="1"' Order="99" />
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="ShortcutsDlg"
+               Condition="NOT Installed" Order="99" />
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="StartVibefork"
+               Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed" />
+
+      <Dialog Id="ShortcutsDlg" Width="370" Height="270" Title="[ProductName] Setup">
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="WixUI_Bmp_Banner" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes"
+                 Text="{\WixUI_Font_Title}Shortcuts" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="280" Height="15" Transparent="yes" NoPrefix="yes"
+                 Text="Choose how you start Vibefork. The Start menu always has it." />
+        <Control Id="Desktop" Type="CheckBox" X="20" Y="60" Width="330" Height="18" Property="DESKTOPSHORTCUT"
+                 CheckBoxValue="1" Text="Create a desktop shortcut" />
+        <Control Id="SignIn" Type="CheckBox" X="20" Y="84" Width="330" Height="18" Property="AUTOSTART"
+                 CheckBoxValue="1" Text="Start Vibefork when I sign in to Windows" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.WixUIBack)">
+          <Publish Event="NewDialog" Value="InstallDirDlg" />
+        </Control>
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.WixUINext)">
+          <Publish Event="AddLocal" Value="DesktopShortcut" Condition="DESKTOPSHORTCUT" />
+          <Publish Event="Remove" Value="DesktopShortcut" Condition="NOT DESKTOPSHORTCUT" />
+          <Publish Event="AddLocal" Value="Autostart" Condition="AUTOSTART" />
+          <Publish Event="Remove" Value="Autostart" Condition="NOT AUTOSTART" />
+          <Publish Event="NewDialog" Value="VerifyReadyDlg" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.WixUICancel)">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+      </Dialog>
+    </UI>
+    <UIRef Id="WixUI_ErrorProgressText" />
+  </Package>
+</Wix>

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Vibefork
+Comment=Change open-source programs for yourself
+Exec=vibefork-tray
+Icon=vibefork
+Categories=Development;
+Terminal=false

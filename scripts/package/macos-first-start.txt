@@ -1,0 +1,11 @@
+Vibefork is not signed by Apple yet, so macOS asks before the first start.
+
+1. Drag Vibefork to Applications.
+2. Open Vibefork from Applications. macOS says it cannot verify Vibefork. Click "Done".
+3. Open System Settings > Privacy & Security. Scroll down to "Vibefork was blocked".
+   Click "Open Anyway" and confirm with your password or Touch ID.
+4. Open Vibefork again. macOS remembers the choice; later starts and updates do not ask.
+
+Before macOS 15 (Sequoia): right-click Vibefork in Applications, choose "Open", then "Open".
+
+Every file of a release is listed with its SHA-256 in SHA256SUMS.txt of the release.
