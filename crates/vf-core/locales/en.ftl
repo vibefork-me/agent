@@ -59,6 +59,8 @@ thought-rating = Working out how big the task is
 thought-planning = Splitting the task into steps
 thought-task = Working on the task
 thought-step = Step { $n } of { $of }: { $title }
+thought-explain = Looking into your question
+thought-explain-part = Looking into the part { $part }
 
 ## The map of the project's parts
 

@@ -9,7 +9,9 @@
 //! dialog confirms it (not while a task of the connection runs); `choose_offer` runs a task with
 //! the title and text of an offer kept for the project (after the same access check as `task`; an
 //! offer that is not there, or has another title than the one shown, is an error `no_offers` /
-//! `bad_index`), other text is echoed. Messages are at most [`MAX_MESSAGE`] bytes. A running task also sends its session stream (`canvas` messages). Closing the connection cancels the running task.
+//! `bad_index`); `explain` answers a question about the project or one of its parts in words, after
+//! the same access check as `task` and without a native dialog, as it changes nothing (one at a time
+//! per connection, beside a running task of another project), other text is echoed. Messages are at most [`MAX_MESSAGE`] bytes. A running task also sends its session stream (`canvas` messages). Closing the connection cancels the running task.
 
 use std::time::Duration;
 
@@ -19,7 +21,7 @@ use axum::response::Response;
 use tokio::sync::mpsc;
 use vf_protocol::note::NoteRejected;
 use vf_protocol::ws::{CLOSE_AUTH_FAILED, ClientMessage, ServerMessage};
-use vf_protocol::{Backend, Cancel, OfferRejected, TaskRequest};
+use vf_protocol::{Backend, Cancel, ExplainRequest, OfferRejected, TaskRequest};
 
 use crate::AppState;
 use crate::guard::EffectiveOrigin;
@@ -52,6 +54,8 @@ async fn connection(mut socket: WebSocket, state: AppState, origin: String) {
     let deadline = tokio::time::Instant::now() + AUTH_TIMEOUT;
     let (tx, mut rx) = mpsc::unbounded_channel::<Out>();
     let mut running: Option<Running> = None;
+    // An explanation under way: it changes nothing, so it does not take the place of a task.
+    let mut explaining: Option<Cancel> = None;
     loop {
         let next = tokio::select! {
             out = rx.recv() => {
@@ -62,6 +66,7 @@ async fn connection(mut socket: WebSocket, state: AppState, origin: String) {
                         }
                     }
                     Some(Out::Finished) | None => running = None,
+                    Some(Out::Explained) => explaining = None,
                 }
                 continue;
             }
@@ -273,6 +278,33 @@ async fn connection(mut socket: WebSocket, state: AppState, origin: String) {
                     None
                 }
             }
+            Ok(ClientMessage::Explain {
+                project,
+                question,
+                part,
+                provider,
+                model,
+                lang,
+            }) => {
+                if explaining.is_some() {
+                    Some(ServerMessage::Error {
+                        error: "an explanation is already under way".into(),
+                        code: Some("explain_already_running".into()),
+                    })
+                } else {
+                    let key = authed.clone().unwrap_or_default();
+                    let req = ExplainRequest {
+                        project,
+                        question,
+                        part,
+                        provider,
+                        model,
+                        lang,
+                    };
+                    explaining = Some(explain(&state, origin.clone(), key, req, tx.clone()));
+                    None
+                }
+            }
             Ok(ClientMessage::Note {
                 project,
                 text,
@@ -289,9 +321,12 @@ async fn connection(mut socket: WebSocket, state: AppState, origin: String) {
             break;
         }
     }
-    // The browser left: a running task is cancelled.
+    // The browser left: a running task and an explanation are cancelled.
     if let Some(r) = running {
         r.cancel.cancel();
+    }
+    if let Some(c) = explaining {
+        c.cancel();
     }
 }
 
@@ -432,6 +467,34 @@ fn rollback_part(
     });
 }
 
+/// Answers a question in words on a blocking thread; its messages go to `tx`. The browser needs
+/// access to the project (native dialog the first time); nothing else is asked, as nothing changes.
+fn explain(
+    state: &AppState,
+    origin: String,
+    key_id: String,
+    req: ExplainRequest,
+    tx: mpsc::UnboundedSender<Out>,
+) -> Cancel {
+    let cancel = Cancel::new();
+    let (backend, auth, c) = (state.backend.clone(), state.auth.clone(), cancel.clone());
+    tokio::task::spawn_blocking(move || {
+        let mut out = |m| {
+            let _ = tx.send(Out::Message(m));
+        };
+        if auth.project_allowed(&key_id, &origin, &req.project) {
+            backend.explain(req, &mut out, &c);
+        } else {
+            out(ServerMessage::Error {
+                error: "no access to this project".into(),
+                code: Some("project_forbidden".into()),
+            });
+        }
+        let _ = tx.send(Out::Explained);
+    });
+    cancel
+}
+
 /// The next message; `None` when `deadline` passed first.
 async fn recv(
     socket: &mut WebSocket,
@@ -443,10 +506,13 @@ async fn recv(
     }
 }
 
-/// Output of a running task.
+/// Output of a running task or an explanation.
 enum Out {
     Message(ServerMessage),
+    /// The task (or build, or program) ended.
     Finished,
+    /// The explanation ended.
+    Explained,
 }
 
 /// The error sent instead of a task when the chosen offer is not there.

@@ -347,6 +347,26 @@ pub enum CanvasEvent {
         /// The agent's answer.
         reply: String,
     },
+    /// The person asked the agent to explain a part or answer a question (nothing changes).
+    Question {
+        /// The question, in the person's words.
+        text: String,
+        /// The part it is about; none for a question about the project.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+    },
+    /// The agent's answer to the last [`CanvasEvent::Question`], in words; the project is as it was.
+    Explained {
+        /// The answer, in the person's language; empty when there is none (`code` says why).
+        text: String,
+        /// The part it is about; none for a question about the project.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        /// Why there is no answer: `no_models` (no AI available now), `explain_failed` (no model
+        /// answered), `cancelled`; an editor words it itself.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        code: Option<String>,
+    },
     /// The task ended.
     Result {
         /// The outcome, in plain English; an editor words it itself by `kind` when given.
@@ -434,6 +454,21 @@ mod tests {
                 reply: "ok".into()
             }),
             serde_json::json!({"type": "note.taken", "noteId": "n1", "related": ["a"], "reply": "ok"})
+        );
+        assert_eq!(
+            wire(&CanvasEvent::Explained {
+                text: "It keeps your notes.".into(),
+                id: Some("p1".into()),
+                code: None,
+            }),
+            serde_json::json!({"type": "explained", "text": "It keeps your notes.", "id": "p1"})
+        );
+        assert_eq!(
+            wire(&CanvasEvent::Question {
+                text: "What is this?".into(),
+                id: None,
+            }),
+            serde_json::json!({"type": "question", "text": "What is this?"})
         );
         assert_eq!(
             wire(&CanvasEvent::Eta {

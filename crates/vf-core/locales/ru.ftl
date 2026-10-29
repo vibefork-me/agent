@@ -56,6 +56,8 @@ thought-rating = Оцениваю, насколько велика задача
 thought-planning = Разбиваю задачу на шаги
 thought-task = Делаю задачу
 thought-step = Шаг { $n } из { $of }: { $title }
+thought-explain = Разбираюсь с вашим вопросом
+thought-explain-part = Разбираюсь с частью «{ $part }»
 
 ## The map of the project's parts
 

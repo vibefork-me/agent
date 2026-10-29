@@ -8,6 +8,7 @@
 mod build;
 mod canvas;
 mod changes;
+mod explain;
 mod files;
 mod github;
 mod graph;
@@ -761,6 +762,15 @@ impl Backend for Engine {
             result = self.reset_to(project, commit)
         });
         result
+    }
+
+    fn explain(
+        &self,
+        req: vf_protocol::ExplainRequest,
+        out: &mut dyn FnMut(ServerMessage),
+        cancel: &Cancel,
+    ) {
+        self.explain_question(req, out, cancel);
     }
 
     fn rollback_part(&self, project: &str, id: &str, out: &mut dyn FnMut(ServerMessage)) {

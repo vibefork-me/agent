@@ -58,6 +58,8 @@ thought-rating = Calculando el tamaño de la tarea
 thought-planning = Dividiendo la tarea en pasos
 thought-task = Trabajando en la tarea
 thought-step = Paso { $n } de { $of }: { $title }
+thought-explain = Estoy revisando tu pregunta
+thought-explain-part = Estoy revisando la parte «{ $part }»
 
 ## The map of the project's parts
 

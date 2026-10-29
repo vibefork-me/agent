@@ -41,7 +41,7 @@ const NAME_CHARS: usize = 40;
 const OFFER_TITLE_CHARS: usize = 60;
 const SUMMARY_CHARS: usize = 200;
 const TIMEOUT: Duration = Duration::from_secs(180);
-const API_TIMEOUT: Duration = Duration::from_secs(90);
+pub(crate) const API_TIMEOUT: Duration = Duration::from_secs(90);
 /// Node id of files no part covers.
 pub(crate) const OTHER: &str = "other";
 
@@ -414,6 +414,36 @@ pub(crate) fn node_name<'a>(map: &'a ModelMap, id: &str) -> Option<&'a str> {
     }
 }
 
+/// The paths of part or piece `id` (`p1`, `p1.2`…); a part owns the paths of its pieces too. Empty
+/// when the map has no such node.
+pub(crate) fn node_paths(map: &ModelMap, id: &str) -> Vec<String> {
+    let Some(rest) = id.strip_prefix('p') else {
+        return Vec::new();
+    };
+    let (part, piece) = match rest.split_once('.') {
+        Some((a, b)) => (a, Some(b)),
+        None => (rest, None),
+    };
+    let Some(part) = part
+        .parse::<usize>()
+        .ok()
+        .and_then(|i| i.checked_sub(1))
+        .and_then(|i| map.parts.get(i))
+    else {
+        return Vec::new();
+    };
+    match piece {
+        None => part.paths.clone(),
+        Some(j) => j
+            .parse::<usize>()
+            .ok()
+            .and_then(|j| j.checked_sub(1))
+            .and_then(|j| part.parts.get(j))
+            .map(|p| p.paths.clone())
+            .unwrap_or_default(),
+    }
+}
+
 /// Nodes and edges of a model's map for the files now; a file belongs to the part with the
 /// longest path covering it, files no part covers go to [`OTHER`].
 pub(crate) fn build(
@@ -523,7 +553,7 @@ fn prompt(files: &[String], readme: &str, lang: &str) -> String {
 }
 
 /// Models to ask, in order: subscriptions first, then a free model.
-fn candidates(inventory: &[ModelInfo]) -> Vec<(&'static str, String, Duration)> {
+pub(crate) fn candidates(inventory: &[ModelInfo]) -> Vec<(&'static str, String, Duration)> {
     let has = |p: &str, m: Option<&str>| {
         inventory
             .iter()

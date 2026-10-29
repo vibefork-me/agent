@@ -211,6 +211,15 @@ pub fn thought_step(lang: Language, n: u32, of: u32, title: &str) -> String {
     message(lang, "thought-step", &args)
 }
 
+/// What the agent does while a model answers the person's question: about part `part` when the
+/// question is about one, otherwise about the question itself.
+pub fn thought_explain(lang: Language, part: Option<&str>) -> String {
+    match part {
+        Some(part) => message(lang, "thought-explain-part", &[("part", part.into())]),
+        None => text(lang, "thought-explain"),
+    }
+}
+
 /// Secret dialog title.
 pub fn ask_secret_title(lang: Language) -> String {
     text(lang, "ask-secret-title")

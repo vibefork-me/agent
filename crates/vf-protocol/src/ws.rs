@@ -86,6 +86,28 @@ pub enum ClientMessage {
         #[serde(default)]
         lang: Option<String>,
     },
+    /// Ask the agent to explain a part of the map or answer a question about the project, in words
+    /// only: nothing in the project changes, no tools are prepared, nothing is built or run, so no
+    /// permission window is shown. Only while no task runs in the project. The question and the
+    /// answer come in the session stream (`question`, then `explained`).
+    Explain {
+        /// Project name.
+        project: String,
+        /// The question, in the person's words.
+        question: String,
+        /// Node id of the part it is about (`p1`, `p1.2`…); none for a question about the project.
+        #[serde(default)]
+        part: Option<String>,
+        /// `auto` or a provider, as in `task`; `auto` asks the models available now in turn.
+        #[serde(default)]
+        provider: Option<String>,
+        /// Model of the provider; empty = its default.
+        #[serde(default)]
+        model: Option<String>,
+        /// Language of the answer (`en`, `ru`, …); default is the OS language.
+        #[serde(default)]
+        lang: Option<String>,
+    },
     /// Undo the changes of one part.
     RollbackPart {
         /// Project name.
@@ -355,6 +377,9 @@ pub enum ServerMessage {
         /// `bad_prompt` (empty or too long), `model_unavailable`, `no_models`, `no_model_for_step`,
         /// `planning_failed`, `plan_stopped` (a plan step failed), `git_failed`,
         /// `task_already_running`, `no_build_recipe`, `not_enough_resources`, `build_start_failed`.
+        /// Of an explanation: `not_found` (unknown project or part), `bad_prompt`,
+        /// `task_already_running`, `explain_already_running` (one at a time per connection),
+        /// `not_supported`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         code: Option<String>,
     },
@@ -385,6 +410,20 @@ mod tests {
             commit: None,
         };
         assert!(serde_json::to_string(&done)?.starts_with(r#"{"type":"step-done""#));
+        let m: ClientMessage = serde_json::from_str(
+            r#"{"type":"explain","project":"p","question":"What is this?","part":"p1"}"#,
+        )?;
+        assert_eq!(
+            m,
+            ClientMessage::Explain {
+                project: "p".into(),
+                question: "What is this?".into(),
+                part: Some("p1".into()),
+                provider: None,
+                model: None,
+                lang: None,
+            }
+        );
         Ok(())
     }
 }
