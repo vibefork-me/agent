@@ -32,8 +32,42 @@ fn token() -> String {
     t.access
 }
 
+/// What GitHub says about the app and the account, by the same token (headers and fields only).
+fn probe(tok: &str) {
+    let http = reqwest::blocking::Client::new();
+    for url in [
+        "https://api.github.com/user",
+        "https://api.github.com/apps/vibefork-me",
+        "https://api.github.com/user/installations",
+    ] {
+        let r = http
+            .get(url)
+            .bearer_auth(tok)
+            .header("user-agent", "vibefork-spike")
+            .header("accept", "application/vnd.github+json")
+            .send()
+            .expect("request");
+        let status = r.status();
+        let accepted = r
+            .headers()
+            .get("x-accepted-github-permissions")
+            .map(|v| v.to_str().unwrap_or("").to_owned());
+        let v: serde_json::Value = r.json().unwrap_or_default();
+        println!("probe {url}: {status} accepted={accepted:?}");
+        match url {
+            u if u.ends_with("/user") => println!("  login={} plan={}", v["login"], v["plan"]["name"]),
+            u if u.ends_with("vibefork-me") => println!("  permissions={}", v["permissions"]),
+            _ => println!("  installations={}", v["total_count"]),
+        }
+    }
+}
+
 fn main() {
     let tok = token();
+    probe(&tok);
+    if std::env::args().any(|a| a == "--probe-only") {
+        return;
+    }
     tokio::runtime::Runtime::new().unwrap().block_on(run(tok));
 }
 
