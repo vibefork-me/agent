@@ -26,7 +26,7 @@ Report vulnerabilities privately through GitHub: **Security → Report a vulnera
 | A page reads secrets through the code viewer | The viewer reads only inside a project the browser was granted; `..`, absolute paths and links out of the project are refused; git data and usual secret files (`.env*`, keys, certificates, `.npmrc`, `.netrc`) are never shown; Windows path aliases (`name::$DATA`, trailing dot or space) are refused; files over 2 MiB are described, not sent | `vf-engine/tests/engine.rs`, `attacks.rs` |
 | A model or a project reads your other files | Landlock on Linux, Seatbelt on macOS for the CLI, its commands and builds | `vf-sandbox/tests/linux.rs` (canary), `vf-sandbox/tests/macos.rs` |
 | Malformed input crashes or misleads the agent | Parsers of untrusted input are fuzzed | `vf-engine/tests/robustness.rs`, `fuzz/` |
-| Another user of the machine | Nothing works without pairing; the agent's folder is owner-only | — |
+| Another user of the machine | Nothing works without pairing; the agent's folders (data, projects, tools, caches, artifacts — on any disk) are owner-only: Unix `0700`, on Windows a protected DACL with only you and SYSTEM; `vibefork doctor` checks it | `vf-platform` (`access`) |
 
 ## Known limits
 

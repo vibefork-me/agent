@@ -207,16 +207,24 @@ impl Settings {
         self.state_dir.join("canvas")
     }
 
-    /// Creates the state folder readable by its owner only (Unix `0700`; on Windows the per-user
-    /// `%LOCALAPPDATA%` already is).
-    pub fn secure_state_dir(&self) -> std::io::Result<()> {
-        std::fs::create_dir_all(&self.state_dir)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt as _;
-            std::fs::set_permissions(&self.state_dir, std::fs::Permissions::from_mode(0o700))?;
+    /// Creates the state folder and the heavy folders (projects, tools, caches, artifacts — on any
+    /// disk) readable and writable by the current user only ([`crate::access::secure_dir`]).
+    pub fn secure_dirs(&self) -> std::io::Result<()> {
+        for dir in self.dirs() {
+            crate::access::secure_dir(dir)?;
         }
         Ok(())
+    }
+
+    /// The state folder and the heavy folders.
+    pub fn dirs(&self) -> [&Path; 5] {
+        [
+            &self.state_dir,
+            &self.storage.projects,
+            &self.storage.tools,
+            &self.storage.caches,
+            &self.storage.artifacts,
+        ]
     }
 
     /// Remembers the port the agent bound to, so the browser origin stays the same next time.

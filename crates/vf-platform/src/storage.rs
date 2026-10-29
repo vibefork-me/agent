@@ -115,7 +115,8 @@ pub fn move_folder(settings: &mut Settings, kind: Kind, to: &Path) -> Result<Usa
     if to.exists() && std::fs::read_dir(&to)?.next().is_some() {
         return Err(MoveError::NotEmpty);
     }
-    std::fs::create_dir_all(&to)?;
+    // Owner-only before the copy: the files inherit it.
+    crate::access::secure_dir(&to)?;
     if from.exists() {
         copy_dir(&from, &to)?;
     }
