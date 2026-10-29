@@ -936,6 +936,67 @@
           "type": "object"
         },
         {
+          "description": "The person asked the agent to explain a part or answer a question (nothing changes).",
+          "properties": {
+            "id": {
+              "description": "The part it is about; none for a question about the project.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "text": {
+              "description": "The question, in the person's words.",
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "question"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "text",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The agent's answer to the last [`CanvasEvent::Question`], in words; the project is as it was.",
+          "properties": {
+            "code": {
+              "description": "Why there is no answer: `no_models` (no AI available now), `explain_failed` (no model answered), `cancelled`; an editor words it itself.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "description": "The part it is about; none for a question about the project.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "text": {
+              "description": "The answer, in the person's language; empty when there is none (`code` says why).",
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "explained"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "text",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
           "description": "The task ended.",
           "properties": {
             "artifacts": {
@@ -1362,6 +1423,63 @@
           "required": [
             "index",
             "project",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Ask the agent to explain a part of the map or answer a question about the project, in words only: nothing in the project changes, no tools are prepared, nothing is built or run, so no permission window is shown. Only while no task runs in the project. The question and the answer come in the session stream (`question`, then `explained`).",
+          "properties": {
+            "lang": {
+              "default": null,
+              "description": "Language of the answer (`en`, `ru`, …); default is the OS language.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "model": {
+              "default": null,
+              "description": "Model of the provider; empty = its default.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "part": {
+              "default": null,
+              "description": "Node id of the part it is about (`p1`, `p1.2`…); none for a question about the project.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "project": {
+              "description": "Project name.",
+              "type": "string"
+            },
+            "provider": {
+              "default": null,
+              "description": "`auto` or a provider, as in `task`; `auto` asks the models available now in turn.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "question": {
+              "description": "The question, in the person's words.",
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "explain"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "project",
+            "question",
             "type"
           ],
           "type": "object"
@@ -3593,7 +3711,7 @@
           "description": "An error; for auth errors the connection is closed after it.",
           "properties": {
             "code": {
-              "description": "Machine-readable error code. Of a task or a build: `not_found` (unknown project), `bad_prompt` (empty or too long), `model_unavailable`, `no_models`, `no_model_for_step`, `planning_failed`, `plan_stopped` (a plan step failed), `git_failed`, `task_already_running`, `no_build_recipe`, `not_enough_resources`, `build_start_failed`.",
+              "description": "Machine-readable error code. Of a task or a build: `not_found` (unknown project), `bad_prompt` (empty or too long), `model_unavailable`, `no_models`, `no_model_for_step`, `planning_failed`, `plan_stopped` (a plan step failed), `git_failed`, `task_already_running`, `no_build_recipe`, `not_enough_resources`, `build_start_failed`. Of an explanation: `not_found` (unknown project or part), `bad_prompt`, `task_already_running`, `explain_already_running` (one at a time per connection), `not_supported`.",
               "type": [
                 "string",
                 "null"

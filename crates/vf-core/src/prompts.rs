@@ -19,17 +19,20 @@ pub enum Stage {
     Handoff,
     /// Audience instruction for non-programmer tone and user language.
     Audience,
+    /// A read-only answer in words about a part of the project or a question about it.
+    Explain,
 }
 
 impl Stage {
     /// All registered stages.
-    pub const ALL: [Stage; 6] = [
+    pub const ALL: [Stage; 7] = [
         Stage::Map,
         Stage::Classify,
         Stage::Plan,
         Stage::Loop,
         Stage::Handoff,
         Stage::Audience,
+        Stage::Explain,
     ];
 
     /// Lowercase stage identifier matching the file name in `prompts/<stage>.md`.
@@ -41,6 +44,7 @@ impl Stage {
             Self::Loop => "loop",
             Self::Handoff => "handoff",
             Self::Audience => "audience",
+            Self::Explain => "explain",
         }
     }
 
@@ -53,6 +57,7 @@ impl Stage {
             "loop" | "openai-loop" => Some(Self::Loop),
             "handoff" => Some(Self::Handoff),
             "audience" => Some(Self::Audience),
+            "explain" => Some(Self::Explain),
             _ => None,
         }
     }
@@ -126,6 +131,11 @@ impl Prompt {
         let rule = crate::catalog::lang_rule(lang);
         self.template.replace("{lang_rule}", &rule)
     }
+
+    /// Renders the explain instruction by replacing `{lang_rule}` with the resolved language rule.
+    pub fn render_explain(&self, lang: &str) -> String {
+        self.render_audience(lang)
+    }
 }
 
 /// Error during prompt file parsing.
@@ -152,6 +162,7 @@ const EMBEDDED_PLAN: &str = include_str!("../../../prompts/plan.md");
 const EMBEDDED_LOOP: &str = include_str!("../../../prompts/loop.md");
 const EMBEDDED_HANDOFF: &str = include_str!("../../../prompts/handoff.md");
 const EMBEDDED_AUDIENCE: &str = include_str!("../../../prompts/audience.md");
+const EMBEDDED_EXPLAIN: &str = include_str!("../../../prompts/explain.md");
 
 /// Raw embedded prompt text for a stage.
 pub fn embedded_raw(stage: Stage) -> &'static str {
@@ -162,6 +173,7 @@ pub fn embedded_raw(stage: Stage) -> &'static str {
         Stage::Loop => EMBEDDED_LOOP,
         Stage::Handoff => EMBEDDED_HANDOFF,
         Stage::Audience => EMBEDDED_AUDIENCE,
+        Stage::Explain => EMBEDDED_EXPLAIN,
     }
 }
 

@@ -106,6 +106,23 @@ pub struct TaskRequest {
     pub lang: Option<String>,
 }
 
+/// A question to answer in words, without changing the project.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExplainRequest {
+    /// Project name.
+    pub project: String,
+    /// The question, in the person's words.
+    pub question: String,
+    /// Node id of the part of the map it is about; `None` = the project.
+    pub part: Option<String>,
+    /// `auto` or a provider; `None` = `auto`.
+    pub provider: Option<String>,
+    /// Model; `None` or empty = the provider's default.
+    pub model: Option<String>,
+    /// Language of the answer (`en`, `ru`, …); default is the OS language.
+    pub lang: Option<String>,
+}
+
 /// What the person asked of a running task.
 #[derive(Debug, Default)]
 struct Control {
@@ -310,6 +327,18 @@ pub trait Backend: Send + Sync {
     /// Runs a task to the end, reporting progress through `out`; the last message is
     /// [`ServerMessage::Done`], [`ServerMessage::Cancelled`] or [`ServerMessage::Error`].
     fn run_task(&self, task: TaskRequest, out: &mut dyn FnMut(ServerMessage), cancel: &Cancel);
+    /// Answers a question about the project or one of its parts in words, reporting through `out`:
+    /// the session stream gets a `question` and then an `explained` event; a refusal before that
+    /// is one [`ServerMessage::Error`]. Read-only: no file of the project changes, no tools are
+    /// installed, nothing is built or run, so the caller asks the person nothing. Only while no
+    /// task runs in the project.
+    fn explain(&self, req: ExplainRequest, out: &mut dyn FnMut(ServerMessage), cancel: &Cancel) {
+        let _ = (req, cancel);
+        out(ServerMessage::Error {
+            error: "not supported by this version of the agent".into(),
+            code: Some("not_supported".into()),
+        });
+    }
     /// What offer `index` of the project's kept offers (the last `offers` event) asks for: its title
     /// and text, ready to run as a task prompt. With `title`, the offer must have that title.
     fn offer_prompt(
