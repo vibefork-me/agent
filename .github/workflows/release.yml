@@ -25,6 +25,7 @@ on:
       - scripts/sign_release.py
       - scripts/package.py
       - scripts/package/**
+      - crates/vf-core/locales/**
       - crates/vf-sign/**
 
 permissions:
@@ -117,26 +118,41 @@ jobs:
           wix extension add -g "WixToolset.UI.wixext/$WIX_VERSION"
           wix extension add -g "WixToolset.Util.wixext/$WIX_VERSION"
           python scripts/package.py windows "$VERSION" ${{ matrix.arch }} dist dist
-      # Per-user, without questions: the way the agent's self-update runs the installer.
-      - name: The installer installs, the installed agent answers its version, it uninstalls
+      # Per-user, without questions: the way the agent's self-update runs the installer. In every
+      # wizard language: the runner's own (English, no transform), then each stored language transform
+      # by hand (`TRANSFORMS=:<language ID>`, as Windows Installer picks it for a user of that
+      # language), including a regional one of es-419 and of de.
+      - name: The installer installs in each language, the installed agent answers its version, it uninstalls
         if: matrix.os == 'windows' && matrix.native
         shell: pwsh
         run: |
           $msi = "dist\vibefork-windows-${{ matrix.arch }}.msi"
-          $p = Start-Process msiexec -ArgumentList "/i `"$msi`" /passive /norestart /l*v install.log" -Wait -PassThru
-          if ($p.ExitCode -ne 0) { Get-Content install.log -Tail 40; exit 1 }
           $dir = Join-Path $env:LOCALAPPDATA 'Programs\vibefork'
-          $out = & "$dir\vibefork.exe" version
-          $out
-          if ($out -ne "vibefork $env:VERSION") { exit 1 }
-          if ((Get-Content "$dir\vibefork.install") -ne 'msi') { exit 1 }
-          $handler = (Get-ItemProperty 'HKCU:\Software\Classes\vibefork\shell\open\command').'(default)'
-          $handler
-          if ($handler -notlike "*vibefork.exe*handle*") { exit 1 }
-          $p = Start-Process msiexec -ArgumentList "/x `"$msi`" /passive /norestart /l*v uninstall.log" -Wait -PassThru
-          if ($p.ExitCode -ne 0) { Get-Content uninstall.log -Tail 40; exit 1 }
-          if (Test-Path "$dir\vibefork.exe") { Write-Error 'vibefork.exe is still installed'; exit 1 }
-          if (Test-Path 'HKCU:\Software\Classes\vibefork') { Write-Error 'the link handler is still registered'; exit 1 }
+          # Transform → the language it installs: en, ru, pt-BR, es-ES, es-419 (Mexico, Latin America), de (Germany, Austria).
+          $cases = [ordered]@{ '' = 1033; ':1049' = 1049; ':1046' = 1046; ':3082' = 3082; ':2058' = 22538; ':22538' = 22538; ':1031' = 1031; ':3079' = 1031 }
+          foreach ($transform in $cases.Keys) {
+            $want = $cases[$transform]
+            $name = if ($transform) { $transform.TrimStart(':') } else { 'default' }
+            Write-Host "== transform '$transform' → language $want"
+            $args = "/i `"$msi`" /passive /norestart /l*v install-$name.log"
+            if ($transform) { $args += " TRANSFORMS=$transform" }
+            $p = Start-Process msiexec -ArgumentList $args -Wait -PassThru
+            if ($p.ExitCode -ne 0) { Get-Content "install-$name.log" -Tail 40; exit 1 }
+            $language = Select-String -Path "install-$name.log" -Pattern 'Property\(S\): ProductLanguage = (\d+)' | Select-Object -Last 1
+            $language.Line
+            if ($language.Matches[0].Groups[1].Value -ne "$want") { Write-Error "installed in language $($language.Matches[0].Groups[1].Value), not $want"; exit 1 }
+            $out = & "$dir\vibefork.exe" version
+            $out
+            if ($out -ne "vibefork $env:VERSION") { exit 1 }
+            if ((Get-Content "$dir\vibefork.install") -ne 'msi') { exit 1 }
+            $handler = (Get-ItemProperty 'HKCU:\Software\Classes\vibefork\shell\open\command').'(default)'
+            $handler
+            if ($handler -notlike "*vibefork.exe*handle*") { exit 1 }
+            $p = Start-Process msiexec -ArgumentList "/x `"$msi`" /passive /norestart /l*v uninstall-$name.log" -Wait -PassThru
+            if ($p.ExitCode -ne 0) { Get-Content "uninstall-$name.log" -Tail 40; exit 1 }
+            if (Test-Path "$dir\vibefork.exe") { Write-Error 'vibefork.exe is still installed'; exit 1 }
+            if (Test-Path 'HKCU:\Software\Classes\vibefork') { Write-Error 'the link handler is still registered'; exit 1 }
+          }
       - name: AppImage and tar.gz
         if: matrix.os == 'linux'
         run: |
