@@ -25,8 +25,8 @@ fn english_and_russian_strings_are_unchanged() {
     );
     same!(
         |l| pair_text(l, "http://localhost:5173", "Firefox", "123456"),
-        "Site: http://localhost:5173\nBrowser: Firefox\nCode: 123456\n\nAllow only if the same code is shown on the page.",
-        "Сайт: http://localhost:5173\nБраузер: Firefox\nКод: 123456\n\nРазрешайте, только если этот же код показан на странице."
+        "Site: http://localhost:5173\nBrowser: Firefox\nCode: 123456\n\nEnter this code on the page, then click Allow.\nIf you did not open Vibefork just now, click Don\'t allow.",
+        "Сайт: http://localhost:5173\nБраузер: Firefox\nКод: 123456\n\nВведите этот код на странице и нажмите «Разрешить».\nЕсли вы сейчас не открывали Vibefork, нажмите «Не разрешать»."
     );
     same!(
         |l| project_access_title(l),

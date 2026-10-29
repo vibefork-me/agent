@@ -1,8 +1,9 @@
 //! 🔒 **Security boundary.** Pairing, browser keys, sessions, confirmations.
 //!
 //! The scheme:
-//! 1. the page asks to pair → the agent shows a **native dialog** with a code; the user compares the
-//!    code with the page and clicks Allow (the page cannot click a native dialog);
+//! 1. the page asks to pair → the agent shows a **native dialog** with a code; the code goes nowhere
+//!    else, so whoever asked to pair does not learn it. The user types the code on the page and clicks
+//!    Allow (the page cannot click a native dialog); a pairing needs both, three wrong codes deny it;
 //! 2. the browser keeps a **non-extractable** P-256 key; the agent stores only the public key + origin;
 //! 3. every visit: one-time challenge → signature → short session token kept **in memory only**,
 //!    bound to the origin;
@@ -55,6 +56,8 @@ pub enum AuthError {
 
 /// Pairing requests one origin may keep waiting for the user at the same time.
 pub const MAX_WAITING_PAIRINGS: usize = 3;
+/// Wrong codes after which a pairing request is denied.
+pub const MAX_WRONG_CODES: u8 = 3;
 /// Longest part of a task shown when work on a project starts, characters (a longer one ends with `…`).
 pub const START_TASK_SHOWN: usize = 600;
 /// How long a pairing request is kept (for status polling) after it was started.
@@ -71,9 +74,28 @@ pub struct SessionInfo {
     pub name: String,
 }
 
+/// What a page may know about its pairing request (never the code).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PairingStatus {
+    /// State of the request.
+    pub status: PairState,
+    /// Paired key, once approved.
+    pub key_id: Option<String>,
+    /// The right code was entered on the page.
+    pub code_accepted: bool,
+}
+
 struct Pending {
     origin: String,
     key_id: String,
+    /// The record saved once both the dialog and the code say yes.
+    record: PairRecord,
+    /// Digits of the code shown in the dialog.
+    code: String,
+    /// The user clicked Allow.
+    allowed: bool,
+    code_accepted: bool,
+    wrong_codes: u8,
     status: PairState,
     created: Instant,
 }
@@ -117,13 +139,14 @@ impl Auth {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    /// Starts pairing: returns `(pair_id, code)` and opens the native dialog on a separate thread.
+    /// Starts pairing: returns the `pair_id` and opens the native dialog with the code on a separate
+    /// thread. The code is shown only there; [`Auth::enter_pairing_code`] takes it from the page.
     pub fn start_pairing(
         &self,
         origin: &str,
         jwk: &PublicJwk,
         name: Option<&str>,
-    ) -> Result<(String, String), AuthError> {
+    ) -> Result<String, AuthError> {
         crypto::verifying_key(jwk)?; // reject anything that is not a valid public P-256 key
         {
             // Finished requests are kept for status polling, then dropped; one origin may keep only a
@@ -149,57 +172,105 @@ impl Auth {
             pair_id.clone(),
             Pending {
                 origin: origin.to_owned(),
-                key_id: key_id.clone(),
+                key_id,
+                record: PairRecord {
+                    jwk: jwk.clone(),
+                    origin: origin.to_owned(),
+                    name: name.clone(),
+                    created: now_secs(),
+                    projects: Vec::new(),
+                },
+                code: code_digits(&code),
+                allowed: false,
+                code_accepted: false,
+                wrong_codes: 0,
                 status: PairState::Pending,
                 created: Instant::now(),
             },
         );
 
         let me = self.clone();
-        let (origin, jwk, id) = (origin.to_owned(), jwk.clone(), pair_id.clone());
+        let id = pair_id.clone();
         let lang = self.dialog.language();
         let title = vf_core::catalog::pair_title(lang);
-        let text = vf_core::catalog::pair_text(lang, &origin, &name, &code);
+        let text = vf_core::catalog::pair_text(lang, origin, &name, &code);
         std::thread::spawn(move || {
             let allowed = me.dialog.confirm(&title, &text);
-            let saved = allowed
-                && me
-                    .store
-                    .insert(
-                        key_id.clone(),
-                        PairRecord {
-                            jwk,
-                            origin,
-                            name,
-                            created: now_secs(),
-                            projects: Vec::new(),
-                        },
-                    )
-                    .is_ok();
-            if let Some(p) = me.state().pending.get_mut(&id) {
-                p.status = if saved {
-                    PairState::Approved
+            let mut state = me.state();
+            if let Some(p) = state.pending.get_mut(&id)
+                && p.status == PairState::Pending
+            {
+                if allowed {
+                    p.allowed = true;
+                    me.finish_if_ready(p);
                 } else {
-                    PairState::Denied
-                };
+                    p.status = PairState::Denied;
+                }
+                tracing::info!(key_id = %p.key_id, allowed, "pairing dialog answered");
             }
-            tracing::info!(key_id = %key_id, allowed = saved, "pairing finished");
         });
-        Ok((pair_id, code))
+        Ok(pair_id)
     }
 
-    /// Status of a pairing request started from `origin`; `None` if unknown.
-    pub fn pairing_status(
+    /// The code the user typed on the page for request `pair_id` started from `origin`: returns
+    /// whether it is right and the state after it, `None` for an unknown request or another origin.
+    /// The request is approved once the code is right and Allow is clicked, in any order; after
+    /// [`MAX_WRONG_CODES`] wrong codes it is denied for good.
+    pub fn enter_pairing_code(
         &self,
         pair_id: &str,
         origin: &str,
-    ) -> Option<(PairState, Option<String>)> {
+        code: &str,
+    ) -> Option<(bool, PairState)> {
+        let mut state = self.state();
+        let p = state
+            .pending
+            .get_mut(pair_id)
+            .filter(|p| p.origin == origin && p.created.elapsed() < PENDING_KEEP)?;
+        if p.status == PairState::Denied {
+            return Some((false, PairState::Denied));
+        }
+        if !same_code(&p.code, &code_digits(code)) {
+            p.wrong_codes = p.wrong_codes.saturating_add(1);
+            if p.status == PairState::Pending && p.wrong_codes >= MAX_WRONG_CODES {
+                p.status = PairState::Denied;
+                tracing::warn!(key_id = %p.key_id, "pairing denied: wrong code too many times");
+            }
+            return Some((false, p.status));
+        }
+        if p.status == PairState::Pending {
+            p.code_accepted = true;
+            self.finish_if_ready(p);
+        }
+        Some((true, p.status))
+    }
+
+    /// Saves the pairing once Allow was clicked and the right code entered.
+    fn finish_if_ready(&self, p: &mut Pending) {
+        if !(p.allowed && p.code_accepted) {
+            return;
+        }
+        let saved = self
+            .store
+            .insert(p.key_id.clone(), p.record.clone())
+            .is_ok();
+        p.status = if saved {
+            PairState::Approved
+        } else {
+            PairState::Denied
+        };
+        tracing::info!(key_id = %p.key_id, saved, "pairing finished");
+    }
+
+    /// Status of a pairing request started from `origin`; `None` if unknown.
+    pub fn pairing_status(&self, pair_id: &str, origin: &str) -> Option<PairingStatus> {
         let state = self.state();
         let p = state.pending.get(pair_id).filter(|p| p.origin == origin)?;
-        Some((
-            p.status,
-            (p.status == PairState::Approved).then(|| p.key_id.clone()),
-        ))
+        Some(PairingStatus {
+            status: p.status,
+            key_id: (p.status == PairState::Approved).then(|| p.key_id.clone()),
+            code_accepted: p.code_accepted,
+        })
     }
 
     /// Issues a one-time challenge for a key paired with `origin`.
@@ -365,6 +436,21 @@ impl Auth {
         self.state().sessions.retain(|_, s| s.key_id != key_id);
         Ok(())
     }
+}
+
+/// The digits of a code as typed (`123-456`, `123 456` and `123456` are the same code).
+fn code_digits(code: &str) -> String {
+    code.chars().filter(char::is_ascii_digit).take(16).collect()
+}
+
+/// Compares two codes in time that does not depend on where they differ.
+fn same_code(expected: &str, given: &str) -> bool {
+    expected.len() == given.len()
+        && expected
+            .bytes()
+            .zip(given.bytes())
+            .fold(0u8, |diff, (a, b)| diff | (a ^ b))
+            == 0
 }
 
 fn now_secs() -> u64 {
