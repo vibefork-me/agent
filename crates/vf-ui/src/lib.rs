@@ -1,5 +1,5 @@
 //! `vf-ui`: the agent's own windows on egui — a confirm prompt, text and secret prompts, the first
-//! run and the agent's status — in the Vibefork look (dark theme, the editor's accents).
+//! run and the agent's status — in the Vibefork look (dark theme, the editor's palette and typeface).
 //!
 //! The crate knows nothing about the agent: every string comes from the caller (already in the
 //! person's language), every answer goes back as a value. Each window exists twice:

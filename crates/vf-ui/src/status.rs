@@ -87,22 +87,32 @@ impl StatusView {
     pub fn ui(&mut self, ui: &mut egui::Ui) -> Option<StatusEvent> {
         let p = &self.page;
         let colour = match p.tone {
-            Tone::Normal => theme::TEXT,
+            Tone::Normal => theme::MUTED,
             Tone::Busy => theme::ACCENT,
             Tone::Attention => theme::WARNING,
             Tone::Error => theme::DANGER,
         };
-        ui.add_space(4.0);
-        ui.label(
-            RichText::new(p.headline.as_str())
-                .heading()
-                .strong()
-                .color(colour),
-        );
-        for l in &p.lines {
-            ui.label(RichText::new(l.as_str()).color(theme::MUTED));
-        }
-        ui.add_space(8.0);
+        theme::header(ui, &p.title);
+        ui.add_space(10.0);
+        theme::card().show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.spacing_mut().item_spacing.y = 4.0;
+            ui.horizontal(|ui| {
+                // The state as a dot of its colour, as in the editor.
+                let (dot, _) = ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
+                ui.painter().circle_filled(dot.center(), 5.0, colour);
+                ui.label(
+                    RichText::new(p.headline.as_str())
+                        .family(theme::semibold())
+                        .size(16.0)
+                        .color(theme::TEXT),
+                );
+            });
+            for l in &p.lines {
+                ui.label(RichText::new(l.as_str()).color(theme::MUTED));
+            }
+        });
+        ui.add_space(12.0);
         let mut event = None;
         ui.horizontal_wrapped(|ui| {
             for (id, label) in &p.actions {
@@ -111,9 +121,9 @@ impl StatusView {
                 }
             }
         });
-        ui.add_space(8.0);
+        ui.add_space(16.0);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.add(theme::primary_button(&p.close)).clicked() {
+            if ui.add(theme::secondary_button(&p.close)).clicked() {
                 event = Some(StatusEvent::Close);
             }
         });

@@ -95,6 +95,7 @@ fn permission(env: &dyn Fn(&str) -> String) -> Permission {
         what: env(window::ENV_WHAT),
         why_label: catalog::permission_why(lang),
         why: env(window::ENV_WHY),
+        commands_label: catalog::permission_commands(lang),
         verify_label: catalog::permission_verify(lang),
         commands: env(window::ENV_COMMANDS)
             .lines()
