@@ -69,7 +69,7 @@ These must hold in every version. A PR that touches one says so explicitly.
 4. **Nothing from the network is executed without local confirmation.** Server hints are data, not commands.
 5. **The fallback UI is served only from a bundle whose signature was verified** with our public key, and only files listed in its manifest.
 6. **Secrets never reach logs** (`Secret<T>`, `SessionToken` have redacted `Debug`; tested) and never reach child processes except the provider that needs them.
-7. **Coding CLIs run without the user's personal environment** (Claude Code: project/local settings only, no MCP, no skills; Codex: `--ignore-user-config --ignore-rules`) and with a cleaned environment.
+7. **Coding CLIs run without the user's personal environment** (Claude Code: project/local settings only, no MCP, no skills; Codex: `--ignore-user-config --ignore-rules`) and with an allow-listed environment: system, user folders, locale, proxy, certificates and toolchain homes; tokens and keys of the user's environment are not passed.
 8. **Paths from the network or from a model are `ProjectPath`s** — guaranteed inside the project root; no `..`, no drive or stream (`:`), no symlink escapes.
 9. **Content of foreign forks is data** — instructions found in their files are never followed.
 10. **Domain crates (layer 0–1) do no IO** — everything goes through traits implemented in adapters.

@@ -326,4 +326,29 @@ mod tests {
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn a_command_does_not_see_the_agents_secrets() {
+        let dir = project();
+        let env = ChildEnv::from_vars(
+            std::env::vars_os().chain([("GITHUB_TOKEN".into(), "ghp_vf_test_secret".into())]),
+        );
+        let command = if cfg!(windows) {
+            "echo [%GITHUB_TOKEN%]"
+        } else {
+            "echo \"[$GITHUB_TOKEN]\""
+        };
+        let out = call(
+            &dir,
+            "run_command",
+            &json!({ "command": command }),
+            &env,
+            &Cancel::new(),
+        );
+        assert!(
+            matches!(&out, Ok(Outcome::Done(t)) if t.starts_with("exit code 0") && !t.contains("ghp_vf_test_secret")),
+            "{out:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

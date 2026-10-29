@@ -167,8 +167,13 @@ impl Copilot {
         {
             return ok;
         }
+        // The CLI runs with the allow-listed environment: a token of the user's environment
+        // does not sign it in.
         let mut cmd = process::command(bin);
         cmd.env_remove(HOME_VAR);
+        for v in TOKEN_VARS {
+            cmd.env_remove(v);
+        }
         let ok = auth_status(cmd).is_some_and(|s| s.usable(vf_protocol::CliHomeMode::User));
         *cache = Some((Instant::now(), ok));
         ok
