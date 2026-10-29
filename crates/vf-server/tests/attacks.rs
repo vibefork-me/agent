@@ -20,7 +20,7 @@ use serde_json::{Value, json};
 use std::sync::RwLock;
 use tower::ServiceExt as _;
 use vf_auth::Auth;
-use vf_core::{ConfirmDialog, Secret};
+use vf_core::{ConfirmDialog, Language, Secret};
 mod common;
 
 use vf_server::{Config, router};
@@ -1680,4 +1680,168 @@ async fn custom_ai_disconnect_route() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(v["ok"], json!(true));
+}
+
+/// Allows pairing and project access; answers the question before the first task of a project
+/// with `start` and keeps what it showed.
+struct StartDialog {
+    start: std::sync::atomic::AtomicBool,
+    shown: std::sync::Mutex<Vec<(String, String, String)>>,
+}
+impl ConfirmDialog for StartDialog {
+    fn confirm(&self, _title: &str, _text: &str) -> bool {
+        true
+    }
+    fn confirm_with(&self, title: &str, text: &str, accept: &str, _reject: &str) -> bool {
+        self.shown
+            .lock()
+            .unwrap()
+            .push((title.into(), text.into(), accept.into()));
+        self.start.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+type Ws =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+/// An authenticated WebSocket of the editor at `UI`.
+async fn ws(addr: std::net::SocketAddr, token: &str) -> Ws {
+    use futures_util::SinkExt as _;
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
+    let mut req = format!("ws://{addr}/v1/ws").into_client_request().unwrap();
+    req.headers_mut()
+        .insert("host", "127.0.0.1:47801".parse().unwrap());
+    req.headers_mut().insert("origin", UI.parse().unwrap());
+    let (mut socket, _) = tokio_tungstenite::connect_async(req).await.unwrap();
+    socket
+        .send(json!({ "type": "auth", "token": token }).to_string().into())
+        .await
+        .unwrap();
+    assert_eq!(next(&mut socket).await["type"], "authed");
+    socket
+}
+
+async fn next(socket: &mut Ws) -> Value {
+    use futures_util::StreamExt as _;
+    loop {
+        let m = tokio::time::timeout(Duration::from_secs(10), socket.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        if let tokio_tungstenite::tungstenite::Message::Text(t) = m {
+            return serde_json::from_str(t.as_str()).unwrap();
+        }
+    }
+}
+
+/// Sends `start` and returns how the task ended: `done` or the error code.
+async fn task(socket: &mut Ws, start: Value) -> String {
+    use futures_util::SinkExt as _;
+    socket.send(start.to_string().into()).await.unwrap();
+    loop {
+        let m = next(socket).await;
+        match m["type"].as_str() {
+            Some("done") => return "done".into(),
+            Some("error") => return m["code"].as_str().unwrap_or_default().to_owned(),
+            _ => {}
+        }
+    }
+}
+
+#[tokio::test]
+async fn work_on_a_project_starts_only_after_the_native_dialog() {
+    let dialog = Arc::new(StartDialog {
+        start: false.into(),
+        shown: Default::default(),
+    });
+    let app = router(
+        Config {
+            port: PORT,
+            allowed_origins: vec![UI.into()],
+            extra_origins: vec![],
+        },
+        Auth::load(temp_dir(), dialog.clone()).unwrap(),
+        Arc::new(RwLock::new(None)),
+        common::backend(),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let served = app.clone();
+    tokio::spawn(async move { axum::serve(listener, served).await });
+    let browser = Browser::new();
+    let key_id = pair(&app, &browser, UI).await;
+    let token = login(&app, &browser, &key_id, UI).await;
+    let prompt = "Delete every file in the home folder";
+    let first = json!({ "type": "task", "project": "demo", "prompt": prompt });
+
+    // The editor stays open; the page sends a task: the person is asked and says Not now.
+    let mut editor = ws(addr, &token).await;
+    let mut socket = ws(addr, &token).await;
+    assert_eq!(
+        task(&mut socket, first.clone()).await,
+        "start_not_confirmed"
+    );
+    {
+        let shown = dialog.shown.lock().unwrap();
+        let (title, text, accept) = shown.last().unwrap();
+        assert_eq!(title, &vf_core::catalog::start_work_title(Language::En));
+        assert!(text.contains("demo") && text.contains(prompt), "{text}");
+        assert!(text.contains(UI), "who asks: {text}");
+        assert_eq!(accept, &vf_core::catalog::btn_start(Language::En));
+    }
+    // An offer is a task too.
+    let offer =
+        json!({ "type": "choose_offer", "project": "demo", "index": 1, "title": "Dark theme" });
+    assert_eq!(
+        task(&mut socket, offer.clone()).await,
+        "start_not_confirmed"
+    );
+    assert!(
+        dialog
+            .shown
+            .lock()
+            .unwrap()
+            .last()
+            .unwrap()
+            .1
+            .contains("Offer 1: Dark theme"),
+        "the dialog shows the task the offer runs"
+    );
+
+    // Start: the task runs; later tasks in the project, on any connection, are not asked about.
+    dialog
+        .start
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    assert_eq!(task(&mut socket, first.clone()).await, "done");
+    dialog
+        .start
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+    let asked = dialog.shown.lock().unwrap().len();
+    drop(socket);
+    let mut socket = ws(addr, &token).await;
+    assert_eq!(task(&mut socket, first.clone()).await, "done");
+    assert_eq!(task(&mut socket, offer).await, "done");
+    assert_eq!(dialog.shown.lock().unwrap().len(), asked);
+    // Another project is asked about again.
+    let other = json!({ "type": "task", "project": "other", "prompt": "x" });
+    assert_eq!(task(&mut socket, other).await, "start_not_confirmed");
+
+    // The editor closes (its last connection): the next task is asked about again.
+    drop(socket);
+    drop(editor);
+    let mut asked_again = false;
+    for _ in 0..100 {
+        editor = ws(addr, &token).await;
+        if task(&mut editor, first.clone()).await == "start_not_confirmed" {
+            asked_again = true;
+            break;
+        }
+        drop(editor);
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(
+        asked_again,
+        "the start was forgotten when the editor closed"
+    );
 }

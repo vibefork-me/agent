@@ -18,6 +18,18 @@ project-access-text =
 
     Разрешайте, только если вы сейчас работаете в браузере.
 
+## Starting work on a project: the first task of the editor in it
+
+start-work-title = Vibefork: начать работу над проектом?
+start-work-text =
+    { $origin } просит начать работу над проектом { $project } с первой задачи:
+
+    { $task }
+
+    Модель сможет менять файлы проекта и выполнять команды на вашем компьютере. Следующие задачи в этом проекте начнутся без вопроса, пока редактор открыт.
+
+    Начинайте, только если эту задачу вы дали сами и только что.
+
 ## Asking permission to act on the computer: what, why, the commands to check
 
 permission-title = Vibefork: действие на вашем компьютере
@@ -91,6 +103,8 @@ custom-openai-model-prompt = введите идентификатор моде�
 
 btn-allow = Разрешить
 btn-block = Не разрешать
+btn-start = Начать
+btn-not-now = Не сейчас
 btn-ok = OK
 btn-cancel = Отмена
 

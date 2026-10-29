@@ -19,6 +19,18 @@ project-access-text =
 
     Allow only if you are doing this in your browser right now.
 
+## Starting work on a project: the first task of the editor in it
+
+start-work-title = Vibefork: start work on the project?
+start-work-text =
+    { $origin } asks to start work on the project { $project } with the first task:
+
+    { $task }
+
+    The model will be able to change the project's files and run commands on your computer. Further tasks in this project start without asking while the editor stays open.
+
+    Start only if you gave this task yourself just now.
+
 ## Asking permission to act on the computer: what, why, the commands to check
 
 # Shown before every action on the person's computer; `permission-check` only when there are commands.
@@ -94,6 +106,8 @@ custom-openai-model-prompt = enter model identifier (e.g. llama3, qwen2.5-coder)
 
 btn-allow = Allow
 btn-block = Don't allow
+btn-start = Start
+btn-not-now = Not now
 btn-ok = OK
 btn-cancel = Cancel
 

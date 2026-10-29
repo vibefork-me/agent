@@ -20,6 +20,9 @@ fluent-bundle = "0.16"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync"] }
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "query", "tokio", "ws"] }
 tower = { version = "0.5", features = ["util"] }
+# WebSocket client of the server's tests (the same crate axum serves WebSockets with).
+tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 http-body-util = "0.1"
 p256 = { version = "0.14", features = ["ecdsa"] }
 sha2 = "0.10"

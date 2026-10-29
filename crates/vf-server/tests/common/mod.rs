@@ -218,6 +218,14 @@ impl Backend for FakeBackend {
             files: Vec::new(),
         })
     }
+    fn offer_prompt(
+        &self,
+        _: &str,
+        index: u32,
+        title: Option<&str>,
+    ) -> Result<String, vf_protocol::OfferRejected> {
+        Ok(format!("Offer {index}: {}", title.unwrap_or_default()))
+    }
     fn run_task(&self, _: TaskRequest, out: &mut dyn FnMut(ServerMessage), _: &Cancel) {
         out(ServerMessage::Done {
             code: 0,

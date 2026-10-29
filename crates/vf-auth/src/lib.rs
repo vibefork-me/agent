@@ -55,6 +55,8 @@ pub enum AuthError {
 
 /// Pairing requests one origin may keep waiting for the user at the same time.
 pub const MAX_WAITING_PAIRINGS: usize = 3;
+/// Longest part of a task shown when work on a project starts, characters (a longer one ends with `…`).
+pub const START_TASK_SHOWN: usize = 600;
 /// How long a pairing request is kept (for status polling) after it was started.
 const PENDING_KEEP: Duration = Duration::from_secs(10 * 60);
 
@@ -320,6 +322,26 @@ impl Auth {
             vf_core::catalog::project_access_text(lang, &origin_clean, &name_clean, &project_shown);
         let allowed = self.dialog.confirm(&title, &text);
         allowed && self.store.add_project(key_id, project).is_ok()
+    }
+
+    /// Whether the user starts work on `project` with `task`, the first task an editor gives there:
+    /// the native dialog shows who asks, the project, the task as given and what the model may do;
+    /// Start / Not now. Blocks.
+    pub fn start_work_allowed(&self, origin: &str, project: &str, task: &str) -> bool {
+        let lang = self.dialog.language();
+        let title = vf_core::catalog::start_work_title(lang);
+        let text = vf_core::catalog::start_work_text(
+            lang,
+            &vf_core::dialog_field(origin, 80),
+            &vf_core::dialog_field(project, 80),
+            &vf_core::dialog_field(task, START_TASK_SHOWN),
+        );
+        self.dialog.confirm_with(
+            &title,
+            &text,
+            &vf_core::catalog::btn_start(lang),
+            &vf_core::catalog::btn_not_now(lang),
+        )
     }
 
     /// Paired browsers.

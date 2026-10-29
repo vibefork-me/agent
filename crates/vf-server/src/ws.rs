@@ -12,7 +12,16 @@
 //! `bad_index`); `explain` answers a question about the project or one of its parts in words, after
 //! the same access check as `task` and without a native dialog, as it changes nothing (one at a time
 //! per connection, beside a running task of another project), other text is echoed. Messages are at most [`MAX_MESSAGE`] bytes. A running task also sends its session stream (`canvas` messages). Closing the connection cancels the running task.
+//!
+//! The first task (`task` or `choose_offer`) a paired browser gives in a project starts only after
+//! the person answers Start in the native dialog, which shows the project, the task as given and
+//! what the model may do (invariant 3); refused, it is the error `start_not_confirmed`. Further
+//! tasks of that browser in the project start without asking while it keeps a connection to the
+//! agent open (the editor keeps one while it is open); when its last connection closes, the agent
+//! forgets it.
 
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade};
@@ -31,6 +40,59 @@ const AUTH_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Largest WebSocket message, bytes: a `note` with its attachments fits.
 const MAX_MESSAGE: usize = vf_protocol::note::MAX_NOTE_DATA + 1024 * 1024;
+
+/// Projects where a paired browser started work (by key id), kept while the browser has an open
+/// connection.
+#[derive(Debug, Default)]
+pub(crate) struct StartedWork(Mutex<HashMap<String, (usize, HashSet<String>)>>);
+
+impl StartedWork {
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, (usize, HashSet<String>)>> {
+        self.0.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// A connection of `key_id` authenticated; the returned guard counts it until dropped.
+    fn open(self: &Arc<Self>, key_id: &str) -> Present {
+        self.lock().entry(key_id.to_owned()).or_default().0 += 1;
+        Present {
+            work: self.clone(),
+            key_id: key_id.to_owned(),
+        }
+    }
+
+    /// Whether `key_id` started work in `project`.
+    fn started(&self, key_id: &str, project: &str) -> bool {
+        self.lock()
+            .get(key_id)
+            .is_some_and(|(_, projects)| projects.contains(project))
+    }
+
+    /// Remembers that `key_id` started work in `project`, while one of its connections is open.
+    fn start(&self, key_id: &str, project: &str) {
+        if let Some((_, projects)) = self.lock().get_mut(key_id) {
+            projects.insert(project.to_owned());
+        }
+    }
+}
+
+/// An open, authenticated connection of a paired browser; the last one closing forgets where the
+/// browser started work.
+struct Present {
+    work: Arc<StartedWork>,
+    key_id: String,
+}
+
+impl Drop for Present {
+    fn drop(&mut self) {
+        let mut all = self.work.lock();
+        if let Some(entry) = all.get_mut(&self.key_id) {
+            entry.0 = entry.0.saturating_sub(1);
+            if entry.0 == 0 {
+                all.remove(&self.key_id);
+            }
+        }
+    }
+}
 
 /// What runs on a connection: a task of a project (takes messages of the person) or a build.
 struct Running {
@@ -51,6 +113,7 @@ pub(crate) async fn upgrade(
 
 async fn connection(mut socket: WebSocket, state: AppState, origin: String) {
     let mut authed: Option<String> = None;
+    let mut _present: Option<Present> = None;
     let deadline = tokio::time::Instant::now() + AUTH_TIMEOUT;
     let (tx, mut rx) = mpsc::unbounded_channel::<Out>();
     let mut running: Option<Running> = None;
@@ -98,6 +161,7 @@ async fn connection(mut socket: WebSocket, state: AppState, origin: String) {
             };
             match session {
                 Some(s) => {
+                    _present = Some(state.started.open(&s.key_id));
                     authed = Some(s.key_id.clone());
                     if send(&mut socket, &ServerMessage::Authed { key_id: s.key_id })
                         .await
@@ -525,7 +589,8 @@ fn rejected(e: OfferRejected) -> ServerMessage {
 
 /// Runs a task on a blocking thread; its messages go to `tx`. The browser needs access to the
 /// project (native dialog the first time); only then `prepare` makes the task (it may look at the
-/// project) or tells why there is none.
+/// project) or tells why there is none. The first task of the browser in the project starts after
+/// the person answers Start in the native dialog.
 fn start(
     state: &AppState,
     origin: String,
@@ -536,16 +601,29 @@ fn start(
 ) -> Cancel {
     let cancel = Cancel::new();
     let (backend, auth, c) = (state.backend.clone(), state.auth.clone(), cancel.clone());
+    let started = state.started.clone();
     tokio::task::spawn_blocking(move || {
         if auth.project_allowed(&key_id, &origin, &project) {
             match prepare(backend.as_ref()) {
-                Ok(task) => backend.run_task(
-                    task,
-                    &mut |m| {
-                        let _ = tx.send(Out::Message(m));
-                    },
-                    &c,
-                ),
+                Ok(task)
+                    if !started.started(&key_id, &project)
+                        && !auth.start_work_allowed(&origin, &project, &task.prompt) =>
+                {
+                    let _ = tx.send(Out::Message(ServerMessage::Error {
+                        error: "start not confirmed".into(),
+                        code: Some("start_not_confirmed".into()),
+                    }));
+                }
+                Ok(task) => {
+                    started.start(&key_id, &project);
+                    backend.run_task(
+                        task,
+                        &mut |m| {
+                            let _ = tx.send(Out::Message(m));
+                        },
+                        &c,
+                    );
+                }
                 Err(e) => {
                     let _ = tx.send(Out::Message(rejected(e)));
                 }

@@ -19,6 +19,18 @@ project-access-text =
 
     Erlaube es nur, wenn du das gerade in deinem Browser tust.
 
+## Starting work on a project: the first task of the editor in it
+
+start-work-title = Vibefork: Arbeit am Projekt beginnen?
+start-work-text =
+    { $origin } möchte die Arbeit am Projekt { $project } mit der ersten Aufgabe beginnen:
+
+    { $task }
+
+    Das Modell kann dann die Dateien des Projekts ändern und Befehle auf deinem Computer ausführen. Weitere Aufgaben in diesem Projekt beginnen ohne Nachfrage, solange der Editor offen ist.
+
+    Beginne nur, wenn du diese Aufgabe gerade selbst gestellt hast.
+
 ## Asking permission to act on the computer: what, why, the commands to check
 
 permission-title = Vibefork: Aktion auf deinem Computer
@@ -92,6 +104,8 @@ custom-openai-model-prompt = gib die Kennung des Modells ein (z. B. llama3, qwen
 
 btn-allow = Erlauben
 btn-block = Nicht erlauben
+btn-start = Beginnen
+btn-not-now = Nicht jetzt
 btn-ok = OK
 btn-cancel = Abbrechen
 
