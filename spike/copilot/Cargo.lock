@@ -145,6 +145,7 @@ dependencies = [
  "tokio",
  "vf-github",
  "vf-protocol",
+ "vf-providers",
 ]
 
 [[package]]
@@ -2055,6 +2056,18 @@ version = "0.0.0"
 dependencies = [
  "schemars",
  "serde",
+]
+
+[[package]]
+name = "vf-providers"
+version = "0.0.0"
+dependencies = [
+ "reqwest 0.12.28",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "vf-core",
+ "vf-protocol",
 ]
 
 [[package]]
