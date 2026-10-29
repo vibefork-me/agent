@@ -216,7 +216,8 @@ fn cli_arguments_keep_the_prompt_out_and_the_personal_environment_off() {
     let a = claude::args("haiku", Some("s1"), None);
     for flag in [
         "--setting-sources",
-        "project,local",
+        "",
+        "--settings",
         "--strict-mcp-config",
         "--disable-slash-commands",
         "--resume",
