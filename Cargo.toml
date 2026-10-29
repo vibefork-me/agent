@@ -22,13 +22,13 @@ axum = { version = "0.8", default-features = false, features = ["http1", "json",
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
 p256 = { version = "0.14", features = ["ecdsa"] }
-sha2 = "0.10"
-base64 = "0.22"
-rand = "0.8"
+sha2 = "0.11"
+base64 = "0.23"
+rand = "0.10"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-schemars = "0.8"
-ed25519-dalek = { version = "2", features = ["rand_core"] }
+schemars = "1.2"
+ed25519-dalek = { version = "3", features = ["rand_core"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 hex = "0.4"
 # The agent's own windows (vf-ui): egui over OpenGL (glow); x11 / wayland are loaded at run time.
