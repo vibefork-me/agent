@@ -316,6 +316,7 @@ pub(crate) async fn ai_connect(
     let name = match req.provider.as_str() {
         "claude" => "Claude",
         "codex" => "ChatGPT (Codex)",
+        "copilot" => "GitHub Copilot",
         "openrouter" => "OpenRouter",
         "gemini" => "Google AI Studio (Gemini)",
         "custom" => "OpenAI-compatible API",
@@ -339,6 +340,7 @@ pub(crate) async fn ai_connect(
         let dialog_name = match req.provider.as_str() {
             "claude" => "Claude Code",
             "codex" => "Codex",
+            "copilot" => "GitHub Copilot CLI",
             _ => name,
         };
         match target_mode {
@@ -348,6 +350,7 @@ pub(crate) async fn ai_connect(
                 let lang = auth.dialog().language();
                 let home = match req.provider.as_str() {
                     "codex" => "~/.codex",
+                    "copilot" => "~/.copilot",
                     _ => "~/.claude",
                 };
                 let (what, why) =

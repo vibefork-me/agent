@@ -81,7 +81,7 @@ impl Engine {
         );
         for p in &providers {
             let id = p.id();
-            if id == "claude" || id == "codex" {
+            if matches!(id, "claude" | "codex" | "copilot") {
                 p.set_cli_home_mode(settings.cli_home_mode(id));
             }
         }
@@ -378,7 +378,14 @@ impl Backend for Engine {
     }
 
     fn ai(&self) -> Result<AiResponse, BackendError> {
-        let order = ["claude", "codex", "custom", "gemini", "openrouter"];
+        let order = [
+            "claude",
+            "codex",
+            "copilot",
+            "custom",
+            "gemini",
+            "openrouter",
+        ];
         let mut providers: Vec<AiProvider> = Vec::new();
         for id in order {
             let Some(p) = self.provider(id) else {
@@ -412,12 +419,12 @@ impl Backend for Engine {
                     (true, Some(true)) => AiConnected::Yes,
                     (true, None) => AiConnected::Unknown,
                 },
-                user_signed_in: if id == "claude" || id == "codex" {
+                user_signed_in: if matches!(id, "claude" | "codex" | "copilot") {
                     s.user_signed_in
                 } else {
                     None
                 },
-                mode: if id == "claude" || id == "codex" {
+                mode: if matches!(id, "claude" | "codex" | "copilot") {
                     s.cli_home_mode.or(Some(vf_protocol::CliHomeMode::Agent))
                 } else {
                     None
@@ -430,7 +437,7 @@ impl Backend for Engine {
     }
 
     fn connect_ai(&self, provider: &str) -> Result<(), BackendError> {
-        if provider != "claude" && provider != "codex" {
+        if !matches!(provider, "claude" | "codex" | "copilot") {
             return Err(BackendError::BadRequest("unknown subscription".into()));
         }
         let p = self
@@ -457,7 +464,7 @@ impl Backend for Engine {
         provider: &str,
         mode: vf_protocol::CliHomeMode,
     ) -> Result<(), BackendError> {
-        if provider != "claude" && provider != "codex" {
+        if !matches!(provider, "claude" | "codex" | "copilot") {
             return Err(BackendError::BadRequest(
                 "this provider does not support cli home modes".into(),
             ));
@@ -548,7 +555,7 @@ impl Backend for Engine {
             }
             return Ok(());
         }
-        if provider == "claude" || provider == "codex" {
+        if matches!(provider, "claude" | "codex" | "copilot") {
             let p = self
                 .provider(provider)
                 .ok_or_else(|| BackendError::NotFound("no such provider".into()))?;

@@ -6,6 +6,7 @@ use vf_platform::{Settings, install, secrets};
 use vf_providers::Provider as _;
 use vf_providers::claude::Claude;
 use vf_providers::codex::Codex;
+use vf_providers::copilot::Copilot;
 use vf_providers::process::find_program;
 use vf_toolchains::Mise;
 
@@ -74,6 +75,20 @@ pub(crate) fn run(json: bool) -> ExitCode {
         },
         false,
     );
+    let copilot = Copilot::detect()
+        .with_home(s.storage.tools.join("cli-home").join("copilot"))
+        .with_mode(s.cli_home_mode("copilot"))
+        .models();
+    add(
+        "copilot",
+        !copilot.is_empty(),
+        if copilot.is_empty() {
+            "GitHub Copilot CLI not found or not signed in".into()
+        } else {
+            "signed in".into()
+        },
+        false,
+    );
     let or_key = secrets::openrouter_key().is_some();
     add(
         "openrouter",
@@ -85,14 +100,14 @@ pub(crate) fn run(json: bool) -> ExitCode {
         },
         false,
     );
-    let any_model = !claude.is_empty() || !codex.is_empty() || or_key;
+    let any_model = !claude.is_empty() || !codex.is_empty() || !copilot.is_empty() || or_key;
     add(
         "models",
         any_model,
         if any_model {
             "at least one provider".into()
         } else {
-            "no provider — install Claude Code or Codex, or set an OpenRouter key".into()
+            "no provider — install Claude Code, Codex or GitHub Copilot CLI, or set an OpenRouter key".into()
         },
         true,
     );

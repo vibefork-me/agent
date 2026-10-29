@@ -76,7 +76,7 @@ impl Engine {
 
         // For internal processes (builds and agent loops), redirect HOME, USERPROFILE,
         // APPDATA, LOCALAPPDATA, XDG_*, and TEMP to the agent's caches folder so no files
-        // leak into the real user profile. Coding CLIs (claude/codex) keep the real HOME
+        // leak into the real user profile. Coding CLIs (claude/codex/copilot) keep the real HOME
         // to access their auth sessions, but inherit explicit toolchain cache variables.
         if !is_cli {
             let sandbox_home = self.caches.join("home");
@@ -312,7 +312,7 @@ impl Engine {
             }
         }
 
-        let cli = matches!(id, "claude" | "codex");
+        let cli = matches!(id, "claude" | "codex" | "copilot");
         let sandboxed = !cli || vf_sandbox::supports_coding_clis();
         let run_id = new_run_id(&format!("step-{}", req.project));
         let _tmp_guard = (!cli).then(|| TmpGuard::new(&self.caches, &run_id));

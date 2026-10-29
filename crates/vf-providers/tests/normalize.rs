@@ -4,7 +4,7 @@
 
 use serde_json::Value;
 use vf_protocol::Event;
-use vf_providers::{Tracker, claude, codex};
+use vf_providers::{Tracker, claude, codex, copilot};
 
 fn events(file: &str, normalize: fn(&Value) -> Vec<Event>) -> Vec<Event> {
     let text = std::fs::read_to_string(format!(
@@ -121,6 +121,58 @@ fn codex_stream() {
     let r = t.finish(0, false);
     assert!(r.ok && r.summary.contains("bye"), "{r:?}");
     assert!(!t_failed_on_exit_code());
+}
+
+#[test]
+fn copilot_stream() {
+    let evs = events("copilot.jsonl", copilot::normalize);
+    assert_eq!(
+        kinds(&evs),
+        [
+            "init",
+            "tool",
+            "tool_result",
+            "tool",
+            "tool_result",
+            "tool",
+            "tool_result",
+            "text",
+            "init",
+            "result"
+        ]
+    );
+    assert!(
+        matches!(&evs[0], Event::Init { session: None, model: Some(m), cli, .. } if m == "model-a" && cli == "GitHub Copilot CLI")
+    );
+    assert!(
+        matches!(&evs[1], Event::Tool { tool, detail } if tool == "edit" && detail == "add notes.txt")
+    );
+    assert!(
+        matches!(&evs[3], Event::Tool { tool, detail } if tool == "shell" && detail == "cat notes.txt")
+    );
+    assert!(
+        matches!(&evs[4], Event::ToolResult { error: false, text } if text.starts_with("hello"))
+    );
+    assert!(
+        matches!(&evs[6], Event::ToolResult { error: true, text } if text.contains("rejected"))
+    );
+    assert!(matches!(
+        &evs[9],
+        Event::Result {
+            ok: true,
+            ms: Some(4200),
+            ..
+        }
+    ));
+
+    let mut t = Tracker::new(None);
+    evs.iter().for_each(|e| t.observe(e));
+    let r = t.finish(0, false);
+    assert!(r.ok && r.summary == "Done: notes.txt says hello.", "{r:?}");
+    assert_eq!(
+        r.session.as_deref(),
+        Some("5f0c1d2e-0000-4000-8000-000000000001")
+    );
 }
 
 fn t_failed_on_exit_code() -> bool {

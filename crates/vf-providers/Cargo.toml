@@ -1,6 +1,6 @@
 [package]
 name = "vf-providers"
-description = "`Provider` trait and adapters: Claude Code CLI, Codex CLI, OpenAI-compatible loop."
+description = "`Provider` trait and adapters: Claude Code CLI, Codex CLI, GitHub Copilot CLI, OpenAI-compatible loop."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

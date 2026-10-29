@@ -158,7 +158,7 @@ first-run-tool-installed = installed
 size-mb = { $size } MB
 size-gb = { $size } GB
 first-run-connect-ai = Connect an AI model
-first-run-connect-ai-hint = Your subscription (Claude Code, Codex) or an API key — in the editor.
+first-run-connect-ai-hint = Your subscription (Claude Code, Codex, GitHub Copilot) or an API key — in the editor.
 first-run-start = Continue
 first-run-later = Later
 # $error: why the folder could not be used, in plain words.

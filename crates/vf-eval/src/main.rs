@@ -38,7 +38,7 @@ Usage:
   vibefork-eval --compare <report_a.json> <report_b.json>
 
 Options:
-  --provider <NAME>   Provider to evaluate (mock, claude, codex, gemini, openrouter, custom) [default: mock]
+  --provider <NAME>   Provider to evaluate (mock, claude, codex, copilot, gemini, openrouter, custom) [default: mock]
   --model <NAME>      Model identifier to test (e.g. mock-fast, gemini-2.0-flash) [default: provider default]
   --stages <LIST>     Comma-separated list of stages: map,classify,plan,loop,audience,explain [default: all]
   --projects <LIST>   Comma-separated list of projects: itoa,is-sorted,plugin,python,ru-readme,adversarial [default: all]
@@ -140,6 +140,7 @@ fn resolve_provider(name: &str) -> Result<Box<dyn Provider>, String> {
         "mock" | "scripted" => Ok(Box::new(mock::MockProvider::new())),
         "claude" => Ok(Box::new(vf_providers::claude::Claude::detect())),
         "codex" => Ok(Box::new(vf_providers::codex::Codex::detect())),
+        "copilot" => Ok(Box::new(vf_providers::copilot::Copilot::detect())),
         "gemini" => {
             if vf_platform::secrets::gemini_key().is_none() {
                 return Err(
@@ -179,7 +180,7 @@ fn resolve_provider(name: &str) -> Result<Box<dyn Provider>, String> {
             ))
         }
         other => Err(format!(
-            "Unknown provider: '{other}'. Supported: mock, claude, codex, gemini, openrouter, custom"
+            "Unknown provider: '{other}'. Supported: mock, claude, codex, copilot, gemini, openrouter, custom"
         )),
     }
 }

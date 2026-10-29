@@ -80,7 +80,7 @@ pub struct StepOutcome {
 /// Facts about a step, known when it finishes.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct StepReport {
-    /// Provider (`claude`, `codex`, `openrouter`, `planner`).
+    /// Provider (`claude`, `codex`, `copilot`, `openrouter`, `planner`).
     pub provider: String,
     /// Model.
     pub model: String,

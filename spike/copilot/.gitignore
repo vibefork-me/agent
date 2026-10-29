@@ -1,8 +1,0 @@
-/target
-*.log
-cli/
-home/
-work/
-*.json
-*.jsonl
-*.err

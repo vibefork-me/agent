@@ -1,4 +1,4 @@
-//! The official AI CLIs (Claude Code, Codex), installed for the user when missing: an unmodified
+//! The official AI CLIs (Claude Code, Codex, GitHub Copilot), installed for the user when missing: an unmodified
 //! release binary of a pinned version, checked against a pinned SHA-256, kept in the agent's tools
 //! folder. Nothing is added to the user's shell or `PATH`.
 
@@ -12,13 +12,26 @@ use crate::download::download;
 pub const CLAUDE_VERSION: &str = "2.1.310";
 /// Codex release.
 pub const CODEX_VERSION: &str = "0.164.0";
+/// GitHub Copilot CLI release.
+pub const COPILOT_VERSION: &str = "1.0.105";
 
 /// Where to download a CLI and its hash for this machine.
 struct Asset {
     url: String,
     sha256: &'static str,
-    /// Codex comes as a `.tar.gz` with one binary inside.
-    archive: bool,
+    /// How the binary is packed.
+    archive: Archive,
+}
+
+/// Packing of a release.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Archive {
+    /// The binary itself.
+    None,
+    /// A `.tar.gz` with one binary inside (Codex, Copilot on macOS and Linux).
+    TarGz,
+    /// A `.zip` with one binary inside (Copilot on Windows).
+    Zip,
 }
 
 fn claude_asset() -> Option<Asset> {
@@ -60,7 +73,7 @@ fn claude_asset() -> Option<Asset> {
             "https://downloads.claude.ai/claude-code-releases/{CLAUDE_VERSION}/{platform}/{file}"
         ),
         sha256,
-        archive: false,
+        archive: Archive::None,
     })
 }
 
@@ -102,7 +115,51 @@ fn codex_asset() -> Option<Asset> {
             "https://github.com/openai/codex/releases/download/rust-v{CODEX_VERSION}/codex-{target}.tar.gz"
         ),
         sha256,
-        archive: true,
+        archive: Archive::TarGz,
+    })
+}
+
+fn copilot_asset() -> Option<Asset> {
+    use std::env::consts::{ARCH, OS};
+    let (file, sha256, archive) = match (OS, ARCH) {
+        ("windows", "x86_64") => (
+            "copilot-win32-x64.zip",
+            "34e16e9cf47de0e1534920171d6f39fa246638bddbb6ece820870b382bcc061a",
+            Archive::Zip,
+        ),
+        ("windows", "aarch64") => (
+            "copilot-win32-arm64.zip",
+            "647876bca9ca6ea77f5a28d002e1d135d1bb899c12bcd3f2eb1e860d6199ed90",
+            Archive::Zip,
+        ),
+        ("macos", "x86_64") => (
+            "copilot-darwin-x64.tar.gz",
+            "de5684eeb118ad1e54f9a01f4535cf74e121b8226d26473550b01a7565ce54f5",
+            Archive::TarGz,
+        ),
+        ("macos", "aarch64") => (
+            "copilot-darwin-arm64.tar.gz",
+            "34aacd03fb478d47e4b3cfc5ca045c37278c5d8d86239466521a16ea54ac84aa",
+            Archive::TarGz,
+        ),
+        ("linux", "x86_64") => (
+            "copilot-linux-x64.tar.gz",
+            "aba1f06f27bc0447656647f76e0a4cf58b4b2a341c75ff04a750982b6aeb6bd2",
+            Archive::TarGz,
+        ),
+        ("linux", "aarch64") => (
+            "copilot-linux-arm64.tar.gz",
+            "e7b488cc04ac3e2ed800e1bf0aace33ada42dcf167529b3d2f48a61e1535a847",
+            Archive::TarGz,
+        ),
+        _ => return None,
+    };
+    Some(Asset {
+        url: format!(
+            "https://github.com/github/copilot-cli/releases/download/v{COPILOT_VERSION}/{file}"
+        ),
+        sha256,
+        archive,
     })
 }
 
@@ -119,6 +176,7 @@ fn location(tools: &Path, id: &str) -> Option<PathBuf> {
     let version = match id {
         "claude" => CLAUDE_VERSION,
         "codex" => CODEX_VERSION,
+        "copilot" => COPILOT_VERSION,
         _ => return None,
     };
     Some(
@@ -134,7 +192,7 @@ pub fn installed(tools: &Path, id: &str) -> Option<PathBuf> {
     location(tools, id).filter(|p| p.is_file())
 }
 
-/// Installs the official CLI `id` (`claude`, `codex`) for this machine and returns its binary.
+/// Installs the official CLI `id` (`claude`, `codex`, `copilot`) for this machine and returns its binary.
 pub fn install(tools: &Path, id: &str, cancel: &Cancel) -> Result<PathBuf, String> {
     let bin = location(tools, id).ok_or("unknown CLI")?;
     if bin.is_file() {
@@ -143,17 +201,25 @@ pub fn install(tools: &Path, id: &str, cancel: &Cancel) -> Result<PathBuf, Strin
     let asset = match id {
         "claude" => claude_asset(),
         "codex" => codex_asset(),
+        "copilot" => copilot_asset(),
         _ => None,
     }
     .ok_or("no release of this CLI for this OS")?;
     let dir = bin.parent().ok_or("bad tools folder")?;
-    if asset.archive {
-        let archive = dir.join("release.tar.gz");
-        download(&asset.url, &archive, asset.sha256, cancel)?;
-        extract_single(&archive, &bin)?;
-        let _ = std::fs::remove_file(&archive);
-    } else {
-        download(&asset.url, &bin, asset.sha256, cancel)?;
+    match asset.archive {
+        Archive::None => download(&asset.url, &bin, asset.sha256, cancel)?,
+        Archive::TarGz => {
+            let archive = dir.join("release.tar.gz");
+            download(&asset.url, &archive, asset.sha256, cancel)?;
+            extract_single(&archive, &bin)?;
+            let _ = std::fs::remove_file(&archive);
+        }
+        Archive::Zip => {
+            let archive = dir.join("release.zip");
+            download(&asset.url, &archive, asset.sha256, cancel)?;
+            extract_single_zip(&archive, &bin)?;
+            let _ = std::fs::remove_file(&archive);
+        }
     }
     make_executable(&bin)?;
     Ok(bin)
@@ -184,6 +250,31 @@ fn extract_single(archive: &Path, dest: &Path) -> Result<(), String> {
     std::fs::rename(&part, dest).map_err(|e| e.to_string())
 }
 
+/// Writes the only file of a `.zip` (the release binary) to `dest`.
+fn extract_single_zip(archive: &Path, dest: &Path) -> Result<(), String> {
+    let file = std::fs::File::open(archive).map_err(|e| e.to_string())?;
+    let mut zip = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
+    let files: Vec<usize> = (0..zip.len())
+        .filter(|&i| zip.by_index(i).is_ok_and(|f| f.is_file()))
+        .collect();
+    let [only] = files[..] else {
+        return Err(if files.is_empty() {
+            "the release archive is empty".into()
+        } else {
+            "unexpected files in the release archive".into()
+        });
+    };
+    let mut entry = zip.by_index(only).map_err(|e| e.to_string())?;
+    let part = dest.with_extension("part");
+    let mut out = std::fs::File::create(&part).map_err(|e| e.to_string())?;
+    if let Err(e) = std::io::copy(&mut entry, &mut out) {
+        let _ = std::fs::remove_file(&part);
+        return Err(e.to_string());
+    }
+    drop(out);
+    std::fs::rename(&part, dest).map_err(|e| e.to_string())
+}
+
 #[cfg(unix)]
 fn make_executable(p: &Path) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt as _;
@@ -201,11 +292,16 @@ mod tests {
 
     #[test]
     fn pinned_releases_come_from_the_vendors_with_hashes() {
-        for a in [claude_asset(), codex_asset()].into_iter().flatten() {
+        for a in [claude_asset(), codex_asset(), copilot_asset()]
+            .into_iter()
+            .flatten()
+        {
             assert!(
                 a.url.starts_with("https://downloads.claude.ai/")
                     || a.url
-                        .starts_with("https://github.com/openai/codex/releases/download/"),
+                        .starts_with("https://github.com/openai/codex/releases/download/")
+                    || a.url
+                        .starts_with("https://github.com/github/copilot-cli/releases/download/"),
                 "{}",
                 a.url
             );
@@ -252,5 +348,35 @@ mod tests {
         assert_eq!(std::fs::read(&dest)?, b"bin");
         assert!(extract_single(&two, &dir.join("other")).is_err());
         std::fs::remove_dir_all(&dir)
+    }
+
+    fn make_zip(path: &Path, names: &[&str]) -> zip::result::ZipResult<()> {
+        use std::io::Write as _;
+        let mut w = zip::ZipWriter::new(std::fs::File::create(path)?);
+        let opts = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        for n in names {
+            w.start_file(*n, opts)?;
+            w.write_all(b"bin")?;
+        }
+        w.finish()?;
+        Ok(())
+    }
+
+    #[test]
+    fn a_zip_release_must_hold_exactly_one_file() -> zip::result::ZipResult<()> {
+        let dir = std::env::temp_dir().join(format!("vf-cli-zip-{}", std::process::id()));
+        std::fs::create_dir_all(&dir)?;
+        let one = dir.join("one.zip");
+        let two = dir.join("two.zip");
+        make_zip(&one, &["copilot.exe"])?;
+        make_zip(&two, &["a", "b"])?;
+        let dest = dir.join("copilot");
+        assert!(extract_single_zip(&one, &dest).is_ok());
+        assert_eq!(std::fs::read(&dest)?, b"bin");
+        assert!(extract_single_zip(&two, &dir.join("other")).is_err());
+        assert!(extract_single_zip(&dir.join("missing.zip"), &dir.join("x")).is_err());
+        std::fs::remove_dir_all(&dir)?;
+        Ok(())
     }
 }

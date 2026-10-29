@@ -12,6 +12,7 @@ use vf_platform::settings::HOSTED_UI_ORIGIN;
 use vf_providers::Provider;
 use vf_providers::claude::Claude;
 use vf_providers::codex::Codex;
+use vf_providers::copilot::Copilot;
 use vf_providers::openai::OpenAiCompatible;
 use vf_server::{Config, UiSlot};
 use vf_updater::UiBundle;
@@ -157,6 +158,7 @@ fn engine(s: &Settings) -> Engine {
 fn providers(s: &Settings) -> Vec<Arc<dyn Provider>> {
     let claude_mode = s.cli_home_mode("claude");
     let codex_mode = s.cli_home_mode("codex");
+    let copilot_mode = s.cli_home_mode("copilot");
     vec![
         Arc::new(
             Claude::detect()
@@ -167,6 +169,11 @@ fn providers(s: &Settings) -> Vec<Arc<dyn Provider>> {
             Codex::detect()
                 .with_home(s.storage.tools.join("cli-home").join("codex"))
                 .with_mode(codex_mode),
+        ),
+        Arc::new(
+            Copilot::detect()
+                .with_home(s.storage.tools.join("cli-home").join("copilot"))
+                .with_mode(copilot_mode),
         ),
         Arc::new(OpenAiCompatible::custom_dynamic(
             {

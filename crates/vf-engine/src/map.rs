@@ -538,6 +538,9 @@ fn candidates(inventory: &[ModelInfo]) -> Vec<(&'static str, String, Duration)> 
     if has("codex", None) {
         out.push(("codex", String::new(), TIMEOUT));
     }
+    if has("copilot", None) {
+        out.push(("copilot", String::new(), TIMEOUT));
+    }
     for custom in inventory.iter().filter(|m| m.provider == "custom") {
         out.push(("custom", custom.model.clone(), API_TIMEOUT));
     }
