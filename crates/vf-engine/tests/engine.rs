@@ -895,6 +895,22 @@ fn map_shows_parts_and_what_changed_since_the_start() {
 }
 
 #[test]
+fn a_project_without_files_has_no_map_and_says_so_in_the_persons_language() {
+    let (_base, engine, _) = setup();
+    let req = vf_protocol::http::DescribeRequest {
+        project: "demo".into(),
+        lang: Some("ru".into()),
+    };
+    assert_eq!(
+        engine.describe_graph(&req),
+        Err(vf_protocol::BackendError::Refused {
+            code: "project_empty",
+            message: "В проекте ещё нет файлов — делить на части нечего".into(),
+        })
+    );
+}
+
+#[test]
 fn a_model_draws_the_map_in_plain_words() {
     let (base, engine, _) = setup();
     let demo = base.join("projects/demo");

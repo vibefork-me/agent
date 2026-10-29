@@ -29,6 +29,13 @@ pub enum BackendError {
         /// Reset time in minutes.
         reset_minutes: u64,
     },
+    /// Bad input with a machine-readable code (`400`, `code` in the body); `message` is for the person.
+    Refused {
+        /// Machine-readable code (e.g. `map_failed`).
+        code: &'static str,
+        /// Human-readable reason, in the language the request asked for.
+        message: String,
+    },
     /// Anything else (`500`).
     Internal(String),
 }
@@ -39,6 +46,7 @@ impl std::fmt::Display for BackendError {
             Self::BadRequest(m) | Self::NotFound(m) | Self::Forbidden(m) | Self::Internal(m) => {
                 f.write_str(m)
             }
+            Self::Refused { message, .. } => f.write_str(message),
             Self::RateLimited { reset_minutes } => {
                 write!(
                     f,

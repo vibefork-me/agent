@@ -140,7 +140,10 @@ impl Backend for FakeBackend {
         })
     }
     fn describe_graph(&self, _: &DescribeRequest) -> Result<GraphResponse, BackendError> {
-        Err(BackendError::BadRequest("no model available".into()))
+        Err(BackendError::Refused {
+            code: "no_models",
+            message: "Connect an AI to split the project into parts".into(),
+        })
     }
     fn ai(&self) -> Result<AiResponse, BackendError> {
         Ok(AiResponse {

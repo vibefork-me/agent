@@ -17,6 +17,9 @@ use crate::Engine;
 
 /// Most parts in a map.
 const MAX_PARTS: usize = 12;
+/// A project of at most this many files may be one part: a small library with its README, licenses
+/// and CI files often does one thing.
+const SMALL_PROJECT: usize = 20;
 /// A part is split into smaller pieces only when it has more files than this: a smaller part reads
 /// at a glance, and it is the bar at which the folder map shows a top folder by its subfolders too.
 pub(crate) const SPLIT_ABOVE: usize = 40;
@@ -292,7 +295,12 @@ fn offers(raw: Vec<serde_json::Value>) -> Vec<MapOffer> {
     out
 }
 
-/// The map in a model's answer, checked against the project's files; `None` when unusable.
+/// Fewest parts a usable map of `files` has: one for a small project, two otherwise.
+fn min_parts(files: &[String]) -> usize {
+    if files.len() <= SMALL_PROJECT { 1 } else { 2 }
+}
+
+/// The map in a model's answer, checked against the project's files; why not, when unusable.
 pub(crate) fn parse(answer: &str, files: &[String]) -> Result<Parsed, String> {
     let json = answer
         .find('{')
@@ -329,9 +337,10 @@ pub(crate) fn parse(answer: &str, files: &[String]) -> Result<Parsed, String> {
         });
         raw_pieces.push(p.parts);
     }
-    if parts.len() < 2 {
+    let needed = min_parts(files);
+    if parts.len() < needed {
         return Err(format!(
-            "{named} parts named, {} with paths from the project (2 needed)",
+            "{named} parts named, {} with paths from the project ({needed} needed)",
             parts.len()
         ));
     }
@@ -502,6 +511,9 @@ fn prompt(files: &[String], readme: &str, lang: &str) -> String {
     );
     if more > 0 {
         p.push_str(&format!("\n… and {more} more files"));
+    }
+    if min_parts(files) == 1 {
+        p.push_str("\n\nThe project is small: if it does one thing, one part is enough.");
     }
     if !readme.is_empty() {
         p.push_str("\n\nREADME:\n");
@@ -700,11 +712,11 @@ impl Engine {
         files: &[String],
         lang: &str,
         asking: &mut dyn FnMut(),
-    ) -> Result<ModelMap, String> {
+    ) -> Result<ModelMap, MapError> {
         let inventory = self.inventory();
         let list = candidates(&inventory);
         if list.is_empty() {
-            return Err("no model available".into());
+            return Err(MapError::NoModels);
         }
         let readme = readme(dir, files);
         let text = prompt(files, &readme, lang);
@@ -745,8 +757,9 @@ impl Engine {
                         if let Some(parent) = path.parent() {
                             let _ = std::fs::create_dir_all(parent);
                         }
-                        let json = serde_json::to_string_pretty(&map).map_err(|e| e.to_string())?;
-                        std::fs::write(&path, json).map_err(|e| e.to_string())?;
+                        let json = serde_json::to_string_pretty(&map)
+                            .map_err(|e| MapError::Failed(e.to_string()))?;
+                        std::fs::write(&path, json).map_err(|e| MapError::Failed(e.to_string()))?;
                         return Ok(map);
                     }
                     Err(why) => {
@@ -759,8 +772,17 @@ impl Engine {
                 Err(e) => tried.push(format!("{by}: {e}")),
             }
         }
-        Err(tried.join("; "))
+        Err(MapError::Failed(tried.join("; ")))
     }
+}
+
+/// Why no map of parts was drawn.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum MapError {
+    /// No model is available to ask.
+    NoModels,
+    /// No model gave a usable map (or it could not be kept); what each one answered, in English.
+    Failed(String),
 }
 
 #[cfg(test)]
@@ -803,24 +825,45 @@ mod tests {
     }
 
     #[test]
-    fn garbage_or_a_single_part_is_not_a_map() {
-        for a in [
-            "",
-            "no json",
-            "{\"parts\": 3}",
-            r#"{"parts":[{"name":"All","paths":["src"]}]}"#,
-        ] {
+    fn garbage_or_a_single_part_of_a_large_project_is_not_a_map() {
+        for a in ["", "no json", "{\"parts\": 3}", r#"{"parts":[]}"#] {
             assert!(parse(a, &files()).is_err(), "{a}");
         }
+        let one = r#"{"parts":[{"name":"All","paths":["src"]}]}"#;
+        assert!(parse(one, &large_files()).is_err());
+    }
+
+    #[test]
+    fn a_small_project_may_be_one_part() {
+        let one =
+            r#"{"parts":[{"name":"All","summary":"Everything","paths":["src","README.md"]}]}"#;
+        let parsed = parse(one, &files()).unwrap();
+        assert_eq!(parsed.parts.len(), 1);
+        assert_eq!(parsed.parts[0].paths, ["src", "README.md"]);
+        // The model is told so only for a small project.
+        let hint = "one part is enough";
+        assert!(prompt(&files(), "", "en").contains(hint));
+        assert!(!prompt(&large_files(), "", "en").contains(hint));
+        let at_the_bar: Vec<String> = (0..SMALL_PROJECT).map(|i| format!("f{i}.ts")).collect();
+        assert_eq!(min_parts(&at_the_bar), 1);
+        let above: Vec<String> = (0..=SMALL_PROJECT).map(|i| format!("f{i}.ts")).collect();
+        assert_eq!(min_parts(&above), 2);
     }
 
     #[test]
     fn a_rejected_answer_says_why() {
-        let why = |a: &str| parse(a, &files()).err().unwrap_or_default();
-        assert_eq!(why("no json"), "no JSON object");
-        assert!(why("{\"parts\": 3}").starts_with("not the map JSON"));
+        let why = |a: &str, files: &[String]| parse(a, files).err().unwrap_or_default();
+        assert_eq!(why("no json", &files()), "no JSON object");
+        assert!(why("{\"parts\": 3}", &files()).starts_with("not the map JSON"));
         assert_eq!(
-            why(r#"{"parts":[{"name":"All","paths":["src"]},{"name":"Ghost","paths":["nope"]}]}"#),
+            why(r#"{"parts":[{"name":"Ghost","paths":["nope"]}]}"#, &files()),
+            "1 parts named, 0 with paths from the project (1 needed)"
+        );
+        assert_eq!(
+            why(
+                r#"{"parts":[{"name":"All","paths":["src"]},{"name":"Ghost","paths":["nope"]}]}"#,
+                &large_files()
+            ),
             "2 parts named, 1 with paths from the project (2 needed)"
         );
     }

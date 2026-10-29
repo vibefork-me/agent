@@ -549,6 +549,21 @@ fn gigabytes(lang: Language, bytes: u64) -> String {
     }
 }
 
+/// The map of parts: the project has no files to split.
+pub fn map_no_files(lang: Language) -> String {
+    text(lang, "map-no-files")
+}
+
+/// The map of parts: no AI is connected to draw it.
+pub fn map_no_models(lang: Language) -> String {
+    text(lang, "map-no-models")
+}
+
+/// The map of parts: no model gave a usable map; `error` is the agent's diagnostics.
+pub fn map_failed(lang: Language, error: &str) -> String {
+    message(lang, "map-failed", &[("error", error.into())])
+}
+
 /// Notification title: a task finished.
 pub fn notify_done(lang: Language, project: &str) -> String {
     message(lang, "notify-done", &[("project", project.into())])

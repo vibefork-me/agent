@@ -882,7 +882,7 @@ fn import_error_code(state: ImportState, e: &BackendError) -> &'static str {
         (_, BackendError::RateLimited { .. }) => "rate_limit",
         (ImportState::Downloading, _) => "download_failed",
         (ImportState::Extracting, _) => "extract_failed",
-        (_, BackendError::BadRequest(_)) => "bad_request",
+        (_, BackendError::BadRequest(_) | BackendError::Refused { .. }) => "bad_request",
         (_, BackendError::NotFound(_) | BackendError::Forbidden(_)) => "not_found",
         (_, BackendError::Internal(_)) => "internal",
     }

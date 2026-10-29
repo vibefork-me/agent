@@ -59,6 +59,13 @@ thought-planning = Dividiendo la tarea en pasos
 thought-task = Trabajando en la tarea
 thought-step = Paso { $n } de { $of }: { $title }
 
+## The map of the project's parts
+
+# Why the map of parts could not be drawn; `error` is the agent's diagnostics, in English.
+map-no-files = El proyecto aún no tiene archivos, así que no hay nada que dividir en partes
+map-no-models = Conecta una IA para dividir el proyecto en partes
+map-failed = No se pudo dividir el proyecto en partes: { $error }
+
 ## Entering a key or a value
 
 ask-secret-title = Vibefork: introduce la clave

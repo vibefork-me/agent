@@ -202,6 +202,9 @@ fn backend_error(e: &BackendError) -> Response {
         BackendError::BadRequest(m) => error(StatusCode::BAD_REQUEST, m),
         BackendError::NotFound(m) => error(StatusCode::NOT_FOUND, m),
         BackendError::Forbidden(m) => error(StatusCode::FORBIDDEN, m),
+        BackendError::Refused { code, message } => {
+            error_with_code(StatusCode::BAD_REQUEST, message, Some(code))
+        }
         BackendError::RateLimited { reset_minutes } => (
             StatusCode::TOO_MANY_REQUESTS,
             Json(ErrorBody {
