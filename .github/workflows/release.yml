@@ -1,0 +1,186 @@
+name: release
+
+# A push to the `release` branch (version from `[workspace.package]`) or a manual run with a
+# candidate version builds the agent and the tray for every platform and creates a **draft** GitHub
+# Release "Vibefork v<version>": the binaries, `install.ps1` and `install.sh` pinned to their
+# hashes, `SHA256SUMS.txt`, and the release subkey certificate (`subkey.cert.json`,
+# `subkey.cert.sig`). The signed update manifest (`manifest.json`, `manifest.sig`) is added to the
+# draft offline (`scripts/sign_release.py`); a person publishes the draft.
+# A pull request that changes the release build runs everything except the draft, and checks the
+# assembled release with throwaway keys (`vibefork-sign verify`).
+
+on:
+  push:
+    branches: [release]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Candidate version (X.Y.Z or X.Y.Z-pre); empty: the version in Cargo.toml"
+        required: false
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - scripts/generate-installers.py
+      - scripts/sign_release.py
+      - crates/vf-sign/**
+
+permissions:
+  contents: read
+
+# Release runs are never cancelled; a newer push to a pull request cancels its older check.
+concurrency:
+  group: release-${{ github.event_name == 'pull_request' && github.ref || 'publish' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Toolchain (pinned in rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Version
+        id: v
+        env:
+          CANDIDATE: ${{ inputs.version }}
+        run: |
+          if [ -n "$CANDIDATE" ]; then cargo xtask version set "$CANDIDATE"; fi
+          echo "version=$(cargo xtask version)" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: windows-latest, target: x86_64-pc-windows-msvc, os: windows, arch: x86_64, ext: .exe, native: true }
+          - { runner: windows-latest, target: aarch64-pc-windows-msvc, os: windows, arch: aarch64, ext: .exe, native: false }
+          - { runner: macos-latest, target: aarch64-apple-darwin, os: macos, arch: aarch64, ext: "", native: true }
+          - { runner: macos-latest, target: x86_64-apple-darwin, os: macos, arch: x86_64, ext: "", native: false }
+          - { runner: ubuntu-22.04, target: x86_64-unknown-linux-gnu, os: linux, arch: x86_64, ext: "", native: true }
+          - { runner: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu, os: linux, arch: aarch64, ext: "", native: true }
+    runs-on: ${{ matrix.runner }}
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Toolchain (pinned in rust-toolchain.toml)
+        shell: bash
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+          rustup target add ${{ matrix.target }}
+      - name: System libraries (Secret Service, tray)
+        if: matrix.os == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config libgtk-3-dev libxdo-dev libayatana-appindicator3-dev
+      - name: Version
+        shell: bash
+        run: |
+          if [ "$(cargo xtask version)" != "$VERSION" ]; then cargo xtask version set "$VERSION"; fi
+      # No build cache: release binaries are built from a clean state.
+      - name: Build
+        shell: bash
+        run: cargo build --release --locked --target ${{ matrix.target }} -p vf-agent -p vf-tray
+      - name: Release files
+        shell: bash
+        run: |
+          mkdir dist
+          cp "target/${{ matrix.target }}/release/vibefork${{ matrix.ext }}" "dist/vibefork-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }}"
+          cp "target/${{ matrix.target }}/release/vibefork-tray${{ matrix.ext }}" "dist/vibefork-tray-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }}"
+      - name: The binary answers its version
+        if: matrix.native
+        shell: bash
+        run: |
+          out="$("dist/vibefork-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }}" version)"
+          echo "$out"
+          [ "$out" = "vibefork $VERSION" ]
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: build-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist/
+          if-no-files-found: error
+
+  assemble:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: build-*
+          path: release
+          merge-multiple: true
+      - name: Installers, subkey certificate, checksums
+        run: |
+          python3 scripts/generate-installers.py "$VERSION" release release
+          cp keys/release-sub.pub.cert.json release/subkey.cert.json
+          cp keys/release-sub.pub.cert.sig release/subkey.cert.sig
+          for os_arch in windows-x86_64 windows-aarch64 macos-aarch64 macos-x86_64 linux-x86_64 linux-aarch64; do
+            ext=""; case "$os_arch" in windows-*) ext=".exe" ;; esac
+            for bin in vibefork vibefork-tray; do
+              test -f "release/$bin-$os_arch$ext" || { echo "missing $bin-$os_arch$ext" >&2; exit 1; }
+            done
+          done
+          (cd release && sha256sum -- * > ../SHA256SUMS.txt) && mv SHA256SUMS.txt release/ && cat release/SHA256SUMS.txt
+      - name: Toolchain (pinned in rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      # The same checks the agent runs on its release channel, with throwaway keys.
+      - name: Signed with throwaway keys, the release passes `vibefork-sign verify`
+        run: |
+          cargo build --release --locked -p vf-sign
+          sign=target/release/vibefork-sign
+          keys="$RUNNER_TEMP/keys"; mkdir "$keys"
+          $sign keygen "$keys/root.key" "$keys/root.pub"
+          $sign keygen "$keys/sub.key" "$keys/sub.pub"
+          $sign certify-subkey "$keys/root.key" "$keys/sub.pub" release 1
+          cp -r release "$RUNNER_TEMP/check"
+          cp "$keys/sub.pub.cert.json" "$RUNNER_TEMP/check/subkey.cert.json"
+          cp "$keys/sub.pub.cert.sig" "$RUNNER_TEMP/check/subkey.cert.sig"
+          $sign release "$RUNNER_TEMP/check" "$keys/sub.key" "$VERSION" --days 1
+          $sign verify "$RUNNER_TEMP/check" --root "$keys/root.pub"
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: release-${{ env.VERSION }}
+          path: release/
+          if-no-files-found: error
+
+  draft:
+    if: github.event_name != 'pull_request'
+    needs: [version, assemble]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-${{ env.VERSION }}
+          path: release
+      - name: Draft release
+        run: |
+          tag="v$VERSION"
+          # A published release is never replaced; an earlier draft of the same version is.
+          gh api "repos/$GH_REPO/releases" --paginate \
+            --jq ".[] | select(.tag_name == \"$tag\") | \"\(.id) \(.draft)\"" > existing.txt
+          while read -r id draft; do
+            if [ "$draft" != "true" ]; then
+              echo "release $tag is already published" >&2
+              exit 1
+            fi
+            gh api -X DELETE "repos/$GH_REPO/releases/$id"
+          done < existing.txt
+          pre=""; case "$VERSION" in *-*) pre="--prerelease" ;; esac
+          gh release create "$tag" --draft $pre \
+            --target "$GITHUB_SHA" \
+            --title "Vibefork v$VERSION" \
+            --notes "Vibefork agent $VERSION. Every file is listed with its SHA-256 in \`SHA256SUMS.txt\` and in the signed update manifest (\`manifest.json\`, \`manifest.sig\`, release subkey certificate \`subkey.cert.json\`, \`subkey.cert.sig\`)." \
+            release/*
