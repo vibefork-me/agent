@@ -27,7 +27,7 @@ jobs:
       - name: Toolchain (pinned in rust-toolchain.toml)
         run: rustup show active-toolchain || rustup toolchain install
       - name: Build cache
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           # Toolchains the engine tests install (Node LTS through mise).
           cache-directories: target/tmp/vf-engine-tools
@@ -66,7 +66,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: EmbarkStudios/cargo-deny-action@bb137d7af7e4fb67e5f82a49c4fce4fad40782fe # v2.0.20
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
 
   windows-macos:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
@@ -80,7 +80,7 @@ jobs:
       - name: Toolchain (pinned in rust-toolchain.toml)
         run: rustup show active-toolchain || rustup toolchain install
       - name: Build cache
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           # Toolchains the engine tests install (Node LTS through mise).
           cache-directories: target/tmp/vf-engine-tools
