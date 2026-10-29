@@ -1,5 +1,6 @@
-//! The environment of a child process (invariants 6, 7): the agent's own environment without
-//! variables of a parent coding-agent session, the agent's settings and the agent's secrets.
+//! The environment of a child process (invariants 6, 7): only the agent's variables on an allow
+//! list (system, user folders, locale, proxy, certificates, toolchain homes), plus what the agent
+//! sets explicitly. Tokens and keys of the user's environment never reach a child.
 
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
@@ -9,10 +10,88 @@ use std::process::Command;
 
 use vf_core::sandbox::Wrapper;
 
-/// Prefixes of variables that never reach a child (compared case-insensitively).
-const DROPPED_PREFIXES: &[&str] = &["CLAUDECODE", "CLAUDE_CODE_", "CLAUDE_", "VF_"];
-/// Secrets the agent itself uses; given only to the provider that needs them.
-const DROPPED_SECRETS: &[&str] = &["OPENROUTER_API_KEY"];
+/// Variables a child gets from the agent's environment (compared case-insensitively).
+const ALLOWED: &[&str] = &[
+    // Search path, shell, terminal.
+    "PATH",
+    "PATHEXT",
+    "SHELL",
+    "TERM",
+    "COLORTERM",
+    "NO_COLOR",
+    // User and user folders.
+    "HOME",
+    "USER",
+    "LOGNAME",
+    "USERNAME",
+    "USERDOMAIN",
+    "USERPROFILE",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "APPDATA",
+    "LOCALAPPDATA",
+    // Temporary folders.
+    "TEMP",
+    "TMP",
+    "TMPDIR",
+    // Locale and time zone (`LC_*` — by prefix).
+    "LANG",
+    "LANGUAGE",
+    "TZ",
+    // Windows system.
+    "SYSTEMROOT",
+    "SYSTEMDRIVE",
+    "WINDIR",
+    "COMSPEC",
+    "OS",
+    "COMPUTERNAME",
+    "NUMBER_OF_PROCESSORS",
+    "PROCESSOR_ARCHITECTURE",
+    "PROCESSOR_IDENTIFIER",
+    "PROCESSOR_LEVEL",
+    "PROCESSOR_REVISION",
+    "PROGRAMDATA",
+    "ALLUSERSPROFILE",
+    "PUBLIC",
+    "PROGRAMFILES",
+    "PROGRAMFILES(X86)",
+    "PROGRAMW6432",
+    "COMMONPROGRAMFILES",
+    "COMMONPROGRAMFILES(X86)",
+    "COMMONPROGRAMW6432",
+    "PSMODULEPATH",
+    // macOS system.
+    "__CF_USER_TEXT_ENCODING",
+    // Proxy.
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "NO_PROXY",
+    // Certificates of a corporate proxy.
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "NODE_EXTRA_CA_CERTS",
+    "REQUESTS_CA_BUNDLE",
+    "CURL_CA_BUNDLE",
+    // Homes of toolchains installed by the user.
+    "JAVA_HOME",
+    "GRADLE_HOME",
+    "ANDROID_HOME",
+    "ANDROID_SDK_ROOT",
+    "CARGO_HOME",
+    "RUSTUP_HOME",
+    "GOROOT",
+    "GOPATH",
+    "DOTNET_ROOT",
+];
+/// Prefixes of variables a child gets from the agent's environment: locale, user folders on Linux.
+const ALLOWED_PREFIXES: &[&str] = &["LC_", "XDG_"];
+
+/// Whether a variable of the agent's environment reaches a child.
+fn allowed(key: &OsStr) -> bool {
+    let k = key.to_string_lossy().to_ascii_uppercase();
+    ALLOWED.contains(&k.as_str()) || ALLOWED_PREFIXES.iter().any(|p| k.starts_with(p))
+}
 
 /// Variables of a child process.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -22,7 +101,7 @@ pub struct ChildEnv {
 }
 
 impl ChildEnv {
-    /// The agent's environment, cleaned; `PATH` ends with the per-user program folders it lacks
+    /// The agent's environment, allow-listed; `PATH` ends with the per-user program folders it lacks
     /// ([`crate::process::user_bin_dirs`]).
     pub fn from_current() -> Self {
         let mut env = Self::from_vars(std::env::vars_os());
@@ -30,16 +109,9 @@ impl ChildEnv {
         env
     }
 
-    /// Cleans a given set of variables.
+    /// Keeps the allow-listed variables of a given set.
     pub fn from_vars(vars: impl IntoIterator<Item = (OsString, OsString)>) -> Self {
-        let vars = vars
-            .into_iter()
-            .filter(|(k, _)| {
-                let k = k.to_string_lossy().to_ascii_uppercase();
-                !DROPPED_PREFIXES.iter().any(|p| k.starts_with(p))
-                    && !DROPPED_SECRETS.contains(&k.as_str())
-            })
-            .collect();
+        let vars = vars.into_iter().filter(|(k, _)| allowed(k)).collect();
         Self {
             vars,
             wrapper: None,
@@ -171,7 +243,7 @@ mod tests {
     }
 
     #[test]
-    fn parent_session_and_agent_secrets_are_dropped() {
+    fn parent_session_and_secrets_are_dropped() {
         let env = ChildEnv::from_vars(
             [
                 ("CLAUDECODE", "1"),
@@ -179,6 +251,13 @@ mod tests {
                 ("claude_code_sse_port", "1"),
                 ("VF_STATE_DIR", "x"),
                 ("OPENROUTER_API_KEY", "sk"),
+                ("ANTHROPIC_API_KEY", "sk"),
+                ("OPENAI_API_KEY", "sk"),
+                ("GITHUB_TOKEN", "ghp"),
+                ("GH_TOKEN", "ghp"),
+                ("NPM_TOKEN", "npm"),
+                ("AWS_SECRET_ACCESS_KEY", "aws"),
+                ("SSH_AUTH_SOCK", "/s"),
                 ("HOME", "/h"),
                 ("Path", "/bin"),
             ]
@@ -186,11 +265,42 @@ mod tests {
         );
         assert_eq!(env.vars.len(), 2, "{env:?}");
         assert_eq!(env.get("path"), Some(OsStr::new("/bin")));
+        assert_eq!(env.get("HOME"), Some(OsStr::new("/h")));
+    }
+
+    #[test]
+    fn toolchains_keep_system_locale_and_proxy() {
+        let keys = [
+            "SystemRoot",
+            "TEMP",
+            "LANG",
+            "LC_ALL",
+            "https_proxy",
+            "NO_PROXY",
+            "XDG_RUNTIME_DIR",
+            "ProgramFiles(x86)",
+            "JAVA_HOME",
+        ];
+        let env = ChildEnv::from_vars(keys.map(|k| (OsString::from(k), OsString::from("v"))));
+        for k in keys {
+            assert_eq!(env.get(k), Some(OsStr::new("v")), "{k}");
+        }
+    }
+
+    #[test]
+    fn a_secret_of_the_agent_is_not_seen_by_a_command() {
+        let env = ChildEnv::from_vars(
+            [("PATH", "/bin"), ("GITHUB_TOKEN", "ghp_secret")]
+                .map(|(k, v)| (OsString::from(k), OsString::from(v))),
+        );
+        let cmd = env.command(Path::new("/bin/sh"));
+        assert!(cmd.get_envs().all(|(k, _)| k != "GITHUB_TOKEN"));
+        assert!(cmd.get_envs().any(|(k, _)| k == "PATH"));
     }
 
     #[test]
     fn commands_go_through_the_wrapper() {
-        let mut env = ChildEnv::from_vars([(OsString::from("A"), OsString::from("1"))]);
+        let mut env = ChildEnv::from_vars([(OsString::from("HOME"), OsString::from("/h"))]);
         env.set_wrapper(Some(Wrapper {
             program: PathBuf::from("/agent"),
             prefix: vec!["sandbox-exec".into(), "--".into()],
