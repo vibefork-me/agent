@@ -122,21 +122,21 @@ jobs:
         if: matrix.os == 'windows' && matrix.native
         shell: pwsh
         run: |
-          $msi = "distibefork-windows-${{ matrix.arch }}.msi"
+          $msi = "dist\vibefork-windows-${{ matrix.arch }}.msi"
           $p = Start-Process msiexec -ArgumentList "/i `"$msi`" /passive /norestart /l*v install.log" -Wait -PassThru
           if ($p.ExitCode -ne 0) { Get-Content install.log -Tail 40; exit 1 }
-          $dir = Join-Path $env:LOCALAPPDATA 'Programsibefork'
-          $out = & "$diribefork.exe" version
+          $dir = Join-Path $env:LOCALAPPDATA 'Programs\vibefork'
+          $out = & "$dir\vibefork.exe" version
           $out
           if ($out -ne "vibefork $env:VERSION") { exit 1 }
-          if ((Get-Content "$diribefork.install") -ne 'msi') { exit 1 }
-          $handler = (Get-ItemProperty 'HKCU:\Software\Classesibefork\shell\open\command').'(default)'
+          if ((Get-Content "$dir\vibefork.install") -ne 'msi') { exit 1 }
+          $handler = (Get-ItemProperty 'HKCU:\Software\Classes\vibefork\shell\open\command').'(default)'
           $handler
           if ($handler -notlike "*vibefork.exe*handle*") { exit 1 }
           $p = Start-Process msiexec -ArgumentList "/x `"$msi`" /passive /norestart /l*v uninstall.log" -Wait -PassThru
           if ($p.ExitCode -ne 0) { Get-Content uninstall.log -Tail 40; exit 1 }
-          if (Test-Path "$diribefork.exe") { Write-Error 'vibefork.exe is still installed'; exit 1 }
-          if (Test-Path 'HKCU:\Software\Classesibefork') { Write-Error 'the link handler is still registered'; exit 1 }
+          if (Test-Path "$dir\vibefork.exe") { Write-Error 'vibefork.exe is still installed'; exit 1 }
+          if (Test-Path 'HKCU:\Software\Classes\vibefork') { Write-Error 'the link handler is still registered'; exit 1 }
       - name: AppImage and tar.gz
         if: matrix.os == 'linux'
         run: |
