@@ -5877,6 +5877,7 @@ name = "vf-git"
 version = "0.0.0"
 dependencies = [
  "git2",
+ "vf-core",
  "vf-journal",
  "vf-protocol",
 ]

@@ -216,6 +216,7 @@ impl Backend for FakeBackend {
             next_url: None,
             name: None,
             files: Vec::new(),
+            held_back: Vec::new(),
         })
     }
     fn offer_prompt(

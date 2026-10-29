@@ -336,7 +336,80 @@ pub struct FileChange {
     pub content: Option<Vec<u8>>,
 }
 
+/// What goes to the copy on GitHub: [`Repo::changes_to_save`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Outgoing {
+    /// Files to write to the copy.
+    pub changes: Vec<FileChange>,
+    /// Coding CLI configuration ([`vf_core::CLI_CONFIG`]) changed since the project's start; the
+    /// copy keeps it as it was at the start.
+    pub held_back: Vec<String>,
+}
+
 impl Repo {
+    /// [`Repo::changes`] from `base` to `head` for the copy on GitHub. A path of coding CLI
+    /// configuration goes only in its version at `start` (the project's start; empty — the first
+    /// commit of the repository): any other version is held back. With `base` empty (the first
+    /// save to an empty repository) such a path gets its version at `start`, if it had one.
+    pub fn changes_to_save(
+        &self,
+        start: &str,
+        base: &str,
+        head: &str,
+    ) -> Result<Outgoing, JournalError> {
+        let start = if start.is_empty() {
+            self.first_commit()?
+        } else {
+            start.to_owned()
+        };
+        let changes = self.changes(base, head)?;
+        let config: Vec<String> = changes
+            .iter()
+            .filter(|c| vf_core::path::is_cli_config(Path::new(&c.path)))
+            .map(|c| c.path.clone())
+            .collect();
+        let (original, now) = (
+            self.blob_ids(&start, &config)?,
+            self.blob_ids(head, &config)?,
+        );
+        let mut out = Outgoing::default();
+        for c in changes {
+            if vf_core::path::is_cli_config(Path::new(&c.path))
+                && original.get(&c.path) != now.get(&c.path)
+            {
+                out.held_back.push(c.path);
+            } else {
+                out.changes.push(c);
+            }
+        }
+        if base.is_empty() {
+            for c in self.changes("", &start)? {
+                if vf_core::path::is_cli_config(Path::new(&c.path))
+                    && !out.changes.iter().any(|o| o.path == c.path)
+                {
+                    if !out.held_back.contains(&c.path) {
+                        out.held_back.push(c.path.clone());
+                    }
+                    out.changes.push(c);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// The first commit of the repository (full hash).
+    pub fn first_commit(&self) -> Result<String, JournalError> {
+        let repo = self.repo()?;
+        let mut walk = repo.revwalk().map_err(err)?;
+        walk.set_sorting(Sort::TOPOLOGICAL | Sort::REVERSE)
+            .map_err(err)?;
+        walk.push_head().map_err(err)?;
+        match walk.next() {
+            Some(oid) => Ok(oid.map_err(err)?.to_string()),
+            None => Err(JournalError("no commits".into())),
+        }
+    }
+
     /// Files added, changed or deleted from `base` to `head`, with their new content; `base` empty —
     /// every file of `head`.
     pub fn changes(&self, base: &str, head: &str) -> Result<Vec<FileChange>, JournalError> {
@@ -615,13 +688,12 @@ impl Vcs for Repo {
         walk.map(|oid| oid.map(short).map_err(err)).collect()
     }
 
-    fn files_changed(&self, base: &str, head: &str) -> Result<usize, JournalError> {
-        let repo = self.repo()?;
-        let (a, b) = (tree_of(&repo, base)?, tree_of(&repo, head)?);
-        let diff = repo
-            .diff_tree_to_tree(Some(&a), Some(&b), None)
-            .map_err(err)?;
-        Ok(diff.stats().map_err(err)?.files_changed())
+    fn changed_paths(&self, base: &str, head: &str) -> Result<Vec<String>, JournalError> {
+        Ok(self
+            .changes(base, head)?
+            .into_iter()
+            .map(|c| c.path)
+            .collect())
     }
 }
 

@@ -2228,6 +2228,13 @@
             "description": "RFC 3339 time.",
             "type": "string"
           },
+          "cliConfig": {
+            "description": "Coding CLI configuration the step changed (`.claude/`, `.codex/`, `.mcp.json`, …). Kept in the project, not saved to GitHub.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "commit": {
             "description": "Newest commit of the step.",
             "type": [
@@ -2953,6 +2960,13 @@
           },
           "files": {
             "description": "Files of a conflict.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "held_back": {
+            "description": "Coding CLI configuration changed in the project (`.claude/`, `.codex/`, `.mcp.json`, …) that stays out of the copy: the copy keeps these paths as they were at the project's start.",
             "items": {
               "type": "string"
             },

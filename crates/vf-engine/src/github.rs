@@ -560,10 +560,15 @@ impl Engine {
                 ..with_copy(next(SaveStep::Unchanged, None))
             });
         }
-        let local = |base: &str| -> Result<Vec<Change>, BackendError> {
-            Ok(repo
-                .changes(base, &head)
-                .map_err(|e| BackendError::Internal(e.0))?
+        let mut held_back = Vec::new();
+        // Coding CLI configuration the model may have written stays out of the copy.
+        let mut local = |base: &str| -> Result<Vec<Change>, BackendError> {
+            let out = repo
+                .changes_to_save(&meta.local_base, base, &head)
+                .map_err(|e| BackendError::Internal(e.0))?;
+            held_back = out.held_back;
+            Ok(out
+                .changes
                 .into_iter()
                 .map(|c| match c.content {
                     Some(content) => Change::Put(c.path, c.mode, content),
@@ -616,6 +621,17 @@ impl Engine {
             }
             (Some(current), changes)
         };
+        if !held_back.is_empty() {
+            tracing::info!(project, files = ?held_back, "CLI configuration not saved to the copy");
+        }
+        if changes.is_empty() {
+            return Ok(SaveResponse {
+                url: Some(saved_url(&copy, &branch)),
+                commit: meta.saved_remote.clone(),
+                held_back,
+                ..with_copy(next(SaveStep::Unchanged, None))
+            });
+        }
         let message = self.save_message(project, meta.saved_at.as_deref());
         let sha = client
             .save(&copy, parent.as_deref(), &branch, &message, &changes)
@@ -629,6 +645,7 @@ impl Engine {
         Ok(SaveResponse {
             url: Some(saved_url(&copy, &branch)),
             commit: Some(sha),
+            held_back,
             ..with_copy(next(SaveStep::Saved, None))
         })
     }
@@ -795,6 +812,7 @@ fn next(step: SaveStep, url: Option<String>) -> SaveResponse {
         next_url: None,
         name: None,
         files: Vec::new(),
+        held_back: Vec::new(),
     }
 }
 
