@@ -40,8 +40,8 @@ pub trait Vcs {
     ) -> Result<Option<String>, JournalError>;
     /// Short hashes of commits in `base..head`, newest first.
     fn commits_between(&self, base: &str, head: &str) -> Result<Vec<String>, JournalError>;
-    /// Number of files changed in `base..head`.
-    fn files_changed(&self, base: &str, head: &str) -> Result<usize, JournalError>;
+    /// Paths (`/`-separated) added, changed or deleted in `base..head`.
+    fn changed_paths(&self, base: &str, head: &str) -> Result<Vec<String>, JournalError>;
 }
 
 /// Where journal entries are kept (implemented in `vf-platform`: JSONL per project).
@@ -160,11 +160,18 @@ impl StepStart {
         } else {
             vcs.commits_between(&self.head, &head)?
         };
-        let files = if commits.is_empty() {
-            0
+        let paths = if commits.is_empty() {
+            Vec::new()
         } else {
-            vcs.files_changed(&self.head, &head)?
+            vcs.changed_paths(&self.head, &head)?
         };
+        let files = paths.len();
+        // Coding CLI configuration the model wrote (by a shell command): it stays in the project
+        // and out of the copy on GitHub.
+        let cli_config: Vec<String> = paths
+            .into_iter()
+            .filter(|p| vf_core::path::is_cli_config(std::path::Path::new(p)))
+            .collect();
         let entry = JournalEntry {
             at,
             provider: report.provider,
@@ -185,6 +192,7 @@ impl StepStart {
             usage: report.usage,
             prompt_version: report.prompt_version,
             artifacts: report.artifacts,
+            cli_config,
         };
         store.append(project, &entry)?;
         Ok(StepOutcome { entry, diff })

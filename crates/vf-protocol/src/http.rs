@@ -389,6 +389,10 @@ pub struct SaveResponse {
     /// Files of a conflict.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub files: Vec<String>,
+    /// Coding CLI configuration changed in the project (`.claude/`, `.codex/`, `.mcp.json`, …)
+    /// that stays out of the copy: the copy keeps these paths as they were at the project's start.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub held_back: Vec<String>,
 }
 
 /// Response of `GET /v1/projects`.
@@ -471,6 +475,10 @@ pub struct JournalEntry {
     /// What the step produced: its changes by file and part, …
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub artifacts: Vec<crate::canvas::Artifact>,
+    /// Coding CLI configuration the step changed (`.claude/`, `.codex/`, `.mcp.json`, …). Kept in
+    /// the project, not saved to GitHub.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cli_config: Vec<String>,
 }
 
 /// Request of `POST /v1/rollback`: reset the project to a checkpoint of its journal.

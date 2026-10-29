@@ -83,6 +83,7 @@ mod tests {
             usage: None,
             prompt_version: None,
             artifacts: Vec::new(),
+            cli_config: Vec::new(),
         };
         assert!(j.append("p", &e).is_ok());
         let path = dir.join("p.jsonl");

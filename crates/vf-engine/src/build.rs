@@ -193,6 +193,7 @@ impl Engine {
             usage: None,
             prompt_version: None,
             artifacts: Vec::new(),
+            cli_config: Vec::new(),
         };
         self.journal
             .append(project, &entry)
