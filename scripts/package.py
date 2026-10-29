@@ -28,6 +28,7 @@ Windows Installer applies the transform of the user's display language by itself
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import shutil
@@ -248,6 +249,10 @@ def wizard_wxl(code: str, culture: str, language: int, codepage: int) -> str:
 
 
 def wizard(out: Path | None) -> None:
+    shared = json.loads((LOCALES_DIR / "shared" / "locales.json").read_text(encoding="utf-8"))
+    ready = [locale["code"] for locale in shared["locales"] if locale["status"] == "ready"]
+    if [code for code, *_ in WIZARD_LANGUAGES] != ready:
+        raise SystemExit(f"the wizard's languages (WIZARD_LANGUAGES) are not the shared ready list {ready}")
     for code, cultures, language, codepage, _ in WIZARD_LANGUAGES:
         text = wizard_wxl(code, cultures[0], language, codepage)
         if out:
