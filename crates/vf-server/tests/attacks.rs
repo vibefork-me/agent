@@ -1701,9 +1701,8 @@ impl ConfirmDialog for StartDialog {
     }
 }
 
-type Ws = tokio_tungstenite::WebSocketStream<
-    tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
->;
+type Ws =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
 /// An authenticated WebSocket of the editor at `UI`.
 async fn ws(addr: std::net::SocketAddr, token: &str) -> Ws {
@@ -1779,7 +1778,10 @@ async fn work_on_a_project_starts_only_after_the_native_dialog() {
     // The editor stays open; the page sends a task: the person is asked and says Not now.
     let mut editor = ws(addr, &token).await;
     let mut socket = ws(addr, &token).await;
-    assert_eq!(task(&mut socket, first.clone()).await, "start_not_confirmed");
+    assert_eq!(
+        task(&mut socket, first.clone()).await,
+        "start_not_confirmed"
+    );
     {
         let shown = dialog.shown.lock().unwrap();
         let (title, text, accept) = shown.last().unwrap();
@@ -1789,10 +1791,21 @@ async fn work_on_a_project_starts_only_after_the_native_dialog() {
         assert_eq!(accept, &vf_core::catalog::btn_start(Language::En));
     }
     // An offer is a task too.
-    let offer = json!({ "type": "choose_offer", "project": "demo", "index": 1, "title": "Dark theme" });
-    assert_eq!(task(&mut socket, offer.clone()).await, "start_not_confirmed");
+    let offer =
+        json!({ "type": "choose_offer", "project": "demo", "index": 1, "title": "Dark theme" });
+    assert_eq!(
+        task(&mut socket, offer.clone()).await,
+        "start_not_confirmed"
+    );
     assert!(
-        dialog.shown.lock().unwrap().last().unwrap().1.contains("Offer 1: Dark theme"),
+        dialog
+            .shown
+            .lock()
+            .unwrap()
+            .last()
+            .unwrap()
+            .1
+            .contains("Offer 1: Dark theme"),
         "the dialog shows the task the offer runs"
     );
 
@@ -1827,5 +1840,8 @@ async fn work_on_a_project_starts_only_after_the_native_dialog() {
         drop(editor);
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    assert!(asked_again, "the start was forgotten when the editor closed");
+    assert!(
+        asked_again,
+        "the start was forgotten when the editor closed"
+    );
 }
