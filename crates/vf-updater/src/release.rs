@@ -66,6 +66,31 @@ pub fn is_newer(a: &str, b: &str) -> bool {
     false
 }
 
+/// Verifies the files of a release channel as [`Release::fetch`] does: the subkey certificate
+/// (`subkey.cert.json` + `subkey.cert.sig`, purpose `release`) with the root `key`, the manifest
+/// signature with the certified subkey, and the manifest expiry.
+pub fn verify_channel(
+    manifest: &[u8],
+    manifest_sig: &[u8],
+    cert_json: Option<&[u8]>,
+    cert_sig: Option<&[u8]>,
+    key: &VerifyingKey,
+) -> Result<Manifest, SignatureError> {
+    let (Some(cert_json), Some(cert_sig)) = (cert_json, cert_sig) else {
+        return Err(SignatureError::SubkeyCertMissing);
+    };
+    let cert_sig = std::str::from_utf8(cert_sig).map_err(|_| SignatureError::BadSignature)?;
+    let subkey = verify_subkey_cert(cert_json, cert_sig, key)?;
+    let cert: SubkeyCert =
+        serde_json::from_slice(cert_json).map_err(|_| SignatureError::BadManifest)?;
+    if cert.purpose != "release" {
+        return Err(SignatureError::SubkeyCertMismatch);
+    }
+    let manifest = verify_manifest(manifest, &String::from_utf8_lossy(manifest_sig), &subkey)?;
+    check_fresh(&manifest)?;
+    Ok(manifest)
+}
+
 /// A verified release manifest.
 #[derive(Debug, Clone)]
 pub struct Release {
@@ -113,22 +138,13 @@ impl Release {
         let sig = get(&strict, &format!("{base}/manifest.sig")).await?;
         let cert_json = get_optional(&strict, &format!("{base}/subkey.cert.json")).await?;
         let cert_sig = get_optional(&strict, &format!("{base}/subkey.cert.sig")).await?;
-        let subkey = match (cert_json, cert_sig) {
-            (Some(cert_json), Some(cert_sig)) => {
-                let cert_sig =
-                    String::from_utf8(cert_sig).map_err(|_| SignatureError::BadSignature)?;
-                let subkey = verify_subkey_cert(&cert_json, &cert_sig, key)?;
-                let cert: SubkeyCert =
-                    serde_json::from_slice(&cert_json).map_err(|_| SignatureError::BadManifest)?;
-                if cert.purpose != "release" {
-                    return Err(SignatureError::SubkeyCertMismatch.into());
-                }
-                subkey
-            }
-            _ => return Err(SignatureError::SubkeyCertMissing.into()),
-        };
-        let manifest = verify_manifest(&manifest_bytes, &String::from_utf8_lossy(&sig), &subkey)?;
-        check_fresh(&manifest)?;
+        let manifest = verify_channel(
+            &manifest_bytes,
+            &sig,
+            cert_json.as_deref(),
+            cert_sig.as_deref(),
+            key,
+        )?;
         Ok(Self {
             base_url: base,
             manifest,

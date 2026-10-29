@@ -5,7 +5,12 @@
 //! vibefork-sign bundle <dir> <secret-key-file> <version> [--days <N>]
 //! vibefork-sign release <dir> <secret-key-file> <version> [--days <N>]
 //! vibefork-sign certify-subkey <root-secret> <subkey-public> <purpose> <days>
+//! vibefork-sign verify <dir> [--root <public-key-file>]
 //! ```
+//!
+//! `verify` checks a signed release directory the way the agent checks its release channel: the
+//! subkey certificate with the root release key (built in, or `--root`), the manifest signature and
+//! expiry, every listed file's SHA-256, and no unlisted files.
 
 #![allow(clippy::print_stdout, clippy::print_stderr)]
 
@@ -17,7 +22,8 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use ed25519_dalek::SigningKey;
 use rand::rngs::OsRng;
-use vf_updater::signing::{sha256_hex, sign, sign_subkey_cert};
+use vf_updater::release::verify_channel;
+use vf_updater::signing::{sha256_hex, sign, sign_subkey_cert, verify_file};
 use vf_updater::{Manifest, SubkeyCert};
 
 fn main() -> ExitCode {
@@ -40,7 +46,9 @@ fn main() -> ExitCode {
             .parse::<i64>()
             .map_err(|_| "days must be a positive integer".to_owned())
             .and_then(|days| certify_subkey(Path::new(root), Path::new(public), purpose, days)),
-        _ => Err("usage: vibefork-sign keygen <secret> <public> | bundle|release <dir> <secret> <version> [--days <N>] | certify-subkey <root-secret> <subkey-public> <purpose> <days>".into()),
+        ["verify", dir] => verify(Path::new(dir), None),
+        ["verify", dir, "--root", root] => verify(Path::new(dir), Some(Path::new(root))),
+        _ => Err("usage: vibefork-sign keygen <secret> <public> | bundle|release <dir> <secret> <version> [--days <N>] | certify-subkey <root-secret> <subkey-public> <purpose> <days> | verify <dir> [--root <public-key-file>]".into()),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -136,6 +144,43 @@ fn certify_subkey(
     std::fs::write(format!("{base}.cert.json"), &cert_json).map_err(|e| e.to_string())?;
     std::fs::write(format!("{base}.cert.sig"), signature).map_err(|e| e.to_string())?;
     println!("certified {purpose} subkey until {}", cert.expires_at);
+    Ok(())
+}
+
+fn verify(dir: &Path, root: Option<&Path>) -> Result<(), String> {
+    let root = match root {
+        Some(path) => std::fs::read_to_string(path).map_err(|e| e.to_string())?,
+        None => vf_updater::RELEASE_PUBLIC_KEY.to_owned(),
+    };
+    let root = vf_updater::signing::public_key(root.trim()).map_err(|e| e.to_string())?;
+    let read = |name: &str| std::fs::read(dir.join(name)).map_err(|e| format!("{name}: {e}"));
+    let optional = |name: &str| std::fs::read(dir.join(name)).ok();
+    let manifest = verify_channel(
+        &read("manifest.json")?,
+        &read("manifest.sig")?,
+        optional("subkey.cert.json").as_deref(),
+        optional("subkey.cert.sig").as_deref(),
+        &root,
+    )
+    .map_err(|e| e.to_string())?;
+    for name in manifest.files.keys() {
+        verify_file(&manifest, name, &read(name)?).map_err(|e| format!("{name}: {e}"))?;
+    }
+    for path in walk(dir)? {
+        let rel = path
+            .strip_prefix(dir)
+            .map_err(|e| e.to_string())?
+            .to_string_lossy()
+            .replace('\\', "/");
+        if rel != "manifest.json" && rel != "manifest.sig" && !manifest.files.contains_key(&rel) {
+            return Err(format!("{rel} is not in the signed manifest"));
+        }
+    }
+    println!(
+        "release {}: signature and {} files verified",
+        manifest.version,
+        manifest.files.len()
+    );
     Ok(())
 }
 

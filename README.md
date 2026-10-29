@@ -41,6 +41,17 @@ The API description is generated from the code into [`schema/`](schema): `openap
 
 The toolchain is pinned in `rust-toolchain.toml`.
 
+## Releases
+
+A push to the `release` branch (or a manual run of `release.yml` with a candidate version) builds
+`vibefork` and `vibefork-tray` for Windows, macOS and Linux (x86_64 and aarch64) and creates a
+**draft** GitHub Release `v<version>` with the binaries (`vibefork-<os>-<arch>[.exe]`,
+`vibefork-tray-<os>-<arch>[.exe]`), `install.ps1` and `install.sh` pinned to their hashes,
+`SHA256SUMS.txt` and the release subkey certificate (`subkey.cert.json`, `subkey.cert.sig`).
+`scripts/sign_release.py` adds the update manifest (`manifest.json`, `manifest.sig`) signed with
+the release subkey; `vibefork-sign verify <dir>` checks a release directory the way the agent
+checks its update channel. A draft is published by hand.
+
 ## License
 
 [Functional Source License 1.1, MIT Future License](LICENSE.md) (FSL-1.1-MIT): you can use, read,
