@@ -2514,6 +2514,42 @@
           }
         ]
       },
+      "PairCodeRequest": {
+        "description": "`POST /v1/pair/code`: the code the user read in the agent's dialog.",
+        "properties": {
+          "code": {
+            "description": "The code as typed (`123-456`; spaces and dashes are ignored).",
+            "type": "string"
+          },
+          "pairId": {
+            "description": "Id from `POST /v1/pair/start`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "pairId"
+        ],
+        "type": "object"
+      },
+      "PairCodeResponse": {
+        "description": "Response of `POST /v1/pair/code`.",
+        "properties": {
+          "accepted": {
+            "description": "The code is right (also when it was accepted before).",
+            "type": "boolean"
+          },
+          "status": {
+            "$ref": "#/components/schemas/PairState",
+            "description": "State of the request after this code: a third wrong code denies it."
+          }
+        },
+        "required": [
+          "accepted",
+          "status"
+        ],
+        "type": "object"
+      },
       "PairInfo": {
         "description": "One paired browser in `GET /v1/pairs`.",
         "properties": {
@@ -2574,19 +2610,14 @@
         "type": "object"
       },
       "PairStartResponse": {
-        "description": "Response of `POST /v1/pair/start`.",
+        "description": "Response of `POST /v1/pair/start`. The pairing code is not in it: the agent shows the code only in its own dialog, and the user enters it on the page (`POST /v1/pair/code`).",
         "properties": {
-          "code": {
-            "description": "Code shown both on the page and in the agent's dialog (`123-456`).",
-            "type": "string"
-          },
           "pairId": {
-            "description": "Id to poll `GET /v1/pair/status?id=…`.",
+            "description": "Id to poll `GET /v1/pair/status?id=…` and to send the code with.",
             "type": "string"
           }
         },
         "required": [
-          "code",
           "pairId"
         ],
         "type": "object"
@@ -2595,21 +2626,21 @@
         "description": "State of a pairing request.",
         "oneOf": [
           {
-            "description": "The dialog is open.",
+            "description": "Waiting for Allow in the dialog and the right code on the page.",
             "enum": [
               "pending"
             ],
             "type": "string"
           },
           {
-            "description": "The user allowed it.",
+            "description": "The user allowed it and entered the right code.",
             "enum": [
               "approved"
             ],
             "type": "string"
           },
           {
-            "description": "The user blocked it or the dialog timed out.",
+            "description": "The user blocked it, the dialog timed out or the code was wrong too many times.",
             "enum": [
               "denied"
             ],
@@ -2620,6 +2651,11 @@
       "PairStatusResponse": {
         "description": "Response of `GET /v1/pair/status`.",
         "properties": {
+          "codeAccepted": {
+            "default": false,
+            "description": "The right code was entered on the page (the request may still wait for Allow).",
+            "type": "boolean"
+          },
           "keyId": {
             "description": "Key id once approved.",
             "type": [
@@ -4584,6 +4620,43 @@
         "summary": "Models available now: logged-in CLIs and configured API keys"
       }
     },
+    "/v1/pair/code": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PairCodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PairCodeResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "The code from the agent's dialog, entered on the page"
+      }
+    },
     "/v1/pair/start": {
       "post": {
         "requestBody": {
@@ -4618,7 +4691,7 @@
             "description": "Error"
           }
         },
-        "summary": "Start pairing; the agent shows a native dialog with the code"
+        "summary": "Start pairing; the agent shows the code only in its native dialog"
       }
     },
     "/v1/pair/status": {

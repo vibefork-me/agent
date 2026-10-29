@@ -10,7 +10,8 @@ pair-text =
     Browser: { $name }
     Code: { $code }
 
-    Erlaube es nur, wenn auf der Seite derselbe Code angezeigt wird.
+    Gib diesen Code auf der Seite ein und klicke dann auf „Erlauben“.
+    Wenn du Vibefork gerade nicht geöffnet hast, klicke auf „Nicht erlauben“.
 project-access-title = Vibefork: Zugriff auf ein Projekt geben?
 project-access-text =
     { $origin } ({ $name }) möchte im Projekt arbeiten:
