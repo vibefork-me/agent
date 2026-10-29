@@ -10,6 +10,10 @@
 //! model request. In agent mode only the CLI's own sign-in in `COPILOT_HOME` counts: the CLI also
 //! falls back to tokens in the environment and to the GitHub CLI (`gh`) sign-in, and the agent
 //! does not use either for the user without asking.
+//!
+//! In agent mode the CLI's own folder has the `Co-authored-by` trailer instruction for git commits
+//! and the cross-session memory turned off ([`AGENT_SETTINGS`]), before the sign-in and before
+//! every run. The user's own folder (`~/.copilot`) is left as the user set it.
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -27,6 +31,13 @@ const HOME_VAR: &str = "COPILOT_HOME";
 
 /// Tokens the CLI takes over its stored sign-in; never given to it in agent mode.
 const TOKEN_VARS: &[&str] = &["COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"];
+
+/// Settings of the CLI's own folder in agent mode: no `Co-authored-by` trailer in git commits, no
+/// memory across sessions.
+pub const AGENT_SETTINGS: &[&str] = &["includeCoAuthoredBy", "memory"];
+
+/// The CLI's settings file in its folder.
+const SETTINGS_FILE: &str = "settings.json";
 
 /// How long the sign-in status is cached.
 const CACHE_TTL: Duration = Duration::from_secs(60);
@@ -144,6 +155,33 @@ impl Copilot {
         env
     }
 
+    /// Turns [`AGENT_SETTINGS`] off in the agent's folder with `copilot config <key> false`; in
+    /// user mode nothing is changed.
+    fn apply_agent_settings(&self, bin: &Path) -> Result<(), String> {
+        let Some(home) = self.active_home() else {
+            return Ok(());
+        };
+        for key in settings_to_turn_off(&home) {
+            let mut cmd = self.command(bin);
+            cmd.args(["config", key, "false"]);
+            let exit = process::run_streaming(
+                cmd,
+                None,
+                &Cancel::new(),
+                Some(Duration::from_secs(20)),
+                &mut |_, _| {},
+            )
+            .map_err(|e| e.to_string())?;
+            if exit.code != 0 {
+                return Err(format!(
+                    "GitHub Copilot setting {key} was not turned off (code {})",
+                    exit.code
+                ));
+            }
+        }
+        Ok(())
+    }
+
     fn logged_in(&self, bin: &Path) -> bool {
         let mut cache = self
             .signed_in_cache
@@ -178,6 +216,19 @@ impl Copilot {
         *cache = Some((Instant::now(), ok));
         ok
     }
+}
+
+/// The keys of [`AGENT_SETTINGS`] that are not yet `false` in the settings file of `home`.
+pub fn settings_to_turn_off(home: &Path) -> Vec<&'static str> {
+    let settings = std::fs::read_to_string(home.join(SETTINGS_FILE))
+        .ok()
+        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+        .unwrap_or(Value::Null);
+    AGENT_SETTINGS
+        .iter()
+        .copied()
+        .filter(|k| settings[*k] != Value::Bool(false))
+        .collect()
 }
 
 /// One JSON-RPC request to the CLI's server, framed as the server reads it.
@@ -437,6 +488,7 @@ impl Provider for Copilot {
 
     fn connect(&self, timeout: Duration) -> Result<(), String> {
         let bin = self.bin().ok_or("GitHub Copilot CLI is not installed")?;
+        self.apply_agent_settings(&bin)?;
         let mut cmd = self.command(&bin);
         cmd.args(["login", "--no-auto-update"]);
         let exit = process::run_streaming(cmd, None, &Cancel::new(), Some(timeout), &mut |_, _| {})
@@ -499,6 +551,9 @@ impl Provider for Copilot {
     }
 
     fn ask(&self, req: &AskRequest<'_>, cancel: &Cancel) -> Result<Answer, String> {
+        if let Some(bin) = self.bin() {
+            self.apply_agent_settings(&bin)?;
+        }
         let env = self.env(req.env);
         let prompt = with_system(req.prompt, req.system);
         let req = &AskRequest {
@@ -537,6 +592,15 @@ impl Provider for Copilot {
     }
 
     fn run(&self, req: &RunRequest<'_>, out: &mut dyn FnMut(Output), cancel: &Cancel) -> RunResult {
+        if let Some(Err(text)) = self.bin().map(|b| self.apply_agent_settings(&b)) {
+            out(Output::Event(Event::Error { text: text.clone() }));
+            return RunResult {
+                code: -1,
+                session: req.resume.map(str::to_owned),
+                summary: text,
+                ..RunResult::default()
+            };
+        }
         let env = self.env(req.env);
         let prompt = with_system(req.prompt, req.system);
         let req = &RunRequest {
@@ -639,6 +703,78 @@ mod tests {
             "COPILOT_HOME must be explicitly removed in user mode"
         );
         let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn only_settings_not_yet_off_are_turned_off() {
+        let home = std::env::temp_dir().join(format!("vf-copilot-settings-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(&home).unwrap();
+        assert_eq!(settings_to_turn_off(&home), AGENT_SETTINGS);
+        let file = home.join(SETTINGS_FILE);
+        std::fs::write(&file, r#"{"includeCoAuthoredBy": true, "theme": "dark"}"#).unwrap();
+        assert_eq!(settings_to_turn_off(&home), AGENT_SETTINGS);
+        std::fs::write(&file, r#"{"includeCoAuthoredBy": false, "memory": "off"}"#).unwrap();
+        assert_eq!(settings_to_turn_off(&home), ["memory"]);
+        std::fs::write(&file, r#"{"includeCoAuthoredBy": false, "memory": false}"#).unwrap();
+        assert!(settings_to_turn_off(&home).is_empty());
+        std::fs::write(&file, "not json").unwrap();
+        assert_eq!(settings_to_turn_off(&home), AGENT_SETTINGS);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn the_agents_folder_gets_its_settings_and_the_users_folder_is_not_touched() {
+        let dir = std::env::temp_dir().join(format!("vf-copilot-config-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let home = dir.join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        // A stand-in CLI that records its arguments in its folder.
+        #[cfg(windows)]
+        let (bin, script) = (
+            dir.join("copilot.cmd"),
+            "@echo %*>> \"%COPILOT_HOME%\\calls.txt\"\r\n",
+        );
+        #[cfg(not(windows))]
+        let (bin, script) = (
+            dir.join("copilot"),
+            "#!/bin/sh\necho \"$@\" >> \"$COPILOT_HOME/calls.txt\"\n",
+        );
+        std::fs::write(&bin, script).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let calls = || {
+            std::fs::read_to_string(home.join("calls.txt"))
+                .unwrap_or_default()
+                .lines()
+                .map(|l| l.trim().to_owned())
+                .collect::<Vec<_>>()
+        };
+        let copilot = Copilot::detect().with_home(home.clone());
+
+        copilot.apply_agent_settings(&bin).unwrap();
+        assert_eq!(
+            calls(),
+            ["config includeCoAuthoredBy false", "config memory false"]
+        );
+
+        std::fs::remove_file(home.join("calls.txt")).unwrap();
+        std::fs::write(
+            home.join(SETTINGS_FILE),
+            r#"{"includeCoAuthoredBy": false, "memory": false}"#,
+        )
+        .unwrap();
+        copilot.apply_agent_settings(&bin).unwrap();
+        assert!(calls().is_empty(), "settings already off are not set again");
+
+        std::fs::remove_file(home.join(SETTINGS_FILE)).unwrap();
+        copilot.set_cli_home_mode(CliHomeMode::User);
+        copilot.apply_agent_settings(&bin).unwrap();
+        assert!(calls().is_empty(), "the user's own folder is not changed");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
