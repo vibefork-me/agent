@@ -10,7 +10,8 @@ pair-text =
     Browser: { $name }
     Code: { $code }
 
-    Allow only if the same code is shown on the page.
+    Enter this code on the page, then click Allow.
+    If you did not open Vibefork just now, click Don't allow.
 project-access-title = Vibefork: give access to a project?
 project-access-text =
     { $origin } ({ $name }) asks to work in the project:

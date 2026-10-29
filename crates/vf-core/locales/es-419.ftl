@@ -11,7 +11,8 @@ pair-text =
     Navegador: { $name }
     Código: { $code }
 
-    Permítelo solo si en la página aparece el mismo código.
+    Escribe este código en la página y luego haz clic en Permitir.
+    Si no acabas de abrir Vibefork, haz clic en No permitir.
 project-access-title = Vibefork: ¿dar acceso a un proyecto?
 project-access-text =
     { $origin } ({ $name }) pide trabajar en el proyecto:
