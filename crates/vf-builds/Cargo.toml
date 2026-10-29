@@ -10,7 +10,7 @@ publish.workspace = true
 
 [dependencies]
 serde_json.workspace = true
-sysinfo = { version = "0.32", default-features = false, features = ["disk", "system"] }
+sysinfo = { version = "0.39", default-features = false, features = ["disk", "system"] }
 
 [lints]
 workspace = true
