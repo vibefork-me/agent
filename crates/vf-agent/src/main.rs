@@ -28,8 +28,8 @@ impl vf_cli::App for Agent {
 
     fn serve(&self) -> ExitCode {
         let s = &self.settings;
-        if let Err(e) = s.secure_state_dir() {
-            tracing::error!(error = %e, dir = %s.state_dir.display(), "cannot create the state folder");
+        if let Err(e) = s.secure_dirs() {
+            tracing::error!(error = %e, dir = %s.state_dir.display(), "cannot create the agent's folders");
             return ExitCode::FAILURE;
         }
         let auth = match Auth::load(s.state_dir.clone(), dialog()) {
