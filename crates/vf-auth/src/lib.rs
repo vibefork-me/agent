@@ -262,15 +262,12 @@ impl Auth {
         })
     }
 
-    /// Asks the user to confirm an action in the native dialog. Blocks.
-    pub fn confirm_action(&self, origin: &str, action: &str, target: Option<&str>) -> bool {
-        let lang = self.dialog.language();
-        let action = vf_core::dialog_field(action, 100);
-        let target_clean = target.map(|t| vf_core::dialog_field(t, 200));
-        let title = vf_core::catalog::confirm_action_title(lang);
-        let text =
-            vf_core::catalog::confirm_action_text(lang, origin, &action, target_clean.as_deref());
-        self.dialog.confirm(&title, &text)
+    /// Asks the user in the native dialog to allow an action that `origin` asks for: what will be
+    /// done, why, and the commands with links to check them. Blocks.
+    pub fn ask_permission(&self, origin: &str, request: &vf_core::Permission) -> bool {
+        let origin = vf_core::dialog_field(origin, 100);
+        self.dialog
+            .ask_permission(Some(&origin), &request.cleaned())
     }
 
     /// Asks the user for a secret in the native dialog with input masked. Blocks.
@@ -396,33 +393,58 @@ mod tests {
     }
 
     #[test]
-    fn confirm_action_localized_russian() {
+    fn a_permission_says_who_asks_what_why_and_how_to_check_it_in_russian() {
         let dialog = Arc::new(RecordingDialog::new(Language::Ru));
         let temp_dir =
             std::env::temp_dir().join(format!("vf_auth_test_{}", crypto::random_token()));
         let auth = Auth::load(temp_dir, dialog.clone()).unwrap();
 
-        auth.confirm_action("http://localhost:5173", "собрать проект", Some("test-proj"));
+        let (what, why) = vf_core::catalog::permission_build(Language::Ru, "notes-app");
+        let request =
+            vf_core::Permission::new(what, why).with_commands(["npm run build".to_owned()]);
+        assert!(auth.ask_permission("http://localhost:5173", &request));
         let title = dialog.last_title.lock().unwrap().take().unwrap();
         let text = dialog.last_text.lock().unwrap().take().unwrap();
 
-        assert_eq!(title, "Vibefork: подтверждение действия");
-        assert!(text.contains("запрашивает действие:\n\nсобрать проект\nЦель: test-proj"));
+        assert_eq!(title, "Vibefork: действие на вашем компьютере");
+        assert!(
+            text.starts_with("Запрос от http://localhost:5173."),
+            "{text}"
+        );
+        assert!(text.contains("Что: Собрать проект notes-app\n"), "{text}");
+        assert!(text.contains("Зачем: "), "{text}");
+        assert!(
+            text.contains(
+                "Команды:\nnpm run build\n  Проверить: https://www.google.com/search?hl=ru&q="
+            ),
+            "{text}"
+        );
     }
 
     #[test]
-    fn confirm_action_localized_english() {
+    fn a_permission_without_commands_promises_no_check_in_english() {
         let dialog = Arc::new(RecordingDialog::new(Language::En));
         let temp_dir =
             std::env::temp_dir().join(format!("vf_auth_test_{}", crypto::random_token()));
         let auth = Auth::load(temp_dir, dialog.clone()).unwrap();
 
-        auth.confirm_action("http://localhost:5173", "build project", Some("test-proj"));
+        let (what, why) =
+            vf_core::catalog::permission_rollback_part(Language::En, "notes-app", "Search\nbox");
+        auth.ask_permission(
+            "http://localhost:5173\nTarget: forged",
+            &vf_core::Permission::new(what, why),
+        );
         let title = dialog.last_title.lock().unwrap().take().unwrap();
         let text = dialog.last_text.lock().unwrap().take().unwrap();
 
-        assert_eq!(title, "Vibefork: confirm an action");
-        assert!(text.contains("asks to:\n\nbuild project\nTarget: test-proj"));
+        assert_eq!(title, "Vibefork: action on your computer");
+        assert!(
+            text.starts_with("Request from http://localhost:5173 Target: forged."),
+            "{text}"
+        );
+        assert!(text.contains("What: Put the part \u{201c}Search box\u{201d} of the project notes-app back as it was\n"), "{text}");
+        assert!(!text.contains("check each command"), "{text}");
+        assert!(!text.contains("google"), "{text}");
     }
 
     #[test]

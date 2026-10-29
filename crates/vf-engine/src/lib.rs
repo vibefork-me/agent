@@ -651,6 +651,20 @@ impl Backend for Engine {
         });
     }
 
+    fn build_commands(&self, project: &str) -> Vec<String> {
+        self.projects
+            .resolve(project)
+            .ok()
+            .and_then(|dir| vf_builds::detect_recipe(&dir))
+            .map(|r| r.steps.iter().map(build::command_line).collect())
+            .unwrap_or_default()
+    }
+
+    fn run_command(&self, project: &str) -> Option<String> {
+        let dir = self.projects.resolve(project).ok()?;
+        vf_builds::detect_run(&dir).map(|step| build::command_line(&step))
+    }
+
     fn github_connect(&self) -> Result<GithubConnectResponse, BackendError> {
         self.connect()
     }

@@ -341,7 +341,7 @@ enum Confirmed {
 /// Builds or runs after the user confirms it in the native dialog (invariant 3).
 fn start_confirmed(
     state: &AppState,
-    what: Confirmed,
+    action: Confirmed,
     origin: String,
     key_id: String,
     project: String,
@@ -351,25 +351,31 @@ fn start_confirmed(
     let (backend, auth, c) = (state.backend.clone(), state.auth.clone(), cancel.clone());
     tokio::task::spawn_blocking(move || {
         let lang = auth.dialog().language();
-        let (prompt, refused, code) = match what {
-            Confirmed::Build => (
-                vf_core::catalog::action_build(lang),
-                "build not confirmed",
-                "build_not_confirmed",
-            ),
-            Confirmed::Run => (
-                vf_core::catalog::action_run(lang),
-                "run not confirmed",
-                "run_not_confirmed",
-            ),
+        let (refused, code) = match action {
+            Confirmed::Build => ("build not confirmed", "build_not_confirmed"),
+            Confirmed::Run => ("run not confirmed", "run_not_confirmed"),
+        };
+        // What the dialog shows: the action, why, and the exact commands it starts.
+        let request = || {
+            let ((what, why), commands) = match action {
+                Confirmed::Build => (
+                    vf_core::catalog::permission_build(lang, &project),
+                    backend.build_commands(&project),
+                ),
+                Confirmed::Run => (
+                    vf_core::catalog::permission_run(lang, &project),
+                    backend.run_command(&project).into_iter().collect(),
+                ),
+            };
+            vf_core::Permission::new(what, why).with_commands(commands)
         };
         if auth.project_allowed(&key_id, &origin, &project)
-            && auth.confirm_action(&origin, &prompt, Some(&project))
+            && auth.ask_permission(&origin, &request())
         {
             let mut out = |m| {
                 let _ = tx.send(Out::Message(m));
             };
-            match what {
+            match action {
                 Confirmed::Build => backend.build(&project, &mut out, &c),
                 Confirmed::Run => backend.run_program(&project, &mut out, &c),
             }
@@ -407,7 +413,6 @@ fn rollback_part(
             });
         }
         let lang = auth.dialog().language();
-        let prompt = vf_core::catalog::action_rollback_part(lang);
         let part = backend
             .graph(&project, false)
             .ok()
@@ -415,7 +420,8 @@ fn rollback_part(
             .map(|n| n.label)
             .filter(|l| !l.is_empty())
             .unwrap_or_else(|| id.clone());
-        if auth.confirm_action(&origin, &prompt, Some(&format!("{project} → {part}"))) {
+        let (what, why) = vf_core::catalog::permission_rollback_part(lang, &project, &part);
+        if auth.ask_permission(&origin, &vf_core::Permission::new(what, why)) {
             backend.rollback_part(&project, &id, &mut out);
         } else {
             out(ServerMessage::Error {
