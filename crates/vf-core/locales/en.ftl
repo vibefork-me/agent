@@ -31,6 +31,20 @@ start-work-text =
 
     Start only if you gave this task yourself just now.
 
+## The same questions in the agent's own window, in parts
+
+ask-fact-browser = Browser
+ask-fact-code = Code
+ask-fact-project = Project
+ask-fact-task = First task
+pair-note = Allow only if the same code is shown on the page.
+project-access-note = Allow only if you are doing this in your browser right now.
+start-work-body = The model will be able to change the project's files and run commands on your computer. Further tasks in this project start without asking while the editor stays open.
+start-work-note = Start only if you gave this task yourself just now.
+origin-checked = The request comes from { $host }. The agent checked this itself: this browser is connected to the agent on your computer and signed the request with its key.
+origin-unchecked = The browser says the request comes from { $host }; the agent cannot check this yet. Compare the code on the page.
+field-example = e.g. { $example }
+
 ## Asking permission to act on the computer: what, why, the commands to check
 
 # Shown before every action on the person's computer; `permission-check` only when there are commands.
@@ -101,6 +115,8 @@ ask-text-text =
 custom-openai-endpoint-prompt = enter OpenAI-compatible API base URL (e.g. http://localhost:11434/v1):
 custom-openai-key-prompt = enter API key for this server (leave empty if your local server does not require authentication):
 custom-openai-model-prompt = enter model identifier (e.g. llama3, qwen2.5-coder):
+custom-openai-endpoint-label = OpenAI-compatible API base URL
+custom-openai-model-label = Model identifier
 
 ## Buttons of native dialogs
 

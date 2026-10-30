@@ -122,7 +122,7 @@ impl StatusView {
             }
         });
         ui.add_space(16.0);
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        theme::button_row(ui, |ui| {
             if ui.add(theme::secondary_button(&p.close)).clicked() {
                 event = Some(StatusEvent::Close);
             }

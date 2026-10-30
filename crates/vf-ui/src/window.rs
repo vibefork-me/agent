@@ -1,5 +1,5 @@
-//! Standalone windows: open a native window (eframe, OpenGL through glow), run a view until it
-//! answers or the window closes, return the answer.
+//! Standalone windows: open a native window (eframe, OpenGL through glow) in the window's own
+//! frame ([`crate::chrome`]), run a view until it answers or the window closes, return the answer.
 //!
 //! Each call creates its own event loop. Some window systems allow only one event loop per process
 //! over its lifetime; a program that shows several windows in a row should run each in a fresh
@@ -13,12 +13,24 @@ use eframe::egui::{self, ViewportCommand};
 use crate::dialog::{Answer, Dialog, DialogView};
 use crate::first_run::{FirstRun, FirstRunAnswer, FirstRunView};
 use crate::status::{StatusEvent, StatusPage, StatusView};
-use crate::{UiError, theme};
+use crate::{UiError, chrome, theme};
 
 /// Opens standalone windows with a common icon.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Shell {
     icon: Option<Arc<egui::IconData>>,
+    close_label: String,
+    zoom: f32,
+}
+
+impl Default for Shell {
+    fn default() -> Self {
+        Self {
+            icon: None,
+            close_label: "Close".to_owned(),
+            zoom: 1.0,
+        }
+    }
 }
 
 impl Shell {
@@ -34,6 +46,24 @@ impl Shell {
             width,
             height,
         }));
+        self
+    }
+
+    /// The accessible name of the close button in the title bar, in the person's language
+    /// ("Close" by default).
+    pub fn with_close_label(mut self, label: &str) -> Self {
+        self.close_label = crate::text::plain_line(label, 40);
+        self
+    }
+
+    /// Windows drawn `zoom` times larger than the display's scale asks (within 0.5..=3; 1 by
+    /// default): text and controls are drawn at that many pixels per point.
+    pub fn with_zoom(mut self, zoom: f32) -> Self {
+        self.zoom = if zoom.is_finite() {
+            zoom.clamp(0.5, 3.0)
+        } else {
+            1.0
+        };
         self
     }
 
@@ -111,11 +141,13 @@ impl Shell {
         on_top: bool,
         draw: impl FnMut(&mut egui::Ui),
     ) -> Result<(), UiError> {
+        // The window draws its own frame; it takes the height of its content by itself.
         let mut viewport = egui::ViewportBuilder::default()
             .with_title(title)
             .with_inner_size(size)
             .with_min_inner_size(egui::vec2(360.0, MIN_HEIGHT))
-            .with_resizable(true)
+            .with_decorations(false)
+            .with_resizable(false)
             .with_minimize_button(false)
             .with_maximize_button(false)
             .with_active(true);
@@ -131,15 +163,19 @@ impl Shell {
             renderer: eframe::Renderer::Glow,
             ..Default::default()
         };
+        let zoom = self.zoom;
         let host = Host {
             draw: Box::new(draw),
             first_frame: None,
+            logo: None,
+            close_label: self.close_label.clone(),
         };
         eframe::run_native(
             "vibefork",
             options,
             Box::new(move |cc| {
                 theme::apply(&cc.egui_ctx);
+                cc.egui_ctx.set_zoom_factor(zoom);
                 Ok(Box::new(host))
             }),
         )
@@ -152,6 +188,10 @@ struct Host<'a> {
     draw: Box<dyn FnMut(&mut egui::Ui) + 'a>,
     /// `ui.input().time` of the first frame.
     first_frame: Option<f64>,
+    /// The logo of the title bar, loaded on the first frame (`Some(None)`: it cannot be decoded).
+    logo: Option<Option<egui::TextureHandle>>,
+    /// The accessible name of the close button.
+    close_label: String,
 }
 
 /// How long a fresh window keeps asking to be brought to the front.
@@ -159,7 +199,7 @@ const FOCUS_FOR_SECS: f64 = 2.0;
 /// How long a fresh window follows the height of what it shows; later the person sizes it.
 const FIT_FOR_SECS: f64 = 1.0;
 /// Margin around a window's content, points.
-const MARGIN: f32 = 24.0;
+pub(crate) const MARGIN: f32 = 24.0;
 /// Lowest and highest height a window takes by itself, points.
 const MIN_HEIGHT: f32 = 160.0;
 /// See [`MIN_HEIGHT`].
@@ -177,6 +217,8 @@ impl eframe::App for Host<'_> {
             ui.ctx()
                 .request_repaint_after(std::time::Duration::from_millis(100));
         }
+        let logo = self.logo.get_or_insert_with(|| chrome::logo(ui.ctx()));
+        chrome::title_bar(ui, logo.as_ref(), &self.close_label);
         let draw = &mut self.draw;
         let content = egui::CentralPanel::default()
             .frame(egui::Frame::central_panel(ui.style()).inner_margin(MARGIN))
@@ -187,8 +229,9 @@ impl eframe::App for Host<'_> {
                     .content_size
             })
             .inner;
+        chrome::border(ui.ctx());
         if now - first < FIT_FOR_SECS {
-            fit_height(ui.ctx(), content.y + 2.0 * MARGIN);
+            fit_height(ui.ctx(), content.y + 2.0 * MARGIN + chrome::BAR_HEIGHT);
         }
     }
 }

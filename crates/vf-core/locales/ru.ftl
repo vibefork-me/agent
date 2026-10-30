@@ -30,6 +30,20 @@ start-work-text =
 
     Начинайте, только если эту задачу вы дали сами и только что.
 
+## The same questions in the agent's own window, in parts
+
+ask-fact-browser = Браузер
+ask-fact-code = Код
+ask-fact-project = Проект
+ask-fact-task = Первая задача
+pair-note = Разрешайте, только если этот же код показан на странице.
+project-access-note = Разрешайте, только если вы сейчас работаете в браузере.
+start-work-body = Модель сможет менять файлы проекта и выполнять команды на вашем компьютере. Следующие задачи в этом проекте начнутся без вопроса, пока редактор открыт.
+start-work-note = Начинайте, только если эту задачу вы дали сами и только что.
+origin-checked = Запрос пришёл с сайта { $host }. Агент проверил это сам: браузер подключён к агенту на этом компьютере и подписал запрос своим ключом.
+origin-unchecked = Адрес { $host } сообщил браузер, агент пока не может его проверить. Сверьте код на странице.
+field-example = например, { $example }
+
 ## Asking permission to act on the computer: what, why, the commands to check
 
 permission-title = Vibefork: действие на вашем компьютере
@@ -98,6 +112,8 @@ ask-text-text =
 custom-openai-endpoint-prompt = введите адрес OpenAI-совместимого API (например, http://localhost:11434/v1):
 custom-openai-key-prompt = введите API-ключ для этого сервера (оставьте пустым, если локальный сервер не требует авторизации):
 custom-openai-model-prompt = введите идентификатор модели (например, llama3, qwen2.5-coder):
+custom-openai-endpoint-label = Адрес OpenAI-совместимого API
+custom-openai-model-label = Идентификатор модели
 
 ## Buttons of native dialogs
 

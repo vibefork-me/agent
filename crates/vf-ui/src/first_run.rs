@@ -174,13 +174,11 @@ impl FirstRunView {
         ui.add_space(16.0);
 
         let folder = self.run.tools_dir.trim().to_owned();
-        let (start, later) = ui
-            .with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let later = ui.add(theme::secondary_button(&t.later));
-                let start = ui.add_enabled(!folder.is_empty(), theme::primary_button(&t.start));
-                (start, later)
-            })
-            .inner;
+        let (start, later) = theme::button_row(ui, |ui| {
+            let later = ui.add(theme::secondary_button(&t.later));
+            let start = ui.add_enabled(!folder.is_empty(), theme::primary_button(&t.start));
+            (start, later)
+        });
 
         let submit = field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
         let choose = |connect_ai| {

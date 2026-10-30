@@ -30,6 +30,15 @@ needs its own event loop, apart from the tray's):
 | `vibefork-tray first-run` | Tools folder (moved with `vf_platform::storage`), free room and every tool the agent can install with its size (`vf_toolchains::estimates`, the data of `GET /v1/environment`), connect an AI model (opens the editor). Opened once by the tray on a fresh installation (empty tools folder); marker `<state>/first-run.done` |
 | `vibefork-tray status` | The tray's state and actions in a window, refreshed like the tray |
 
+A question may come in parts (`vf_platform::dialog::window`): the site that asks (`VF_DIALOG_ORIGIN`;
+`VF_DIALOG_ORIGIN_CHECKED=1` when the agent checked it — a paired browser signed the request),
+labelled values (`VF_DIALOG_FACTS`: a label, a tab, a value per line), a quoted text
+(`VF_DIALOG_QUOTE_LABEL`, `VF_DIALOG_QUOTE`), what to check (`VF_DIALOG_NOTE`) and a field's example
+(`VF_DIALOG_PLACEHOLDER`); `VF_DIALOG_TEXT` is then the question without the site. What the site's
+mark means is worded by the tray in the person's language.
+
+`VF_UI_ZOOM` (e.g. `1.25`) draws every window that many times larger than the display's scale asks.
+
 ## Invariants
 
 - A tray crash never stops the core.

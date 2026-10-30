@@ -15,6 +15,7 @@
 
 #![deny(clippy::print_stdout, clippy::print_stderr)]
 
+mod chrome;
 pub mod dialog;
 pub mod first_run;
 pub mod status;
@@ -22,7 +23,7 @@ pub mod text;
 pub mod theme;
 mod window;
 
-pub use dialog::{Answer, Command, Dialog, DialogKind, DialogView, Permission};
+pub use dialog::{Answer, Command, Dialog, DialogKind, DialogView, Origin, Permission};
 pub use eframe::egui;
 pub use first_run::{FirstRun, FirstRunAnswer, FirstRunText, FirstRunView};
 pub use status::{StatusEvent, StatusPage, StatusView, Tone};
