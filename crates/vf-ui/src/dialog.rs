@@ -2,6 +2,9 @@
 //! the computer: what, why, and the commands, each with a link to check it), a text value, or a
 //! secret typed with masked input.
 //!
+//! A question may come in parts: the site that asks (a mark like a browser's secure address),
+//! labelled values and a quoted text in a card, and what to check before answering (a warning).
+//!
 //! Keyboard: Tab moves between the field and the buttons, Enter presses the focused button (in a
 //! field: submits), Esc rejects. A confirm prompt starts with the focus on the reject button, so an
 //! Enter typed elsewhere never allows. For the first [`INPUT_GUARD`] after the window appears it
@@ -27,6 +30,12 @@ const MAX_DETAIL: usize = 400;
 const MAX_COMMAND: usize = 300;
 /// Most commands shown.
 const MAX_COMMANDS: usize = 12;
+/// Longest host shown, characters.
+const MAX_HOST: usize = 80;
+/// Longest labelled value, characters.
+const MAX_FACT: usize = 200;
+/// Most labelled values shown.
+const MAX_FACTS: usize = 6;
 
 /// What is asked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,6 +69,45 @@ pub struct Dialog {
     pub timeout: Duration,
     /// For an action on the computer: what, why and the commands.
     pub permission: Option<Permission>,
+    /// The site that asks, shown as a mark under the heading.
+    pub origin: Option<Origin>,
+    /// Labelled values (`("Project", "notes-app")`), shown in a card.
+    pub facts: Vec<(String, String)>,
+    /// A text quoted as given (a task), with its label, in the card.
+    pub quote: Option<(String, String)>,
+    /// What to check before answering, shown as a warning above the buttons.
+    pub note: String,
+    /// A text field's example, shown while the field is empty.
+    pub placeholder: String,
+}
+
+/// The site that asks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Origin {
+    /// The site (`https://code.example`); the mark shows only its host.
+    pub url: String,
+    /// Whether the agent checked the site itself (a green mark with a lock); otherwise the mark is
+    /// grey.
+    pub checked: bool,
+    /// What the mark means, on hover and for screen readers.
+    pub about: String,
+}
+
+impl Origin {
+    /// The host of a site as a browser's address bar shows it: without the scheme and path,
+    /// with the port (`https://code.example/` → `code.example`, `http://localhost:5173` →
+    /// `localhost:5173`).
+    pub fn host_of(url: &str) -> String {
+        let rest = url
+            .split_once("://")
+            .map_or(url, |(_, rest)| rest)
+            .split(['/', '?', '#'])
+            .next()
+            .unwrap_or_default();
+        // Credentials in a URL are never shown as part of the site.
+        let host = rest.rsplit_once('@').map_or(rest, |(_, host)| host);
+        plain_line(host, MAX_HOST)
+    }
 }
 
 /// What an action on the computer does and why, with the commands it runs.
@@ -168,6 +216,25 @@ impl DialogView {
             accept: plain_line(&dialog.accept, 40),
             reject: plain_line(&dialog.reject, 40),
             permission: dialog.permission.as_ref().map(Permission::cleaned),
+            origin: dialog.origin.as_ref().map(|o| Origin {
+                url: plain_line(&o.url, MAX_LINE),
+                checked: o.checked,
+                about: plain_text(&o.about),
+            }),
+            facts: dialog
+                .facts
+                .iter()
+                .map(|(label, value)| (plain_line(label, 40), plain_line(value, MAX_FACT)))
+                .filter(|(_, value)| !value.is_empty())
+                .take(MAX_FACTS)
+                .collect(),
+            quote: dialog
+                .quote
+                .as_ref()
+                .map(|(label, text)| (plain_line(label, 40), plain_text(text)))
+                .filter(|(_, text)| !text.trim().is_empty()),
+            note: plain_text(&dialog.note),
+            placeholder: plain_line(&dialog.placeholder, MAX_LINE),
             ..dialog
         };
         Self {
@@ -217,19 +284,35 @@ impl DialogView {
         ui.ctx().request_repaint_after(Duration::from_millis(200));
 
         theme::header(ui, &self.dialog.title);
-        ui.add_space(6.0);
-        // Under a permission the text only introduces the card; otherwise it is the question.
-        let body = if self.dialog.permission.is_some() {
+        if let Some(o) = &self.dialog.origin {
+            ui.add_space(2.0);
+            theme::origin_mark(ui, &Origin::host_of(&o.url), o.checked, &o.about);
+        }
+        ui.add_space(8.0);
+        let has_card = !self.dialog.facts.is_empty() || self.dialog.quote.is_some();
+        // A permission's text introduces its card; next to the card of values the text explains
+        // them, after it. Alone the text is the question itself.
+        let colour = if self.dialog.permission.is_some() || has_card {
             theme::MUTED
         } else {
             theme::TEXT
         };
-        paragraphs(ui, &self.dialog.text, body);
         if let Some(p) = &self.dialog.permission {
+            paragraphs(ui, &self.dialog.text, colour);
             ui.add_space(6.0);
             if let Some(link) = permission_card(ui, p, ready) {
                 self.link = Some(link);
             }
+        } else {
+            if has_card {
+                facts_card(ui, &self.dialog.facts, self.dialog.quote.as_ref());
+                ui.add_space(6.0);
+            }
+            paragraphs(ui, &self.dialog.text, colour);
+        }
+        if !self.dialog.note.is_empty() {
+            ui.add_space(6.0);
+            theme::note(ui, &self.dialog.note);
         }
 
         let mut submit = false;
@@ -239,6 +322,7 @@ impl DialogView {
                 ui.add_space(4.0);
                 let masked = matches!(self.dialog.kind, DialogKind::Secret { .. });
                 let edit = egui::TextEdit::singleline(&mut self.input)
+                    .hint_text(RichText::new(self.dialog.placeholder.as_str()).color(theme::MUTED))
                     .password(masked)
                     .char_limit(MAX_INPUT)
                     .desired_width(f32::INFINITY)
@@ -343,6 +427,28 @@ fn paragraphs(ui: &mut egui::Ui, text: &str, colour: egui::Color32) {
     }
 }
 
+/// Labelled values and the quoted text in a card.
+fn facts_card(ui: &mut egui::Ui, facts: &[(String, String)], quote: Option<&(String, String)>) {
+    theme::card().show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.spacing_mut().item_spacing.y = 4.0;
+        for (i, (label, value)) in facts.iter().enumerate() {
+            if i > 0 {
+                ui.add_space(8.0);
+            }
+            theme::fact(ui, label, value);
+        }
+        if let Some((label, text)) = quote {
+            if !facts.is_empty() {
+                ui.add_space(10.0);
+            }
+            theme::section_label(ui, label);
+            ui.add_space(2.0);
+            theme::quote(ui, text);
+        }
+    });
+}
+
 /// What, why and the commands of a permission in a card; returns a link clicked this frame.
 fn permission_card(ui: &mut egui::Ui, p: &Permission, ready: bool) -> Option<String> {
     let mut clicked = None;
@@ -419,6 +525,11 @@ mod tests {
             reject: "Don't allow".into(),
             timeout: Duration::from_secs(60),
             permission: None,
+            origin: None,
+            facts: Vec::new(),
+            quote: None,
+            note: String::new(),
+            placeholder: String::new(),
         }
     }
 
@@ -610,6 +721,74 @@ mod tests {
         }
         assert_eq!(answer, Some(Answer::Rejected));
         assert_eq!(view.take_link(), None);
+    }
+
+    #[test]
+    fn the_mark_shows_only_the_host() {
+        assert_eq!(Origin::host_of("https://code.example"), "code.example");
+        assert_eq!(
+            Origin::host_of("https://code.example/path?q=1"),
+            "code.example"
+        );
+        assert_eq!(Origin::host_of("http://localhost:5173"), "localhost:5173");
+        assert_eq!(Origin::host_of("https://user:pw@evil.test/"), "evil.test");
+        assert_eq!(Origin::host_of("code.example"), "code.example");
+        assert_eq!(Origin::host_of("https://a\u{202E}b.test"), "ab.test");
+    }
+
+    #[test]
+    fn parts_are_plain_and_empty_ones_dropped() {
+        let view = DialogView::new(Dialog {
+            facts: vec![
+                ("Project\n".into(), "notes\u{202E}-app".into()),
+                ("Browser".into(), "  ".into()),
+            ],
+            quote: Some((
+                "Task".into(),
+                "Add a dark theme\u{0007}\nand a switch".into(),
+            )),
+            note: "Check it\u{200B}.".into(),
+            placeholder: "e.g.\nhttp://localhost".into(),
+            ..confirm()
+        });
+        let d = view.dialog();
+        assert_eq!(
+            d.facts,
+            vec![("Project".to_owned(), "notes-app".to_owned())]
+        );
+        assert_eq!(
+            d.quote,
+            Some((
+                "Task".to_owned(),
+                "Add a dark theme\nand a switch".to_owned()
+            ))
+        );
+        assert_eq!(d.note, "Check it.");
+        assert_eq!(d.placeholder, "e.g. http://localhost");
+    }
+
+    #[test]
+    fn a_question_in_parts_is_drawn_and_starts_on_the_reject_button() {
+        let ctx = egui::Context::default();
+        let mut view = DialogView::new(Dialog {
+            origin: Some(Origin {
+                url: "https://code.example".into(),
+                checked: true,
+                about: "Checked by the agent.".into(),
+            }),
+            facts: vec![("Project".into(), "notes-app".into())],
+            quote: Some(("First task".into(), "Add a dark theme".into())),
+            note: "Start only if you gave this task.".into(),
+            ..confirm()
+        });
+        frame(&ctx, &mut view, 0.0, vec![]);
+        frame(&ctx, &mut view, 1.0, vec![]);
+        frame(&ctx, &mut view, 1.1, vec![]);
+        let mut answer = None;
+        for t in [1.2, 1.3, 1.4] {
+            answer = answer.or(frame(&ctx, &mut view, t, vec![key(Key::Enter)]));
+        }
+        assert_eq!(answer, Some(Answer::Rejected));
     }
 
     #[test]

@@ -197,6 +197,62 @@ pub fn start_work_text(lang: Language, origin: &str, project: &str, task: &str) 
     message(lang, "start-work-text", &args)
 }
 
+/// Label of a value in the agent's own window: the browser that asks.
+pub fn ask_fact_browser(lang: Language) -> String {
+    text(lang, "ask-fact-browser")
+}
+
+/// Label of a value in the agent's own window: the pairing code.
+pub fn ask_fact_code(lang: Language) -> String {
+    text(lang, "ask-fact-code")
+}
+
+/// Label of a value in the agent's own window: the project.
+pub fn ask_fact_project(lang: Language) -> String {
+    text(lang, "ask-fact-project")
+}
+
+/// Label of the quoted task in the agent's own window ("First task").
+pub fn ask_fact_task(lang: Language) -> String {
+    text(lang, "ask-fact-task")
+}
+
+/// What to check before allowing a pairing.
+pub fn pair_note(lang: Language) -> String {
+    text(lang, "pair-note")
+}
+
+/// What to check before giving access to a project.
+pub fn project_access_note(lang: Language) -> String {
+    text(lang, "project-access-note")
+}
+
+/// What starting work allows, under the quoted task.
+pub fn start_work_body(lang: Language) -> String {
+    text(lang, "start-work-body")
+}
+
+/// What to check before starting work.
+pub fn start_work_note(lang: Language) -> String {
+    text(lang, "start-work-note")
+}
+
+/// What the site mark of a window means: `checked` — the agent checked the site itself (a paired
+/// browser signed the request), otherwise only the browser reported it.
+pub fn origin_explained(lang: Language, host: &str, checked: bool) -> String {
+    let id = if checked {
+        "origin-checked"
+    } else {
+        "origin-unchecked"
+    };
+    message(lang, id, &[("host", host.into())])
+}
+
+/// An example shown in an empty field ("e.g. …").
+pub fn field_example(lang: Language, example: &str) -> String {
+    message(lang, "field-example", &[("example", example.into())])
+}
+
 /// Native button label: start the work ("Start").
 pub fn btn_start(lang: Language) -> String {
     text(lang, "btn-start")
@@ -291,6 +347,16 @@ pub fn custom_openai_key_prompt(lang: Language) -> String {
 /// Prompt for entering custom OpenAI model identifier.
 pub fn custom_openai_model_prompt(lang: Language) -> String {
     text(lang, "custom-openai-model-prompt")
+}
+
+/// The endpoint prompt in the agent's own window, without its example (shown in the field).
+pub fn custom_openai_endpoint_label(lang: Language) -> String {
+    text(lang, "custom-openai-endpoint-label")
+}
+
+/// The model prompt in the agent's own window, without its example (shown in the field).
+pub fn custom_openai_model_label(lang: Language) -> String {
+    text(lang, "custom-openai-model-label")
 }
 
 /// Native button label: Allow.
@@ -913,7 +979,7 @@ mod tests {
             "origin", "name", "code", "project", "action", "target", "provider", "prompt",
             "endpoint", "update", "version", "port", "pid", "login", "kind", "size", "path",
             "title", "stage", "line", "minutes", "needed", "free", "error", "system", "cpu",
-            "platform", "asset", "part", "home", "tools", "task",
+            "platform", "asset", "part", "home", "tools", "task", "host", "example",
         ];
         let mut args = FluentArgs::new();
         for v in values {

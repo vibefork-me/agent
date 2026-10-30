@@ -298,6 +298,11 @@ pub(crate) async fn ai(
     with_backend(state, &headers, &origin.0, |b| b.ai()).await
 }
 
+/// The example in the empty field of a custom server's address.
+const ENDPOINT_EXAMPLE: &str = "http://localhost:11434/v1";
+/// The example in the empty field of a custom server's model.
+const MODEL_EXAMPLE: &str = "llama3, qwen2.5-coder";
+
 /// Starts a provider connection (subscription sign-in or OpenRouter API key) after the user
 /// confirms it in the native dialog; `GET /v1/ai` tells when it is done.
 pub(crate) async fn ai_connect(
@@ -415,9 +420,14 @@ pub(crate) async fn ai_connect(
         let auth = state.auth.clone();
         let o = origin.0.clone();
         let endpoint_prompt = vf_core::catalog::custom_openai_endpoint_prompt(lang);
-        let endpoint_val = tokio::task::spawn_blocking(move || auth.ask_text(&o, &endpoint_prompt))
-            .await
-            .unwrap_or(None);
+        let hint = vf_auth::FieldHint {
+            prompt: vf_core::catalog::custom_openai_endpoint_label(lang),
+            example: vf_core::catalog::field_example(lang, ENDPOINT_EXAMPLE),
+        };
+        let endpoint_val =
+            tokio::task::spawn_blocking(move || auth.ask_text(&o, &endpoint_prompt, Some(&hint)))
+                .await
+                .unwrap_or(None);
 
         let Some(raw_endpoint) = endpoint_val.filter(|s| !s.trim().is_empty()) else {
             state
@@ -503,9 +513,14 @@ pub(crate) async fn ai_connect(
             let auth = state.auth.clone();
             let o = origin.0.clone();
             let model_prompt = vf_core::catalog::custom_openai_model_prompt(lang);
-            let model_val = tokio::task::spawn_blocking(move || auth.ask_text(&o, &model_prompt))
-                .await
-                .unwrap_or(None);
+            let hint = vf_auth::FieldHint {
+                prompt: vf_core::catalog::custom_openai_model_label(lang),
+                example: vf_core::catalog::field_example(lang, MODEL_EXAMPLE),
+            };
+            let model_val =
+                tokio::task::spawn_blocking(move || auth.ask_text(&o, &model_prompt, Some(&hint)))
+                    .await
+                    .unwrap_or(None);
 
             let Some(m) = model_val.filter(|s| !s.trim().is_empty()) else {
                 state

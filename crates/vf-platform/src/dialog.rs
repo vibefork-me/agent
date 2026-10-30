@@ -11,7 +11,7 @@
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-use vf_core::{ConfirmDialog, Secret, dialog_text};
+use vf_core::{Ask, ConfirmDialog, Secret, dialog_text};
 
 /// How long a dialog waits for the user before it counts as Don't allow.
 pub const DIALOG_TIMEOUT: Duration = Duration::from_secs(60);
@@ -50,6 +50,20 @@ pub mod window {
     pub const ENV_COMMANDS: &str = "VF_DIALOG_COMMANDS";
     /// Seconds the window waits.
     pub const ENV_TIMEOUT_SECS: &str = "VF_DIALOG_TIMEOUT_SECS";
+    /// The site that asks; with it [`ENV_TEXT`] is the question without the site.
+    pub const ENV_ORIGIN: &str = "VF_DIALOG_ORIGIN";
+    /// `1`: the agent checked [`ENV_ORIGIN`] itself (a paired browser signed the request).
+    pub const ENV_ORIGIN_CHECKED: &str = "VF_DIALOG_ORIGIN_CHECKED";
+    /// Labelled values, one per line: the label, a tab, the value.
+    pub const ENV_FACTS: &str = "VF_DIALOG_FACTS";
+    /// Label of the quoted text.
+    pub const ENV_QUOTE_LABEL: &str = "VF_DIALOG_QUOTE_LABEL";
+    /// A text shown as quoted (a task as given).
+    pub const ENV_QUOTE: &str = "VF_DIALOG_QUOTE";
+    /// What to check before answering.
+    pub const ENV_NOTE: &str = "VF_DIALOG_NOTE";
+    /// A text field's example, shown while the field is empty.
+    pub const ENV_PLACEHOLDER: &str = "VF_DIALOG_PLACEHOLDER";
     /// Exit code: accepted (a value, if any, is on stdout).
     pub const EXIT_ACCEPTED: i32 = 0;
     /// Exit code: rejected, closed or timed out.
@@ -171,6 +185,7 @@ fn ask_value(
     title: &str,
     text: &str,
     lang: vf_core::Language,
+    extra: &[(&str, &str)],
 ) -> Option<Option<String>> {
     match ask_window(
         kind,
@@ -178,7 +193,7 @@ fn ask_value(
         text,
         &vf_core::catalog::btn_ok(lang),
         &vf_core::catalog::btn_cancel(lang),
-        &[],
+        extra,
     ) {
         Shown::Unavailable => None,
         Shown::Answered {
@@ -189,6 +204,43 @@ fn ask_value(
             value,
         } => Some(Some(vf_core::clean_secret(&value))),
     }
+}
+
+/// The variables of a question in parts for the agent's own window, cleaned: the site, the
+/// labelled values, the quote, the note, the field's example.
+fn parts_env(ask: &Ask) -> Vec<(&'static str, String)> {
+    let line = |s: &str| vf_core::dialog_field(s, 400);
+    let mut env = Vec::new();
+    if let Some(origin) = &ask.origin {
+        env.push((window::ENV_ORIGIN, vf_core::dialog_field(origin, 100)));
+        if ask.origin_checked {
+            env.push((window::ENV_ORIGIN_CHECKED, "1".to_owned()));
+        }
+    }
+    if !ask.facts.is_empty() {
+        let facts: Vec<String> = ask
+            .facts
+            .iter()
+            .map(|(label, value)| format!("{}\t{}", line(label), line(value)))
+            .collect();
+        env.push((window::ENV_FACTS, facts.join("\n")));
+    }
+    if let Some((label, quote)) = &ask.quote {
+        env.push((window::ENV_QUOTE_LABEL, line(label)));
+        env.push((window::ENV_QUOTE, dialog_text(quote)));
+    }
+    if !ask.note.is_empty() {
+        env.push((window::ENV_NOTE, dialog_text(&ask.note)));
+    }
+    if !ask.placeholder.is_empty() {
+        env.push((window::ENV_PLACEHOLDER, line(&ask.placeholder)));
+    }
+    env
+}
+
+/// [`parts_env`] as the pairs [`ask_window`] takes.
+fn env_refs<'a>(env: &'a [(&'static str, String)]) -> Vec<(&'static str, &'a str)> {
+    env.iter().map(|(k, v)| (*k, v.as_str())).collect()
 }
 
 /// The OS dialog. Returns `false` on Don't allow, timeout or when no dialog program is available.
@@ -228,27 +280,60 @@ impl ConfirmDialog for NativeConfirmDialog {
         system_confirm(&title, &text, self.language())
     }
 
+    fn confirm_parts(&self, ask: &Ask) -> bool {
+        let lang = self.language();
+        let title = dialog_text(&ask.title);
+        let (accept, reject) = if ask.accept.is_empty() {
+            (
+                vf_core::catalog::btn_allow(lang),
+                vf_core::catalog::btn_block(lang),
+            )
+        } else {
+            (dialog_text(&ask.accept), dialog_text(&ask.reject))
+        };
+        let env = parts_env(ask);
+        if let Shown::Answered { accepted, .. } = ask_window(
+            window::CONFIRM,
+            &title,
+            &dialog_text(&ask.text),
+            &accept,
+            &reject,
+            &env_refs(&env),
+        ) {
+            return accepted;
+        }
+        system_confirm(&title, &dialog_text(&ask.plain), lang)
+    }
+
     fn ask_permission(&self, origin: Option<&str>, request: &vf_core::Permission) -> bool {
         let lang = self.language();
         let request = request.cleaned();
         let title = vf_core::catalog::permission_title(lang);
+        // The window shows the site apart; its text starts after it.
         let intro = dialog_text(&vf_core::catalog::permission_intro(
             lang,
-            origin,
+            None,
             !request.commands.is_empty(),
         ));
         let commands = request.commands.join("\n");
+        let origin_shown = origin.map(|o| vf_core::dialog_field(o, 100));
+        let mut extra = vec![
+            (window::ENV_WHAT, request.what.as_str()),
+            (window::ENV_WHY, request.why.as_str()),
+            (window::ENV_COMMANDS, commands.as_str()),
+        ];
+        if let Some(o) = &origin_shown {
+            // Permissions are asked for a paired browser's session only.
+            extra.push((window::ENV_ORIGIN, o));
+            extra.push((window::ENV_ORIGIN_CHECKED, "1"));
+        }
         if let Shown::Answered { accepted, .. } = ask_window(
             window::PERMISSION,
             &title,
             &intro,
             &vf_core::catalog::btn_allow(lang),
             &vf_core::catalog::btn_block(lang),
-            &[
-                (window::ENV_WHAT, &request.what),
-                (window::ENV_WHY, &request.why),
-                (window::ENV_COMMANDS, &commands),
-            ],
+            &extra,
         ) {
             return accepted;
         }
@@ -266,6 +351,39 @@ impl ConfirmDialog for NativeConfirmDialog {
 
     fn ask_secret_optional(&self, title: &str, text: &str) -> Option<Secret<String>> {
         ask_secret_optional_with_lang(title, text, self.language())
+    }
+
+    fn ask_text_parts(&self, ask: &Ask) -> Option<String> {
+        let env = parts_env(ask);
+        text_value(
+            &ask.title,
+            &ask.plain,
+            &ask.text,
+            &env_refs(&env),
+            self.language(),
+        )
+    }
+
+    fn ask_secret_parts(&self, ask: &Ask) -> Option<Secret<String>> {
+        let env = parts_env(ask);
+        secret_value(
+            &ask.title,
+            &ask.plain,
+            &ask.text,
+            &env_refs(&env),
+            self.language(),
+        )
+    }
+
+    fn ask_secret_optional_parts(&self, ask: &Ask) -> Option<Secret<String>> {
+        let env = parts_env(ask);
+        secret_optional_value(
+            &ask.title,
+            &ask.plain,
+            &ask.text,
+            &env_refs(&env),
+            self.language(),
+        )
     }
 }
 
@@ -288,11 +406,22 @@ pub fn ask_text(title: &str, text: &str) -> Option<String> {
 
 /// Shows a text entry dialog with a specified language.
 pub fn ask_text_with_lang(title: &str, text: &str, lang: vf_core::Language) -> Option<String> {
-    let (title, text) = (dialog_text(title), dialog_text(text));
-    if let Some(answer) = ask_value(window::TEXT, &title, &text, lang) {
+    text_value(title, text, text, &[], lang)
+}
+
+/// A text value: the agent's own window shows `shown` and `extra`, a system dialog `plain`.
+fn text_value(
+    title: &str,
+    plain: &str,
+    shown: &str,
+    extra: &[(&str, &str)],
+    lang: vf_core::Language,
+) -> Option<String> {
+    let (title, plain) = (dialog_text(title), dialog_text(plain));
+    if let Some(answer) = ask_value(window::TEXT, &title, &dialog_text(shown), lang, extra) {
         return answer.filter(|v| !v.is_empty());
     }
-    match spawn_text_dialog(&title, &text, lang) {
+    match spawn_text_dialog(&title, &plain, lang) {
         Ok(child) => wait_text(child),
         Err(e) => {
             tracing::warn!(error = %e, "cannot show a text dialog");
@@ -307,11 +436,29 @@ pub fn ask_secret_optional_with_lang(
     text: &str,
     lang: vf_core::Language,
 ) -> Option<Secret<String>> {
-    let (title, text) = (dialog_text(title), dialog_text(text));
-    if let Some(answer) = ask_value(window::SECRET_OPTIONAL, &title, &text, lang) {
+    secret_optional_value(title, text, text, &[], lang)
+}
+
+/// A secret, empty allowed: the agent's own window shows `shown` and `extra`, a system dialog
+/// `plain`.
+fn secret_optional_value(
+    title: &str,
+    plain: &str,
+    shown: &str,
+    extra: &[(&str, &str)],
+    lang: vf_core::Language,
+) -> Option<Secret<String>> {
+    let (title, plain) = (dialog_text(title), dialog_text(plain));
+    if let Some(answer) = ask_value(
+        window::SECRET_OPTIONAL,
+        &title,
+        &dialog_text(shown),
+        lang,
+        extra,
+    ) {
         return answer.map(Secret::new);
     }
-    match spawn_secret_dialog(&title, &text, lang) {
+    match spawn_secret_dialog(&title, &plain, lang) {
         Ok(child) => wait_secret_optional(child),
         Err(e) => {
             tracing::warn!(error = %e, "cannot show a secret dialog");
@@ -332,11 +479,22 @@ pub fn ask_secret_with_lang(
     text: &str,
     lang: vf_core::Language,
 ) -> Option<Secret<String>> {
-    let (title, text) = (dialog_text(title), dialog_text(text));
-    if let Some(answer) = ask_value(window::SECRET, &title, &text, lang) {
+    secret_value(title, text, text, &[], lang)
+}
+
+/// A secret, not empty: the agent's own window shows `shown` and `extra`, a system dialog `plain`.
+fn secret_value(
+    title: &str,
+    plain: &str,
+    shown: &str,
+    extra: &[(&str, &str)],
+    lang: vf_core::Language,
+) -> Option<Secret<String>> {
+    let (title, plain) = (dialog_text(title), dialog_text(plain));
+    if let Some(answer) = ask_value(window::SECRET, &title, &dialog_text(shown), lang, extra) {
         return answer.filter(|v| !v.is_empty()).map(Secret::new);
     }
-    match spawn_secret_dialog(&title, &text, lang) {
+    match spawn_secret_dialog(&title, &plain, lang) {
         Ok(child) => wait_secret(child),
         Err(e) => {
             tracing::warn!(error = %e, "cannot show a secret dialog");

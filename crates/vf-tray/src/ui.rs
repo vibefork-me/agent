@@ -9,8 +9,8 @@ use std::time::Duration;
 use vf_core::catalog;
 use vf_platform::dialog::window;
 use vf_ui::{
-    Answer, Command, Dialog, DialogKind, FirstRun, FirstRunText, Permission, Shell, StatusPage,
-    Tone,
+    Answer, Command, Dialog, DialogKind, FirstRun, FirstRunText, Origin, Permission, Shell,
+    StatusPage, Tone,
 };
 
 use crate::app::{self, Action, App, Entry, Look, Model, Notice};
@@ -35,8 +35,18 @@ pub(crate) fn command(args: &[String]) -> Option<i32> {
     }
 }
 
+/// Scale of the windows on top of the display's (`1.25`: a quarter larger).
+const ENV_ZOOM: &str = "VF_UI_ZOOM";
+
 fn shell() -> Shell {
-    Shell::new().with_icon(icon::rgba(Look::Waiting), icon::SIZE, icon::SIZE)
+    let zoom = std::env::var(ENV_ZOOM)
+        .ok()
+        .and_then(|z| z.trim().parse::<f32>().ok())
+        .unwrap_or(1.0);
+    Shell::new()
+        .with_icon(icon::rgba(Look::Waiting), icon::SIZE, icon::SIZE)
+        .with_close_label(&catalog::window_close(vf_platform::system_language()))
+        .with_zoom(zoom)
 }
 
 /// `dialog <kind>`: the question in the environment, the answer as the exit code (and the value on
@@ -63,6 +73,16 @@ fn dialog(kind_name: &str) -> i32 {
         reject: env(window::ENV_REJECT),
         timeout: Duration::from_secs(timeout),
         permission: (kind_name == window::PERMISSION).then(|| permission(&env)),
+        origin: origin(&env),
+        facts: env(window::ENV_FACTS)
+            .lines()
+            .filter_map(|l| l.split_once('\t'))
+            .map(|(label, value)| (label.to_owned(), value.to_owned()))
+            .collect(),
+        quote: Some((env(window::ENV_QUOTE_LABEL), env(window::ENV_QUOTE)))
+            .filter(|(_, q)| !q.trim().is_empty()),
+        note: env(window::ENV_NOTE),
+        placeholder: env(window::ENV_PLACEHOLDER),
     };
     let open = |link: &str| {
         let _ = vf_platform::agent_process::open_url(link);
@@ -84,6 +104,25 @@ fn dialog(kind_name: &str) -> i32 {
         Ok(Answer::Rejected | Answer::TimedOut) => window::EXIT_REJECTED,
         Err(_) => window::EXIT_NO_WINDOW,
     }
+}
+
+/// The site that asks, from the environment, with what its mark means in the person's language.
+fn origin(env: &dyn Fn(&str) -> String) -> Option<Origin> {
+    let url = env(window::ENV_ORIGIN);
+    if url.trim().is_empty() {
+        return None;
+    }
+    let checked = env(window::ENV_ORIGIN_CHECKED) == "1";
+    let about = catalog::origin_explained(
+        vf_platform::system_language(),
+        &Origin::host_of(&url),
+        checked,
+    );
+    Some(Origin {
+        url,
+        checked,
+        about,
+    })
 }
 
 /// What, why and the commands of a permission, from the environment; the links to check the

@@ -16,7 +16,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use vf_core::{ConfirmDialog, Secret};
+use vf_core::{Ask, ConfirmDialog, Secret};
 use vf_protocol::http::{PairInfo, PairState, PublicJwk};
 
 pub use crypto::key_id_of;
@@ -158,10 +158,21 @@ impl Auth {
         let me = self.clone();
         let (origin, jwk, id) = (origin.to_owned(), jwk.clone(), pair_id.clone());
         let lang = self.dialog.language();
-        let title = vf_core::catalog::pair_title(lang);
-        let text = vf_core::catalog::pair_text(lang, &origin, &name, &code);
+        let ask = Ask {
+            title: vf_core::catalog::pair_title(lang),
+            plain: vf_core::catalog::pair_text(lang, &origin, &name, &code),
+            origin: Some(vf_core::dialog_field(&origin, 100)),
+            // Not paired yet: the origin is only what the browser said; the code confirms it.
+            origin_checked: false,
+            facts: vec![
+                (vf_core::catalog::ask_fact_browser(lang), name.clone()),
+                (vf_core::catalog::ask_fact_code(lang), code.clone()),
+            ],
+            note: vf_core::catalog::pair_note(lang),
+            ..Ask::default()
+        };
         std::thread::spawn(move || {
-            let allowed = me.dialog.confirm(&title, &text);
+            let allowed = me.dialog.confirm_parts(&ask);
             let saved = allowed
                 && me
                     .store
@@ -275,28 +286,44 @@ impl Auth {
     /// Asks the user for a secret in the native dialog with input masked. Blocks.
     pub fn ask_secret(&self, origin: &str, prompt: &str) -> Option<Secret<String>> {
         let lang = self.dialog.language();
-        let prompt = vf_core::dialog_field(prompt, 200);
-        let title = vf_core::catalog::ask_secret_title(lang);
-        let text = vf_core::catalog::ask_secret_text(lang, origin, &prompt);
-        self.dialog.ask_secret(&title, &text)
+        let ask = value_ask(
+            vf_core::catalog::ask_secret_title(lang),
+            vf_core::catalog::ask_secret_text,
+            lang,
+            origin,
+            prompt,
+            None,
+        );
+        self.dialog.ask_secret_parts(&ask)
     }
 
-    /// Asks the user for a text input in the native dialog unmasked. Blocks.
-    pub fn ask_text(&self, origin: &str, prompt: &str) -> Option<String> {
+    /// Asks the user for a text input in the native dialog unmasked. Blocks. With `hint`, the
+    /// agent's own window shows its shorter prompt and the example inside the empty field.
+    pub fn ask_text(&self, origin: &str, prompt: &str, hint: Option<&FieldHint>) -> Option<String> {
         let lang = self.dialog.language();
-        let prompt = vf_core::dialog_field(prompt, 200);
-        let title = vf_core::catalog::ask_text_title(lang);
-        let text = vf_core::catalog::ask_text_text(lang, origin, &prompt);
-        self.dialog.ask_text(&title, &text)
+        let ask = value_ask(
+            vf_core::catalog::ask_text_title(lang),
+            vf_core::catalog::ask_text_text,
+            lang,
+            origin,
+            prompt,
+            hint,
+        );
+        self.dialog.ask_text_parts(&ask)
     }
 
     /// Asks the user for a secret in the native dialog with input masked, allowing empty input. Blocks.
     pub fn ask_secret_optional(&self, origin: &str, prompt: &str) -> Option<Secret<String>> {
         let lang = self.dialog.language();
-        let prompt = vf_core::dialog_field(prompt, 200);
-        let title = vf_core::catalog::ask_secret_title(lang);
-        let text = vf_core::catalog::ask_secret_text(lang, origin, &prompt);
-        self.dialog.ask_secret_optional(&title, &text)
+        let ask = value_ask(
+            vf_core::catalog::ask_secret_title(lang),
+            vf_core::catalog::ask_secret_text,
+            lang,
+            origin,
+            prompt,
+            None,
+        );
+        self.dialog.ask_secret_optional_parts(&ask)
     }
 
     /// The native confirm dialog.
@@ -317,10 +344,25 @@ impl Auth {
         let project_shown = vf_core::dialog_field(project, 80);
         let origin_clean = vf_core::dialog_field(origin, 80);
         let name_clean = vf_core::dialog_field(&pair.name, 80);
-        let title = vf_core::catalog::project_access_title(lang);
-        let text =
-            vf_core::catalog::project_access_text(lang, &origin_clean, &name_clean, &project_shown);
-        let allowed = self.dialog.confirm(&title, &text);
+        let ask = Ask {
+            title: vf_core::catalog::project_access_title(lang),
+            plain: vf_core::catalog::project_access_text(
+                lang,
+                &origin_clean,
+                &name_clean,
+                &project_shown,
+            ),
+            origin: Some(origin_clean),
+            // The browser is paired with this origin and signed the request.
+            origin_checked: true,
+            facts: vec![
+                (vf_core::catalog::ask_fact_project(lang), project_shown),
+                (vf_core::catalog::ask_fact_browser(lang), name_clean),
+            ],
+            note: vf_core::catalog::project_access_note(lang),
+            ..Ask::default()
+        };
+        let allowed = self.dialog.confirm_parts(&ask);
         allowed && self.store.add_project(key_id, project).is_ok()
     }
 
@@ -329,19 +371,26 @@ impl Auth {
     /// Start / Not now. Blocks.
     pub fn start_work_allowed(&self, origin: &str, project: &str, task: &str) -> bool {
         let lang = self.dialog.language();
-        let title = vf_core::catalog::start_work_title(lang);
-        let text = vf_core::catalog::start_work_text(
-            lang,
-            &vf_core::dialog_field(origin, 80),
-            &vf_core::dialog_field(project, 80),
-            &vf_core::dialog_field(task, START_TASK_SHOWN),
+        let (origin, project) = (
+            vf_core::dialog_field(origin, 80),
+            vf_core::dialog_field(project, 80),
         );
-        self.dialog.confirm_with(
-            &title,
-            &text,
-            &vf_core::catalog::btn_start(lang),
-            &vf_core::catalog::btn_not_now(lang),
-        )
+        let task = vf_core::dialog_field(task, START_TASK_SHOWN);
+        let ask = Ask {
+            title: vf_core::catalog::start_work_title(lang),
+            plain: vf_core::catalog::start_work_text(lang, &origin, &project, &task),
+            origin: Some(origin),
+            // Only a session of a paired browser gives tasks.
+            origin_checked: true,
+            text: vf_core::catalog::start_work_body(lang),
+            facts: vec![(vf_core::catalog::ask_fact_project(lang), project)],
+            quote: Some((vf_core::catalog::ask_fact_task(lang), task)),
+            note: vf_core::catalog::start_work_note(lang),
+            accept: vf_core::catalog::btn_start(lang),
+            reject: vf_core::catalog::btn_not_now(lang),
+            ..Ask::default()
+        };
+        self.dialog.confirm_parts(&ask)
     }
 
     /// Paired browsers.
@@ -365,6 +414,52 @@ impl Auth {
         self.state().sessions.retain(|_, s| s.key_id != key_id);
         Ok(())
     }
+}
+
+/// A text field's wording in the agent's own window: the prompt without its example, and the
+/// example, shown inside the empty field.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FieldHint {
+    /// The prompt without its example.
+    pub prompt: String,
+    /// The example, worded ("e.g. …").
+    pub example: String,
+}
+
+/// A question for a value from `origin` (a paired browser's session): the plain text from
+/// `plain_text`, and in the window the prompt (or `hint`'s shorter one) under the site.
+fn value_ask(
+    title: String,
+    plain_text: fn(vf_core::Language, &str, &str) -> String,
+    lang: vf_core::Language,
+    origin: &str,
+    prompt: &str,
+    hint: Option<&FieldHint>,
+) -> Ask {
+    let prompt = vf_core::dialog_field(prompt, 200);
+    let shown = hint.map_or(prompt.as_str(), |h| h.prompt.as_str());
+    Ask {
+        title,
+        plain: plain_text(lang, origin, &prompt),
+        origin: Some(vf_core::dialog_field(origin, 100)),
+        origin_checked: true,
+        text: sentence(shown),
+        placeholder: hint
+            .map(|h| vf_core::dialog_field(&h.example, 120))
+            .unwrap_or_default(),
+        ..Ask::default()
+    }
+}
+
+/// A prompt worded to follow "… asks:" as a sentence of its own: the first letter capitalised,
+/// without the closing colon.
+fn sentence(prompt: &str) -> String {
+    let prompt = prompt.trim().trim_end_matches(':').trim_end();
+    let mut chars = prompt.chars();
+    chars
+        .next()
+        .map(|c| c.to_uppercase().chain(chars).collect())
+        .unwrap_or_default()
 }
 
 fn now_secs() -> u64 {

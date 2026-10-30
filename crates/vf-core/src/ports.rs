@@ -53,6 +53,65 @@ pub trait ConfirmDialog: Send + Sync {
         let _ = (title, text);
         None
     }
+
+    /// [`ConfirmDialog::confirm_with`] for a question in parts: a window lays them out, a dialog
+    /// that shows only text shows [`Ask::plain`]. By default it is that text dialog (with the
+    /// usual labels when [`Ask::accept`] is empty).
+    fn confirm_parts(&self, ask: &Ask) -> bool {
+        if ask.accept.is_empty() {
+            self.confirm(&ask.title, &ask.plain)
+        } else {
+            self.confirm_with(&ask.title, &ask.plain, &ask.accept, &ask.reject)
+        }
+    }
+
+    /// [`ConfirmDialog::ask_text`] for a question in parts. By default it is that dialog with
+    /// [`Ask::plain`].
+    fn ask_text_parts(&self, ask: &Ask) -> Option<String> {
+        self.ask_text(&ask.title, &ask.plain)
+    }
+
+    /// [`ConfirmDialog::ask_secret`] for a question in parts. By default it is that dialog with
+    /// [`Ask::plain`].
+    fn ask_secret_parts(&self, ask: &Ask) -> Option<Secret<String>> {
+        self.ask_secret(&ask.title, &ask.plain)
+    }
+
+    /// [`ConfirmDialog::ask_secret_optional`] for a question in parts. By default it is that
+    /// dialog with [`Ask::plain`].
+    fn ask_secret_optional_parts(&self, ask: &Ask) -> Option<Secret<String>> {
+        self.ask_secret_optional(&ask.title, &ask.plain)
+    }
+}
+
+/// A question in parts, for a window that lays them out: who asks, labelled values, a quoted text,
+/// what to check before answering. Every part is already in the person's language and made safe
+/// ([`dialog_field`], [`dialog_text`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Ask {
+    /// Window title.
+    pub title: String,
+    /// The whole question as one text, for a dialog that shows only text.
+    pub plain: String,
+    /// The site that asks (`https://code.example`).
+    pub origin: Option<String>,
+    /// Whether the agent checked [`Ask::origin`] itself: the request came from a paired browser
+    /// and is signed with its key. Otherwise the origin is only what the browser reported.
+    pub origin_checked: bool,
+    /// The question in the window's words, under the site; may hold paragraphs.
+    pub text: String,
+    /// Labelled values (`("Project", "notes-app")`), shown together.
+    pub facts: Vec<(String, String)>,
+    /// A text shown as quoted, with its label (`("First task", "…")`).
+    pub quote: Option<(String, String)>,
+    /// What to check before answering, shown as a warning.
+    pub note: String,
+    /// A text field's example, shown while the field is empty.
+    pub placeholder: String,
+    /// Label of the accepting button; empty: the usual one.
+    pub accept: String,
+    /// Label of the rejecting button; empty: the usual one.
+    pub reject: String,
 }
 
 /// Characters that change how text is laid out or hide text: bidi controls, zero-width characters,
