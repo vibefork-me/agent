@@ -11,8 +11,9 @@ use vf_auth::{AuthError, SessionInfo};
 use vf_protocol::http::{
     AiConnectRequest, AiConnectResponse, AiDisconnectRequest, AiDisconnectResponse,
     ChallengeRequest, ChallengeResponse, CliHomeMode, DescribeRequest, ErrorBody, Hello,
-    ImportRequest, Me, PairStartRequest, PairStartResponse, PairStatusResponse, RevokeRequest,
-    RevokeResponse, RollbackRequest, SaveRequest, SessionRequest, SessionResponse,
+    ImportRequest, Me, PairCodeRequest, PairCodeResponse, PairStartRequest, PairStartResponse,
+    PairStatusResponse, RevokeRequest, RevokeResponse, RollbackRequest, SaveRequest,
+    SessionRequest, SessionResponse,
 };
 use vf_protocol::{Backend, BackendError};
 
@@ -90,8 +91,22 @@ pub(crate) async fn pair_start(
         .auth
         .start_pairing(&origin.0, &req.public_key_jwk, req.name.as_deref())
     {
-        Ok((pair_id, code)) => Json(PairStartResponse { pair_id, code }).into_response(),
+        Ok(pair_id) => Json(PairStartResponse { pair_id }).into_response(),
         Err(e) => auth_error(&e),
+    }
+}
+
+pub(crate) async fn pair_code(
+    State(state): State<AppState>,
+    Extension(origin): Extension<EffectiveOrigin>,
+    Json(req): Json<PairCodeRequest>,
+) -> Response {
+    match state
+        .auth
+        .enter_pairing_code(&req.pair_id, &origin.0, &req.code)
+    {
+        Some((accepted, status)) => Json(PairCodeResponse { accepted, status }).into_response(),
+        None => error(StatusCode::NOT_FOUND, "unknown pairing"),
     }
 }
 
@@ -102,7 +117,12 @@ pub(crate) async fn pair_status(
 ) -> Response {
     let id = q.get("id").map(String::as_str).unwrap_or_default();
     match state.auth.pairing_status(id, &origin.0) {
-        Some((status, key_id)) => Json(PairStatusResponse { status, key_id }).into_response(),
+        Some(p) => Json(PairStatusResponse {
+            status: p.status,
+            key_id: p.key_id,
+            code_accepted: p.code_accepted,
+        })
+        .into_response(),
         None => error(StatusCode::NOT_FOUND, "unknown pairing"),
     }
 }

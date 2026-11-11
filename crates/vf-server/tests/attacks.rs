@@ -30,9 +30,44 @@ const UI: &str = "https://ui.test";
 const OTHER: &str = "https://other.test";
 const EVIL: &str = "https://evil.test";
 
+/// Texts of the dialogs the test doubles showed, in order (all tests of this binary).
+static SHOWN: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+fn shown(text: &str) {
+    SHOWN.lock().unwrap().push(text.to_owned());
+}
+
+/// The code the pairing dialog for browser `name` showed, once it was shown.
+async fn code_shown_to(name: &str) -> String {
+    let marker = format!("Browser: {name}\n");
+    for _ in 0..300 {
+        let found = SHOWN
+            .lock()
+            .unwrap()
+            .iter()
+            .rev()
+            .find(|t| t.contains(&marker))
+            .cloned();
+        if let Some(text) = found {
+            let line = text.lines().find(|l| l.starts_with("Code: ")).unwrap();
+            return line.trim_start_matches("Code: ").to_owned();
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("no pairing dialog for {name}");
+}
+
+/// A browser name no other test uses.
+fn unique_name() -> String {
+    let mut bytes = [0u8; 8];
+    rand::RngCore::fill_bytes(&mut OsRng, &mut bytes);
+    format!("test-{}", u64::from_le_bytes(bytes))
+}
+
 struct Always(bool);
 impl ConfirmDialog for Always {
-    fn confirm(&self, _title: &str, _text: &str) -> bool {
+    fn confirm(&self, _title: &str, text: &str) -> bool {
+        shown(text);
         self.0
     }
 }
@@ -42,7 +77,8 @@ struct DialogWithSecret {
     secret: Option<String>,
 }
 impl ConfirmDialog for DialogWithSecret {
-    fn confirm(&self, _title: &str, _text: &str) -> bool {
+    fn confirm(&self, _title: &str, text: &str) -> bool {
+        shown(text);
         self.allow
     }
     fn ask_secret(&self, _title: &str, _text: &str) -> Option<Secret<String>> {
@@ -171,18 +207,57 @@ impl Browser {
     }
 }
 
-async fn pair(app: &Router, browser: &Browser, origin: &str) -> String {
+/// Starts pairing for `browser` with a unique name; returns `(pair_id, name)`.
+async fn start_pairing(app: &Router, browser: &Browser, origin: &str) -> (String, String) {
+    let name = unique_name();
     let (s, v, _) = call(
         app,
         Req::post(
             "/v1/pair/start",
             origin,
-            json!({ "publicKeyJwk": browser.jwk(), "name": "test" }),
+            json!({ "publicKeyJwk": browser.jwk(), "name": name }),
         ),
     )
     .await;
     assert_eq!(s, StatusCode::OK, "{v}");
-    let id = v["pairId"].as_str().unwrap().to_owned();
+    (v["pairId"].as_str().unwrap().to_owned(), name)
+}
+
+/// `POST /v1/pair/code`.
+async fn enter_code(app: &Router, origin: &str, pair_id: &str, code: &str) -> (StatusCode, Value) {
+    let (s, v, _) = call(
+        app,
+        Req::post(
+            "/v1/pair/code",
+            origin,
+            json!({ "pairId": pair_id, "code": code }),
+        ),
+    )
+    .await;
+    (s, v)
+}
+
+/// `GET /v1/pair/status`.
+async fn pair_status(app: &Router, origin: &str, pair_id: &str) -> Value {
+    let path = format!("/v1/pair/status?id={pair_id}");
+    call(
+        app,
+        Req {
+            marker: true,
+            ..Req::get(&path, Some(origin))
+        },
+    )
+    .await
+    .1
+}
+
+/// Pairs the way a user does: reads the code in the agent's dialog and types it on the page.
+async fn pair(app: &Router, browser: &Browser, origin: &str) -> String {
+    let (id, name) = start_pairing(app, browser, origin).await;
+    let code = code_shown_to(&name).await;
+    let (s, v) = enter_code(app, origin, &id, &code).await;
+    assert_eq!(s, StatusCode::OK, "{v}");
+    assert_eq!(v["accepted"], json!(true), "{v}");
     for _ in 0..200 {
         let path = format!("/v1/pair/status?id={id}");
         let (_, v, _) = call(
@@ -363,6 +438,147 @@ async fn denied_dialog_means_no_pairing() {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     assert_eq!(status, "denied");
+}
+
+/// Allow is clicked, no code is entered: a program that asks to pair in the name of a site never
+/// learns the code, so the user's click alone does not pair it.
+#[tokio::test]
+async fn the_code_reaches_only_the_dialog_and_allow_alone_does_not_pair() {
+    let app = app(true);
+    let browser = Browser::new();
+    let name = unique_name();
+    let (s, v, _) = call(
+        &app,
+        Req::post(
+            "/v1/pair/start",
+            UI,
+            json!({ "publicKeyJwk": browser.jwk(), "name": name }),
+        ),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    assert!(v.get("code").is_none(), "the code is not returned: {v}");
+    assert_eq!(v.as_object().unwrap().len(), 1, "only the pair id: {v}");
+    let id = v["pairId"].as_str().unwrap();
+    let code = code_shown_to(&name).await; // the dialog was answered with Allow
+    let status = pair_status(&app, UI, id).await;
+    assert_eq!(status["status"], "pending", "{status}");
+    assert!(status.get("keyId").is_none());
+    assert_eq!(status["codeAccepted"], json!(false));
+    assert!(
+        !status.to_string().contains(&code),
+        "the status does not leak the code"
+    );
+}
+
+/// Three wrong codes deny the request; the right one after that does not help, and neither does a
+/// guess from another origin or for an unknown request.
+#[tokio::test]
+async fn guessing_the_code_denies_the_pairing() {
+    let app = app(true);
+    let browser = Browser::new();
+    let (id, name) = start_pairing(&app, &browser, UI).await;
+    let code = code_shown_to(&name).await;
+    let wrong = if code == "000-000" {
+        "000-001"
+    } else {
+        "000-000"
+    };
+
+    assert_eq!(
+        enter_code(&app, OTHER, &id, &code).await.0,
+        StatusCode::NOT_FOUND,
+        "a code from another origin is not taken"
+    );
+    assert_eq!(
+        enter_code(&app, UI, "no-such-pairing", &code).await.0,
+        StatusCode::NOT_FOUND
+    );
+    for attempt in 1..=3 {
+        let (s, v) = enter_code(&app, UI, &id, wrong).await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(v["accepted"], json!(false), "{v}");
+        let expected = if attempt < 3 { "pending" } else { "denied" };
+        assert_eq!(v["status"], expected, "attempt {attempt}: {v}");
+    }
+    let (_, v) = enter_code(&app, UI, &id, &code).await;
+    assert_eq!(v["accepted"], json!(false), "{v}");
+    assert_eq!(v["status"], "denied");
+    assert_eq!(pair_status(&app, UI, &id).await["status"], "denied");
+    let (s, _, _) = call(
+        &app,
+        Req::post(
+            "/v1/auth/challenge",
+            UI,
+            json!({ "keyId": vf_auth::key_id_of(&serde_json::from_value(browser.jwk()).unwrap()) }),
+        ),
+    )
+    .await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED, "not paired");
+}
+
+/// The right code without Allow does not pair: Don't allow in the dialog wins.
+#[tokio::test]
+async fn the_right_code_without_allow_does_not_pair() {
+    let app = app(false);
+    let browser = Browser::new();
+    let (id, name) = start_pairing(&app, &browser, UI).await;
+    let code = code_shown_to(&name).await;
+    for _ in 0..200 {
+        if pair_status(&app, UI, &id).await["status"] != "pending" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let (_, v) = enter_code(&app, UI, &id, &code).await;
+    assert_eq!(v["status"], "denied", "{v}");
+}
+
+/// The code may be typed before Allow is clicked, with or without the dash.
+#[tokio::test]
+async fn the_code_may_come_before_allow() {
+    let gate = Arc::new(Gate::default());
+    let auth = Auth::load(temp_dir(), gate.clone()).unwrap();
+    let app = router(
+        Config {
+            port: PORT,
+            allowed_origins: vec![UI.into()],
+            extra_origins: vec![],
+        },
+        auth,
+        Arc::new(RwLock::new(None)),
+        common::backend(),
+    );
+    let browser = Browser::new();
+    let (id, name) = start_pairing(&app, &browser, UI).await;
+    let code = code_shown_to(&name).await.replace('-', "");
+    let (_, v) = enter_code(&app, UI, &id, &code).await;
+    assert_eq!(v, json!({ "accepted": true, "status": "pending" }));
+    let status = pair_status(&app, UI, &id).await;
+    assert_eq!(status["codeAccepted"], json!(true), "{status}");
+    gate.open.store(true, std::sync::atomic::Ordering::SeqCst);
+    for _ in 0..300 {
+        if pair_status(&app, UI, &id).await["status"] == "approved" {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("pairing was not approved after Allow");
+}
+
+/// A dialog that answers Allow once `open` is set.
+#[derive(Default)]
+struct Gate {
+    open: std::sync::atomic::AtomicBool,
+}
+impl ConfirmDialog for Gate {
+    fn confirm(&self, _title: &str, text: &str) -> bool {
+        shown(text);
+        while !self.open.load(std::sync::atomic::Ordering::SeqCst) {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        true
+    }
 }
 
 #[tokio::test]
@@ -672,7 +888,8 @@ async fn rollback_needs_a_session_and_the_dialog() {
 #[derive(Default)]
 struct PermissionLog(std::sync::Mutex<Vec<(Option<String>, vf_core::Permission)>>);
 impl ConfirmDialog for PermissionLog {
-    fn confirm(&self, _title: &str, _text: &str) -> bool {
+    fn confirm(&self, _title: &str, text: &str) -> bool {
+        shown(text);
         true
     }
     fn ask_permission(&self, origin: Option<&str>, request: &vf_core::Permission) -> bool {
@@ -955,7 +1172,8 @@ async fn extra_origins_in_hello_and_guard_logs() {
 /// A dialog nobody answers: pairing requests stay waiting.
 struct Unanswered;
 impl ConfirmDialog for Unanswered {
-    fn confirm(&self, _title: &str, _text: &str) -> bool {
+    fn confirm(&self, _title: &str, text: &str) -> bool {
+        shown(text);
         std::thread::sleep(std::time::Duration::from_secs(3));
         false
     }
@@ -1525,7 +1743,8 @@ struct CustomAiDialog {
 }
 
 impl ConfirmDialog for CustomAiDialog {
-    fn confirm(&self, title: &str, _text: &str) -> bool {
+    fn confirm(&self, title: &str, text: &str) -> bool {
+        shown(text);
         if title.contains("browser") || title.contains("браузер") {
             self.allow_pair
         } else {
@@ -1689,7 +1908,8 @@ struct StartDialog {
     shown: std::sync::Mutex<Vec<(String, String, String)>>,
 }
 impl ConfirmDialog for StartDialog {
-    fn confirm(&self, _title: &str, _text: &str) -> bool {
+    fn confirm(&self, _title: &str, text: &str) -> bool {
+        shown(text);
         true
     }
     fn confirm_with(&self, title: &str, text: &str, accept: &str, _reject: &str) -> bool {

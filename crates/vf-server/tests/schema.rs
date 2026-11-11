@@ -27,6 +27,8 @@ fn definitions() -> Map<String, Value> {
         ErrorBody,
         PairStartRequest,
         PairStartResponse,
+        PairCodeRequest,
+        PairCodeResponse,
         PairStatusResponse,
         ChallengeRequest,
         ChallengeResponse,

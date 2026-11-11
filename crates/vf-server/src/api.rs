@@ -30,9 +30,17 @@ pub const ROUTES: &[Route] = &[
     Route {
         method: "POST",
         path: "/v1/pair/start",
-        summary: "Start pairing; the agent shows a native dialog with the code",
+        summary: "Start pairing; the agent shows the code only in its native dialog",
         request: Some("PairStartRequest"),
         response: Some("PairStartResponse"),
+        session: false,
+    },
+    Route {
+        method: "POST",
+        path: "/v1/pair/code",
+        summary: "The code from the agent's dialog, entered on the page",
+        request: Some("PairCodeRequest"),
+        response: Some("PairCodeResponse"),
         session: false,
     },
     Route {
