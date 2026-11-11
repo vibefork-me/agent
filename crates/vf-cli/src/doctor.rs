@@ -10,6 +10,23 @@ use vf_providers::copilot::Copilot;
 use vf_providers::process::find_program;
 use vf_toolchains::Mise;
 
+/// Ports after the default one the agent may take when it is busy (`vf_server::FALLBACK_PORTS`).
+const FALLBACK_PORTS: u16 = 4;
+
+/// Ports the agent may listen on (the default one and the next ones) where another program listens:
+/// every port that accepts a connection except the agent's own when it is running.
+fn foreign_ports(agent_port: u16, agent_running: bool) -> Vec<u16> {
+    use std::net::{SocketAddr, TcpStream};
+    let first = vf_platform::settings::DEFAULT_PORT;
+    (first..=first.saturating_add(FALLBACK_PORTS))
+        .filter(|&port| !(agent_running && port == agent_port))
+        .filter(|&port| {
+            let addr = SocketAddr::from(([127, 0, 0, 1], port));
+            TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(300)).is_ok()
+        })
+        .collect()
+}
+
 struct Check {
     name: &'static str,
     ok: bool,
@@ -39,12 +56,30 @@ pub(crate) fn run(json: bool) -> ExitCode {
         true,
     );
     let alive = crate::agent::hello(s.port);
+    let foreign = foreign_ports(s.port, alive.is_some());
     add(
         "agent",
         alive.is_some(),
         alive
             .map(|a| format!("running, version {}, port {}", a.version, s.port))
             .unwrap_or_else(|| "not running — `vibefork start`".into()),
+        false,
+    );
+    add(
+        "ports",
+        foreign.is_empty(),
+        if foreign.is_empty() {
+            "no other program on the agent's ports".into()
+        } else {
+            format!(
+                "port {} is used by another program; the editor checks the agent's signature and does not talk to it",
+                foreign
+                    .iter()
+                    .map(u16::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        },
         false,
     );
     let claude = Claude::detect()

@@ -93,22 +93,31 @@ impl PairStore {
             std::fs::create_dir_all(dir)?;
         }
         let tmp = self.path.with_extension("json.tmp");
-        std::fs::write(
+        write_owner_only(
             &tmp,
-            serde_json::to_vec_pretty(pairs).map_err(io::Error::other)?,
+            &serde_json::to_vec_pretty(pairs).map_err(io::Error::other)?,
         )?;
-        restrict_to_owner(&tmp)?;
         std::fs::rename(&tmp, &self.path)
     }
 }
 
-#[cfg(unix)]
-fn restrict_to_owner(path: &std::path::Path) -> io::Result<()> {
-    use std::os::unix::fs::PermissionsExt as _;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
-}
-
-#[cfg(not(unix))]
-fn restrict_to_owner(_path: &std::path::Path) -> io::Result<()> {
-    Ok(()) // the per-user data folder on Windows is already owner-only
+/// Writes `bytes` to a new or truncated file readable only by its owner: created `0600` on Unix;
+/// on Windows the agent's state folder is already owner-only.
+pub(crate) fn write_owner_only(path: &std::path::Path, bytes: &[u8]) -> io::Result<()> {
+    use std::io::Write as _;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.mode(0o600);
+    }
+    let mut file = options.open(path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?; // an existing file keeps its mode on open
+    }
+    file.write_all(bytes)?;
+    file.sync_all()
 }

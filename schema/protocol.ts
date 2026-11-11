@@ -105,6 +105,12 @@ export type GraphSource = "model" | "folders";
 /** `GET /v1/hello` — answers without an Origin header (or from allowed origins); does not require a session. */
 export type Hello = { agent: string; extraOriginsActive?: boolean; platform: string; version: string };
 
+/** `POST /v1/identity`: the editor's random challenge. */
+export type IdentityRequest = { challenge: string };
+
+/** Response of `POST /v1/identity`: the agent signs, with its own key, the line `vibefork-agent-identity-v1\n<origin>\n<port>\n<challenge>` — the request's origin, the port the agent listens on and the challenge (ECDSA P-256 / SHA-256, IEEE P1363, base64url). */
+export type IdentityResponse = { agentKey: PublicJwk; port: number; signature: string };
+
 /** Request of `POST /v1/projects/import`: a project from GitHub, without git on the machine. */
 export type ImportRequest = { ref?: string | null; repo: string; upstream?: string | null };
 
@@ -138,20 +144,26 @@ export type OfferSource = { kind: OfferSourceKind; text: string };
 /** Why an offer is made. */
 export type OfferSourceKind = "analysis" | "similar" | "issues";
 
+/** `POST /v1/pair/code`: the code the user read in the agent's dialog. */
+export type PairCodeRequest = { code: string; pairId: string };
+
+/** Response of `POST /v1/pair/code`. */
+export type PairCodeResponse = { accepted: boolean; status: PairState };
+
 /** One paired browser in `GET /v1/pairs`. */
 export type PairInfo = { created: number; keyId: string; name: string; origin: string; projects?: (string)[] };
 
 /** `POST /v1/pair/start`. */
 export type PairStartRequest = { name?: string | null; publicKeyJwk: PublicJwk };
 
-/** Response of `POST /v1/pair/start`. */
-export type PairStartResponse = { code: string; pairId: string };
+/** Response of `POST /v1/pair/start`. The pairing code is not in it: the agent shows the code only in its own dialog, and the user enters it on the page (`POST /v1/pair/code`). */
+export type PairStartResponse = { pairId: string };
 
 /** State of a pairing request. */
 export type PairState = "pending" | "approved" | "denied";
 
 /** Response of `GET /v1/pair/status`. */
-export type PairStatusResponse = { keyId?: string | null; status: PairState };
+export type PairStatusResponse = { agentKey?: PublicJwk | null; codeAccepted?: boolean; keyId?: string | null; status: PairState };
 
 /** A plan step as shown to the user. */
 export type PlanStepInfo = { complexity: string; label: string; title: string };
